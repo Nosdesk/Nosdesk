@@ -503,7 +503,12 @@ pub fn send_guest_ticket_confirmation(
         conn,
         req,
         user_uuid,
-        Some(serde_json::json!({ "source": "guest_ticket_submission" })),
+        // The workspace rides along so confirming releases the request held
+        // here, whatever other workspaces the account belongs to.
+        Some(serde_json::json!({
+            "source": "guest_ticket_submission",
+            "workspace_id": workspace_id,
+        })),
     ) {
         Ok(p) => p,
         Err(result) => return result,

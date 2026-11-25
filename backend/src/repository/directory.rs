@@ -23,10 +23,11 @@
 //! Members cover staff and most requesters, and everyone who has left since a
 //! membership row began to outlive the membership. The other sources hold the
 //! rest: people whose account began somewhere else (a sender whose address
-//! already had an account, a directory-synced employee with no membership
-//! row), and people removed before then, whose row is gone but whose work
-//! still names them. A membership row means membership and nothing else, so
-//! none is made up for them. `PEOPLE_SOURCES` is the one definition. The sync
+//! already had an account, from before such senders were seated where they
+//! write, or who holds no seat anywhere else; a directory-synced employee with
+//! no membership row), and people removed before then, whose row is gone but
+//! whose work still names them. A membership row means membership and nothing
+//! else, so none is made up for them. `PEOPLE_SOURCES` is the one definition. The sync
 //! bootstrap, the read-side sync filter, the people lists and the lookups
 //! below all use it, so they cannot disagree about who is in a workspace.
 //!

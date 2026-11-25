@@ -135,7 +135,8 @@ pub fn resolve(
         },
         conn,
     )?;
-    // Already a member: a no-op (ON CONFLICT DO NOTHING).
+    // Already a member: a no-op. A removed member is restored as `member`:
+    // the workspace's own widget vouched for them.
     crate::repository::workspaces::add_membership(
         conn,
         workspace_id,
