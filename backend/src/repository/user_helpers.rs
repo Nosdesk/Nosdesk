@@ -263,6 +263,11 @@ pub struct AddressHolder {
     pub uuid: Uuid,
     /// The address is the account's primary one.
     pub primary: bool,
+    /// The address can stand for the account: its primary one, or a
+    /// secondary one it verified. An unverified secondary address is
+    /// anyone's claim (a member can add any address to their own account),
+    /// so it never does; it still blocks the address for a new account.
+    pub trusted: bool,
     /// Their role in the workspace when they hold an active seat there.
     pub active_role: Option<String>,
     /// One of the workspace's people (`repository::directory`): an active
@@ -272,8 +277,9 @@ pub struct AddressHolder {
 
 // sync-audit-only: read-only (resolves an import's people to accounts)
 /// For each of `emails`, keyed lower-case, the account holding it as any of
-/// its addresses, primary or not, compared case-insensitively, with where
-/// that account stands in `workspace_id`. Addresses no account holds are
+/// its addresses, compared case-insensitively, with where that account
+/// stands in `workspace_id` and whether the address can stand for it
+/// ([`AddressHolder::trusted`]). Addresses no account holds are
 /// absent. When case variants of one address belong to different accounts,
 /// the workspace's own person wins, then the primary holder, then the
 /// oldest account, so the answer never depends on row order.
@@ -289,7 +295,7 @@ pub fn address_holders(
         return Ok(HashMap::new());
     }
     let keys: Vec<String> = emails.iter().map(|e| e.to_lowercase()).collect();
-    let rows: Vec<(String, Uuid, bool, chrono::DateTime<chrono::Utc>)> = user_emails::table
+    let rows: Vec<(String, Uuid, bool, bool, chrono::DateTime<chrono::Utc>)> = user_emails::table
         .inner_join(users::table.on(users::uuid.eq(user_emails::user_uuid)))
         .filter(
             diesel::dsl::sql::<diesel::sql_types::Text>("lower(user_emails.email)").eq_any(&keys),
@@ -298,6 +304,7 @@ pub fn address_holders(
             user_emails::email,
             user_emails::user_uuid,
             user_emails::is_primary,
+            user_emails::is_verified,
             users::created_at,
         ))
         .load(conn)?;
@@ -318,15 +325,17 @@ pub fn address_holders(
         .collect();
 
     let mut best: HashMap<String, (AddressHolder, chrono::DateTime<chrono::Utc>)> = HashMap::new();
-    for (email, uuid, primary, created) in rows {
+    for (email, uuid, primary, verified, created) in rows {
         let holder = AddressHolder {
             uuid,
             primary,
+            trusted: primary || verified,
             active_role: roles.get(&uuid).cloned(),
             person: people.contains(&uuid),
         };
         let rank = |h: &AddressHolder, at: &chrono::DateTime<chrono::Utc>| {
             (
+                std::cmp::Reverse(h.trusted),
                 std::cmp::Reverse(h.active_role.is_some()),
                 std::cmp::Reverse(h.person),
                 std::cmp::Reverse(h.primary),

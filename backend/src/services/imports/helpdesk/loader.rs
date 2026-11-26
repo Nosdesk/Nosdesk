@@ -150,6 +150,8 @@ pub struct LoadReport {
     /// Tickets imported before whose status, assignee or closing were
     /// brought up to date from the source.
     pub tickets_updated: u64,
+    /// Tickets a stopped run didn't reach. The next run writes them.
+    pub tickets_not_attempted: u64,
     pub comments_written: u64,
     pub attachments_written: u64,
     /// Files that weren't brought across, and why.
@@ -167,6 +169,9 @@ pub struct LoadReport {
     pub numbers_moved: Vec<String>,
     /// Lines of the bundle that couldn't be read, and were skipped.
     pub unreadable_lines: u64,
+    /// People who couldn't be brought across as planned, and what
+    /// happened instead.
+    pub people_problems: Vec<String>,
     pub people: BTreeMap<&'static str, u64>,
 }
 
@@ -396,8 +401,12 @@ fn mentioned_people(
     let mut unreadable = 0;
     for p in bundle.people()? {
         match p {
-            Ok(p) => {
+            Ok(mut p) => {
                 if mentioned.contains(&p.source_id) && seen.insert(p.source_id.clone()) {
+                    // A bundle from another tool may carry NULs, which
+                    // Postgres text can't hold.
+                    p.name = p.name.replace('\0', "");
+                    p.email = p.email.map(|e| e.replace('\0', ""));
                     out.push(p);
                 }
             }
@@ -679,6 +688,8 @@ async fn close_job(
         "tickets_updated": report.tickets_updated,
         "tickets_failed": report.tickets_failed.len(),
         "tickets_changed_here": report.tickets_changed_here.len(),
+        "tickets_not_attempted": report.tickets_not_attempted,
+        "people_problems": report.people_problems.len(),
         "comments_written": report.comments_written,
         "attachments_written": report.attachments_written,
         "attachment_problems": report.attachment_problems.len(),
@@ -776,8 +787,9 @@ async fn write_all(
             Ok(people::apply(conn, &chunk, &popts, placeholder)?)
         })
         .await?;
-        prog.people_done += done.len() as u64;
-        resolved.extend(done);
+        prog.people_done += done.resolved.len() as u64;
+        resolved.extend(done.resolved);
+        report.people_problems.extend(done.problems);
         progress(&prog);
     }
     for r in resolved.values() {
@@ -822,7 +834,9 @@ async fn write_all(
         .await?;
         report.tickets_written += written.tickets;
         report.tickets_updated += written.updated;
-        report.tickets_skipped += n - written.tickets - written.failed.len() as u64;
+        report.tickets_skipped +=
+            n - written.tickets - written.failed.len() as u64 - written.not_attempted;
+        report.tickets_not_attempted += written.not_attempted;
         report.comments_written += written.comments;
         report.ticket_notes.extend(written.notes);
         report.tickets_failed.extend(written.failed);
@@ -873,6 +887,8 @@ fn people_options<'a>(
 
 #[derive(Default)]
 struct BatchWritten {
+    /// Tickets the run stopped before reaching.
+    not_attempted: u64,
     tickets: u64,
     updated: u64,
     comments: u64,
@@ -896,6 +912,11 @@ enum Outcome {
         changed_here: bool,
     },
     Note(String),
+    /// New replies added to the ticket this one was merged into.
+    Merged {
+        comments: u64,
+        note: String,
+    },
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -933,8 +954,9 @@ async fn write_batch(
 
         let mut out = BatchWritten::default();
         let mut written_now: HashSet<String> = HashSet::new();
-        for t in &batch {
+        for (n, t) in batch.iter().enumerate() {
             if o.cancel.is_cancelled() {
+                out.not_attempted = (batch.len() - n) as u64;
                 break;
             }
             let label = format!(
@@ -957,9 +979,44 @@ async fn write_batch(
                     imported.get(&t.source_id),
                     mapped.contains_key(&t.source_id),
                 ) {
-                    (Some(done), _) if done.merged => Ok(Outcome::Note(format!(
-                        "{label}: merged into another ticket here, so its new replies weren't added"
-                    ))),
+                    // Merged here: new replies carry on where the merge put
+                    // the conversation, as inbound mail's do.
+                    (Some(done), _) if done.merged => {
+                        let Some(dest) = crate::repository::ticket_merge::merge_destination(
+                            conn,
+                            done.ticket_id,
+                        )?
+                        else {
+                            return Ok(Outcome::Again {
+                                comments: 0,
+                                updated: false,
+                                changed_here: false,
+                            });
+                        };
+                        let comments = append_new_comments(
+                            conn,
+                            scope,
+                            &o,
+                            &people,
+                            placeholder,
+                            dest,
+                            t,
+                        )?;
+                        if comments == 0 {
+                            return Ok(Outcome::Again {
+                                comments,
+                                updated: false,
+                                changed_here: false,
+                            });
+                        }
+                        let number = crate::repository::tickets::get_ticket_by_id(conn, dest)?.number;
+                        Ok(Outcome::Merged {
+                            comments,
+                            note: format!(
+                                "{label}: merged here into #{number}, so its {comments} new replies were added there"
+                            ),
+                        })
+                    }
                     (Some(done), _) => {
                         // A copy listed again in this bundle only adds
                         // replies; its fields were written moments ago.
@@ -1032,6 +1089,10 @@ async fn write_batch(
                     }
                 }
                 Ok(Outcome::Note(note)) => out.notes.push(note),
+                Ok(Outcome::Merged { comments, note }) => {
+                    out.comments += comments;
+                    out.notes.push(note);
+                }
                 Err(e) => {
                     tags = tags_before;
                     out.failed.push(format!("{label}: {e}"));
@@ -1070,6 +1131,13 @@ fn bring_up_to_date(
     if !done.untouched {
         return Ok((false, true));
     }
+    // The batch read was without a lock: ask again holding the row, so a
+    // change someone made since is seen, and none can land before ours.
+    match idmap::lock_imported_ticket(conn, ctx.scope, &t.source_id)? {
+        Some((_, true)) => {}
+        Some((_, false)) => return Ok((false, true)),
+        None => return Ok((false, false)),
+    }
     let current = crate::repository::tickets::get_ticket_by_id(conn, done.ticket_id)?;
     let (state_id, _) = ctx.states.state(t.status);
     let assignee = t
@@ -1091,11 +1159,18 @@ fn bring_up_to_date(
         change.assignee_uuid = Some(assignee);
     }
     let changed = change.workflow_state_id.is_some() || change.assignee_uuid.is_some();
-    if changed {
-        crate::repository::tickets::update_ticket_partial(conn, done.ticket_id, change, None)
-            .map_err(diesel::result::Error::from)?;
-    }
-    idmap::touch_ticket(conn, ctx.scope, &t.source_id, source_at)?;
+    // The mark is the updated_at the import's own write left, so a change
+    // anyone makes after it reads as later.
+    let written_at = if changed {
+        Some(
+            crate::repository::tickets::update_ticket_partial(conn, done.ticket_id, change, None)
+                .map_err(diesel::result::Error::from)?
+                .updated_at,
+        )
+    } else {
+        None
+    };
+    idmap::touch_ticket(conn, ctx.scope, &t.source_id, source_at, written_at)?;
     Ok((changed, false))
 }
 
@@ -1361,8 +1436,7 @@ fn import_note(
     lines.push(format!("Status there: {}.", t.status_label));
     if let Some(r) = requester.filter(|r| r.withheld()) {
         lines.push(format!(
-            "Requested there by {}, whose address belongs to an account this workspace can't \
-             attach, so it is credited to the placeholder author.",
+            "Requested there by {}; credited to the placeholder author.",
             who(r)
         ));
     }

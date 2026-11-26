@@ -140,14 +140,27 @@ pub struct ImportedTicket {
     /// Merged into another ticket here: closed to new replies for good.
     #[diesel(sql_type = diesel::sql_types::Bool)]
     pub merged: bool,
-    /// Nobody has changed it here since the import last wrote it: its
-    /// `updated_at` is no later than the map's `written_at` for it.
+    /// Nobody has changed it here since the import last wrote it (see
+    /// [`UNTOUCHED`]). Read without a lock: [`lock_imported_ticket`] asks
+    /// again before anything is written.
     #[diesel(sql_type = diesel::sql_types::Bool)]
     pub untouched: bool,
     /// When the source last changed it, as of that write.
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Timestamptz>)]
     pub source_updated_at: Option<NaiveDateTime>,
 }
+
+/// Whether ticket `t` is as the import (map row `m`) last left it: its
+/// `updated_at` no later than the map's `written_at`, and nothing in its
+/// activity since then but import writes. The activity log catches what
+/// leaves `updated_at` alone: a tag, watcher, file or link change, a merge
+/// into it, a reorder.
+const UNTOUCHED: &str = "(t.updated_at <= m.written_at AND NOT EXISTS ( \
+     SELECT 1 FROM sync_actions s \
+     WHERE s.workspace_id = m.workspace_id \
+       AND s.groups @> ARRAY['ticket:' || t.id::text] \
+       AND s.occurred_at > m.written_at \
+       AND (s.actor_ref IS NULL OR s.actor_ref NOT LIKE 'import:%')))";
 
 // sync-audit-only: read-only (the tickets a source brought, as they stand here)
 /// Those of `source_ids` brought across before whose ticket is still in
@@ -161,15 +174,15 @@ pub fn imported_tickets(
     if source_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<ImportedTicket> = diesel::sql_query(
+    let rows: Vec<ImportedTicket> = diesel::sql_query(format!(
         "SELECT m.source_id, t.id AS ticket_id, \
                 EXISTS (SELECT 1 FROM ticket_merges g WHERE g.ticket_id = t.id) AS merged, \
-                t.updated_at <= m.written_at AS untouched, m.source_updated_at \
+                {UNTOUCHED} AS untouched, m.source_updated_at \
          FROM import_source_ids m \
          JOIN tickets t ON t.id::text = m.target_id AND t.workspace_id = m.workspace_id \
          WHERE m.workspace_id = $1 AND m.source = $2 AND m.source_scope = $3 \
-           AND m.entity = 'ticket' AND m.source_id = ANY($4)",
-    )
+           AND m.entity = 'ticket' AND m.source_id = ANY($4)"
+    ))
     .bind::<diesel::sql_types::Integer, _>(scope.workspace_id)
     .bind::<diesel::sql_types::Text, _>(scope.source)
     .bind::<diesel::sql_types::Text, _>(scope.instance)
@@ -178,29 +191,65 @@ pub fn imported_tickets(
     Ok(rows.into_iter().map(|r| (r.source_id.clone(), r)).collect())
 }
 
+#[derive(QueryableByName)]
+struct Locked {
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    ticket_id: i32,
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    untouched: bool,
+}
+
+// sync-audit-only: takes a row lock and reads, writes nothing
+/// Lock the ticket `source_id` became (`FOR NO KEY UPDATE`, as every ticket
+/// write does) for the rest of the transaction and say again whether it is
+/// untouched, now that no one can change it until the import's write lands.
+/// None when it is gone.
+pub fn lock_imported_ticket(
+    conn: &mut DbConnection,
+    scope: Scope<'_>,
+    source_id: &str,
+) -> QueryResult<Option<(i32, bool)>> {
+    diesel::sql_query(format!(
+        "SELECT t.id AS ticket_id, {UNTOUCHED} AS untouched \
+         FROM tickets t \
+         JOIN import_source_ids m ON t.id::text = m.target_id AND t.workspace_id = m.workspace_id \
+         WHERE m.workspace_id = $1 AND m.source = $2 AND m.source_scope = $3 \
+           AND m.entity = 'ticket' AND m.source_id = $4 \
+         FOR NO KEY UPDATE OF t"
+    ))
+    .bind::<diesel::sql_types::Integer, _>(scope.workspace_id)
+    .bind::<diesel::sql_types::Text, _>(scope.source)
+    .bind::<diesel::sql_types::Text, _>(scope.instance)
+    .bind::<diesel::sql_types::Text, _>(source_id)
+    .get_result::<Locked>(conn)
+    .optional()
+    .map(|row| row.map(|r| (r.ticket_id, r.untouched)))
+}
+
 // sync-audit-only: import bookkeeping no client reads; the ticket write it follows is synced and audited
-/// Record that the import has just written ticket `source_id` again, from
-/// the source as it was at `source_updated_at`: the ticket counts as
-/// untouched here from now until someone changes it.
+/// Record that the import has brought ticket `source_id` up to date with the
+/// source as it was at `source_updated_at`. `written_at` is the `updated_at`
+/// the import's own write left (None when it wrote nothing, which keeps
+/// the old mark): a change anyone makes later is later than it.
 pub fn touch_ticket(
     conn: &mut DbConnection,
     scope: Scope<'_>,
     source_id: &str,
     source_updated_at: NaiveDateTime,
+    written_at: Option<NaiveDateTime>,
 ) -> QueryResult<()> {
     diesel::sql_query(
-        "UPDATE import_source_ids m \
-         SET written_at = greatest(now(), t.updated_at), source_updated_at = $5 \
-         FROM tickets t \
-         WHERE t.id::text = m.target_id AND t.workspace_id = m.workspace_id \
-           AND m.workspace_id = $1 AND m.source = $2 AND m.source_scope = $3 \
-           AND m.entity = 'ticket' AND m.source_id = $4",
+        "UPDATE import_source_ids \
+         SET written_at = COALESCE($6, written_at), source_updated_at = $5 \
+         WHERE workspace_id = $1 AND source = $2 AND source_scope = $3 \
+           AND entity = 'ticket' AND source_id = $4",
     )
     .bind::<diesel::sql_types::Integer, _>(scope.workspace_id)
     .bind::<diesel::sql_types::Text, _>(scope.source)
     .bind::<diesel::sql_types::Text, _>(scope.instance)
     .bind::<diesel::sql_types::Text, _>(source_id)
     .bind::<diesel::sql_types::Timestamptz, _>(source_updated_at)
+    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Timestamptz>, _>(written_at)
     .execute(conn)
     .map(|_| ())
 }

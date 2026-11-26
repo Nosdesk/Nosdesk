@@ -79,6 +79,13 @@ pub fn render_report(r: &LoadReport) -> String {
         "Tickets brought up to date from the source: {}",
         r.tickets_updated
     );
+    if r.tickets_not_attempted > 0 {
+        let _ = writeln!(
+            s,
+            "Tickets not reached before the run stopped: {}",
+            r.tickets_not_attempted
+        );
+    }
     let _ = writeln!(s, "Replies written: {}", r.comments_written);
     let _ = writeln!(s, "Files attached: {}", r.attachments_written);
     if !r.people.is_empty() {
@@ -87,6 +94,11 @@ pub fn render_report(r: &LoadReport) -> String {
             let _ = writeln!(s, "  {outcome:<40} {n}");
         }
     }
+    list(
+        &mut s,
+        "People not brought across as planned",
+        &r.people_problems,
+    );
     list(
         &mut s,
         "Tickets that couldn't be written (the next run tries them again)",

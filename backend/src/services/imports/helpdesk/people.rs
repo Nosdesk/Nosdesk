@@ -11,8 +11,9 @@
 //! changes an existing account. The rules (design §2.7, tightened since):
 //! - A person already on the id map keeps their account, while it is still
 //!   one of the workspace's people.
-//! - An address (any of an account's addresses, in any case) held by one of
-//!   the workspace's people: that account. An active member keeps their
+//! - An address (an account's primary address, or a secondary one it
+//!   verified, in any case) held by one of the workspace's people: that
+//!   account. An unverified secondary address stands for nobody. An active member keeps their
 //!   seat and role; a former member or someone the workspace's records name
 //!   is reused without a seat being given back.
 //! - Staff at the source named in the operator's agent map: the member it
@@ -38,7 +39,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use diesel::QueryResult;
+use diesel::{Connection, QueryResult};
 use uuid::Uuid;
 
 use super::bundle::Person;
@@ -201,7 +202,7 @@ fn facts(
     let mut within_reach = HashSet::new();
     let mut checked = HashSet::new();
     for h in holders.values() {
-        if h.person || !h.primary || !checked.insert(h.uuid) {
+        if h.person || !h.primary || !h.trusted || !checked.insert(h.uuid) {
             continue;
         }
         if crate::repository::requester_identities::out_of_reach(conn, ws, h.uuid)?.is_none() {
@@ -300,7 +301,8 @@ fn is_staff_role(role: &str) -> bool {
 }
 
 fn is_staff_holder(h: Option<&AddressHolder>) -> bool {
-    h.and_then(|h| h.active_role.as_deref())
+    h.filter(|h| h.trusted)
+        .and_then(|h| h.active_role.as_deref())
         .is_some_and(is_staff_role)
 }
 
@@ -318,6 +320,9 @@ fn decide(p: &Person, facts: &Facts, opts: &PeopleOptions<'_>) -> (Outcome, Opti
         }
     }
     match facts.holders.get(email) {
+        // An unverified secondary address names nobody, and no new account
+        // can take it either.
+        Some(h) if !h.trusted => (Outcome::Withheld, None),
         Some(h) if h.active_role.is_some() => (Outcome::Member, Some(email.to_string())),
         Some(h) if h.person => (Outcome::Known, Some(email.to_string())),
         Some(h) if h.primary && !staff && p.active && facts.within_reach.contains(&h.uuid) => {
@@ -337,17 +342,28 @@ fn decide(p: &Person, facts: &Facts, opts: &PeopleOptions<'_>) -> (Outcome, Opti
     }
 }
 
+/// What [`apply`] did.
+#[derive(Debug, Default)]
+pub struct Applied {
+    pub resolved: HashMap<String, Resolved>,
+    /// People who couldn't be brought across as decided, what happened
+    /// instead, and why.
+    pub problems: Vec<String>,
+}
+
 /// Bring `people` across: find or create each account and record it on the
 /// id map. Decides again from the workspace as it is now, so a plan that
 /// went stale can't attach anyone it shouldn't. Runs in the caller's
 /// transaction, under its import actor and the source's lock; `placeholder`
-/// is [`placeholder`]'s answer.
+/// is [`placeholder`]'s answer. Each person is written in a savepoint: one
+/// that fails (a full seat limit, say) falls back to an account without a
+/// seat, or to the placeholder, and is reported, and the rest carry on.
 pub fn apply(
     conn: &mut DbConnection,
     people: &[Person],
     opts: &PeopleOptions<'_>,
     placeholder: Uuid,
-) -> QueryResult<HashMap<String, Resolved>> {
+) -> QueryResult<Applied> {
     let ws = opts.scope.workspace_id;
     let facts = facts(conn, people, opts)?;
     // A mapping whose account is no longer one of the workspace's people
@@ -360,41 +376,90 @@ pub fn apply(
         }
     }
 
-    let mut out = HashMap::new();
+    let mut out = Applied::default();
     for p in people {
         let mut resolved = match facts.mapped.get(&p.source_id) {
             Some(uuid) => standing(conn, ws, *uuid, Outcome::Mapped)?,
             None => {
                 let (outcome, target) = decide(p, &facts, opts);
-                let resolved = bring(
-                    conn,
-                    p,
-                    outcome,
-                    target.as_deref(),
-                    &facts,
-                    opts,
-                    placeholder,
-                )?;
-                if !matches!(resolved.outcome, Outcome::Withheld | Outcome::Placeholder) {
-                    idmap::record(
+                let first = conn.transaction(|conn| {
+                    let r = bring(
                         conn,
-                        opts.scope,
-                        Entity::Person,
-                        &p.source_id,
-                        &resolved.uuid.to_string(),
-                        opts.job_id,
-                        p.updated_at.map(|t| t.naive_utc()),
+                        p,
+                        outcome,
+                        target.as_deref(),
+                        &facts,
+                        opts,
+                        placeholder,
                     )?;
+                    remember(conn, p, &r, opts)?;
+                    Ok::<_, diesel::result::Error>(r)
+                });
+                match first {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let fallback = conn
+                            .transaction(|conn| {
+                                // Staff keep their name on an account without a
+                                // seat; anyone else goes to the placeholder.
+                                if !p.role.is_staff() || p.email.is_none() {
+                                    return Err(diesel::result::Error::RollbackTransaction);
+                                }
+                                let uuid = create_account(
+                                    conn,
+                                    &display_name(p),
+                                    &new_address(p)?,
+                                    Seat::None,
+                                )?;
+                                let r = Resolved::new(uuid, false, false, Outcome::FormerStaff);
+                                remember(conn, p, &r, opts)?;
+                                Ok(r)
+                            })
+                            .unwrap_or_else(|_| {
+                                Resolved::new(placeholder, false, false, Outcome::Withheld)
+                            });
+                        out.problems.push(format!(
+                            "{}: {} ({e}), so {}",
+                            display_name(p),
+                            outcome.label(),
+                            if fallback.withheld() {
+                                "credited to the placeholder author"
+                            } else {
+                                "brought across without a seat"
+                            }
+                        ));
+                        fallback
+                    }
                 }
-                resolved
             }
         };
         resolved.source_staff = p.role.is_staff();
         resolved.source_name = display_name(p);
         resolved.source_email = p.email.clone();
-        out.insert(p.source_id.clone(), resolved);
+        out.resolved.insert(p.source_id.clone(), resolved);
     }
     Ok(out)
+}
+
+/// Record `r` on the id map, unless it stands for the placeholder.
+fn remember(
+    conn: &mut DbConnection,
+    p: &Person,
+    r: &Resolved,
+    opts: &PeopleOptions<'_>,
+) -> QueryResult<()> {
+    if matches!(r.outcome, Outcome::Withheld | Outcome::Placeholder) {
+        return Ok(());
+    }
+    idmap::record(
+        conn,
+        opts.scope,
+        Entity::Person,
+        &p.source_id,
+        &r.uuid.to_string(),
+        opts.job_id,
+        p.updated_at.map(|t| t.naive_utc()),
+    )
 }
 
 /// An existing account as it stands in the workspace.
@@ -627,6 +692,7 @@ mod tests {
         AddressHolder {
             uuid,
             primary,
+            trusted: true,
             active_role: role.map(str::to_string),
             person,
         }

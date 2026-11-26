@@ -1250,77 +1250,140 @@ fn standing(pool: &TestPool, ws: &WorkspaceSeed, number: i32) -> Standing {
     .expect("standing")
 }
 
+fn live_rules(pool: &TestPool, ws: &WorkspaceSeed) {
+    let mut conn = pool.get().expect("conn");
+    diesel::sql_query(
+        "INSERT INTO rules (workspace_id, name, trigger_kind, trigger_config, actions, state) VALUES \
+         ($1, 'On create', 'ticket_created', '{}'::jsonb, \
+          '[{\"kind\":\"set_priority\",\"config\":{\"priority\":\"high\"}}]'::jsonb, 'live'), \
+         ($1, 'On update', 'ticket_updated', '{}'::jsonb, \
+          '[{\"kind\":\"set_priority\",\"config\":{\"priority\":\"high\"}}]'::jsonb, 'live'), \
+         ($1, 'After an hour', 'time_elapsed', '{\"clock_name\":\"since_created\",\"minutes\":60}'::jsonb, \
+          '[{\"kind\":\"set_priority\",\"config\":{\"priority\":\"high\"}}]'::jsonb, 'live')",
+    )
+    .bind::<Integer, _>(ws.workspace_id)
+    .execute(&mut conn)
+    .expect("live rules");
+}
+
+#[derive(QueryableByName, Debug)]
+struct Assigned {
+    #[diesel(sql_type = Nullable<diesel::sql_types::Uuid>)]
+    assignee_uuid: Option<Uuid>,
+}
+
+fn assignee_of(pool: &TestPool, ws: &WorkspaceSeed, number: i32) -> Option<Uuid> {
+    run_in_workspace(pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query("SELECT assignee_uuid FROM tickets WHERE number = $1")
+            .bind::<Integer, _>(number)
+            .get_result::<Assigned>(c)
+    })
+    .expect("assignee")
+    .assignee_uuid
+}
+
+fn ticket_id(pool: &TestPool, ws: &WorkspaceSeed, number: i32) -> i32 {
+    imported_tickets(pool, ws)
+        .into_iter()
+        .find(|t| t.number == number)
+        .expect("ticket")
+        .id
+}
+
 #[actix_web::test]
 async fn a_cutover_rerun_follows_the_source_on_tickets_nobody_changed_here() {
     let db = TestDb::new();
     let pool = db.pool_with_size(4);
     crate::common::ensure_test_keyring();
     let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    live_rules(&pool, &ws);
+    let mut cast = people();
+    cast.push(person(
+        "u-agent2",
+        "second@acme.test",
+        PersonRole::Agent,
+        true,
+    ));
     let mut list = tickets();
     list.push(raised_by("103", "u-req", &[]));
+    list.push(raised_by("104", "u-req", &[]));
     let dir = tempfile::tempdir().expect("dir");
     run(
         &pool,
-        &write_bundle(dir.path(), &list),
+        &write_bundle_of(dir.path(), &cast, &list),
         &options(&ws, Uuid::now_v7()),
     )
     .await;
 
     // History keeps the source's last change as its own.
     assert_eq!(standing(&pool, &ws, 101).updated_at, at(3, 17));
+    assert_eq!(standing(&pool, &ws, 101).category, "done");
     assert_eq!(standing(&pool, &ws, 102).category, "active");
+    let first_agent = assignee_of(&pool, &ws, 102).expect("assigned");
 
-    // Someone here replies on 103 before the cutover.
-    let t103 = imported_tickets(&pool, &ws)
-        .into_iter()
-        .find(|t| t.number == 103)
-        .expect("103");
+    // Before the cutover, someone here replies on 103 (which moves its
+    // updated_at) and adds a watcher to 104 (which only the activity log
+    // shows).
+    let (t103, t104) = (ticket_id(&pool, &ws, 103), ticket_id(&pool, &ws, 104));
     run_in_workspace(&pool, REF, ws.workspace_id, |c| {
         backend::repository::comments::create_comment(
             c,
             backend::models::NewComment {
                 content: "On it".into(),
-                ticket_id: t103.id,
+                ticket_id: t103,
                 user_uuid: ws.admin_uuid,
                 is_internal: true,
                 ..Default::default()
             },
             None,
-        )
+        )?;
+        backend::repository::ticket_watchers::add_watcher(c, t104, ws.admin_uuid, false)
     })
-    .expect("reply here");
+    .expect("changes here");
 
-    // At the cutover, Zendesk has solved 102 and 103 since.
+    // At the cutover: Zendesk reopened 101, solved 102 and gave it to the
+    // second agent, and solved 103 and 104.
     let mut fresher = list.clone();
-    for t in fresher.iter_mut().filter(|t| t.source_id != "101") {
-        t.status = StatusKind::Solved;
-        t.status_label = "solved".into();
-        t.solved_at = Some(at(8, 12));
+    for t in fresher.iter_mut() {
         t.updated_at = at(8, 12);
+        if t.source_id == "101" {
+            t.status = StatusKind::Open;
+            t.status_label = "open".into();
+            t.solved_at = None;
+        } else {
+            t.status = StatusKind::Solved;
+            t.status_label = "solved".into();
+            t.solved_at = Some(at(8, 12));
+        }
+        if t.source_id == "102" {
+            t.assignee = Some("u-agent2".into());
+        }
     }
     let job = Uuid::now_v7();
     let dir2 = tempfile::tempdir().expect("dir");
-    let report = run(
-        &pool,
-        &write_bundle(dir2.path(), &fresher),
-        &options(&ws, job),
-    )
-    .await;
-    assert_eq!(report.tickets_updated, 1);
+    let bundle2 = write_bundle_of(dir2.path(), &cast, &fresher);
+    let report = run(&pool, &bundle2, &options(&ws, job)).await;
+    assert_eq!(report.tickets_updated, 2, "{report:?}");
+    let reopened = standing(&pool, &ws, 101);
+    assert_eq!(reopened.category, "active");
+    assert_eq!(reopened.closed_at, None, "a reopen clears the closing");
     let solved = standing(&pool, &ws, 102);
     assert_eq!(solved.category, "done");
     assert_eq!(solved.closed_at, Some(at(8, 12)));
-    // Changed here: left alone, and listed.
+    let second_agent = assignee_of(&pool, &ws, 102).expect("assigned");
+    assert_ne!(second_agent, first_agent, "the assignee follows the source");
+    // Changed here, by a reply or by activity alone: left alone, and listed.
     assert_eq!(standing(&pool, &ws, 103).category, "active");
+    assert_eq!(standing(&pool, &ws, 104).category, "active");
     assert_eq!(
         report.tickets_changed_here.len(),
-        1,
+        2,
         "{:?}",
         report.tickets_changed_here
     );
-    assert!(report.tickets_changed_here[0].contains("Zendesk #103"));
 
-    // Still quiet: the update reached clients but no outbox.
+    // Still quiet, with live rules that would fire: the updates reached
+    // clients but no outbox, and no clock started.
     assert!(
         count(
             &pool,
@@ -1339,7 +1402,6 @@ async fn a_cutover_rerun_follows_the_source_on_tickets_nobody_changed_here() {
         );
         assert_eq!(n, 0, "{outbox} got {n} rows from the cutover");
     }
-    // And no rule clock starts on the imported tickets it touched.
     backend::services::rules::elapsed::reconcile(&pool).expect("reconcile");
     {
         let mut conn = pool.get().expect("conn");
@@ -1352,14 +1414,241 @@ async fn a_cutover_rerun_follows_the_source_on_tickets_nobody_changed_here() {
         assert_eq!(clocks.n, 0);
     }
 
-    // The same bundle again changes nothing: 102 was written by the import
-    // last, and is no newer at the source.
-    let again = run(
+    // The same bundle again changes nothing: 101 and 102 were written by the
+    // import last and are no newer at the source; 103 and 104 are still
+    // changed here.
+    let again = run(&pool, &bundle2, &options(&ws, Uuid::now_v7())).await;
+    assert_eq!(again.tickets_updated, 0);
+    assert_eq!(again.tickets_changed_here.len(), 2);
+}
+
+#[actix_web::test]
+async fn a_change_made_after_the_batch_read_is_seen_under_the_lock() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let dir = tempfile::tempdir().expect("dir");
+    run(
+        &pool,
+        &write_bundle(dir.path(), &tickets()),
+        &options(&ws, Uuid::now_v7()),
+    )
+    .await;
+    use backend::repository::import_source_ids as idmap;
+    let scope = idmap::Scope {
+        workspace_id: ws.workspace_id,
+        source: "zendesk",
+        instance: "acme",
+    };
+    // The batch reads 102 as untouched; someone changes it before the
+    // import gets to it; the locked read sees the change.
+    let read = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        idmap::imported_tickets(c, scope, &["102".to_string()])
+    })
+    .expect("read");
+    assert!(read["102"].untouched);
+    let id = read["102"].ticket_id;
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query("UPDATE tickets SET title = 'Renamed here' WHERE id = $1")
+            .bind::<Integer, _>(id)
+            .execute(c)
+    })
+    .expect("edit");
+    let locked = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        idmap::lock_imported_ticket(c, scope, "102")
+    })
+    .expect("lock");
+    assert_eq!(locked, Some((id, false)));
+}
+
+#[actix_web::test]
+async fn new_replies_on_a_ticket_merged_here_go_to_where_it_was_merged() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let dir = tempfile::tempdir().expect("dir");
+    run(
+        &pool,
+        &write_bundle(dir.path(), &tickets()),
+        &options(&ws, Uuid::now_v7()),
+    )
+    .await;
+    let (t101, t102) = (ticket_id(&pool, &ws, 101), ticket_id(&pool, &ws, 102));
+    backend::repository::ticket_merge::execute_merge(
+        &mut pool.get().expect("conn"),
+        backend::repository::ticket_merge::MergeInput {
+            destination_ticket_id: t101,
+            source_ticket_ids: vec![t102],
+            reason: None,
+            notify_customer: false,
+            expected_state: Vec::new(),
+            marker_body: None,
+        },
+        &backend::sync::actor::ActorContext::user(ws.admin_uuid, None)
+            .with_workspace(ws.workspace_id),
+    )
+    .expect("merge");
+    let before = comments_of(&pool, &ws, t101).len();
+
+    let mut fresher = tickets();
+    fresher[1].comments.push(comment(
+        "c6",
+        Some("u-agent"),
+        true,
+        "<p>Ordered.</p>",
+        at(6, 9),
+    ));
+    let dir2 = tempfile::tempdir().expect("dir");
+    let report = run(
         &pool,
         &write_bundle(dir2.path(), &fresher),
         &options(&ws, Uuid::now_v7()),
     )
     .await;
-    assert_eq!(again.tickets_updated, 0);
-    assert!(again.tickets_changed_here.len() <= 1);
+    assert_eq!(report.comments_written, 1);
+    let thread = comments_of(&pool, &ws, t101);
+    assert_eq!(thread.len(), before + 1);
+    assert!(thread.iter().any(|c| c.content.contains("Ordered.")));
+    assert!(
+        report
+            .ticket_notes
+            .iter()
+            .any(|n| n.contains("Zendesk #102") && n.contains("#101")),
+        "{:?}",
+        report.ticket_notes
+    );
+}
+
+/// Adds `address` to `user` as a secondary address, verified or not.
+fn add_address(pool: &TestPool, user: Uuid, address: &str, verified: bool) {
+    diesel::sql_query(
+        "INSERT INTO user_emails (user_uuid, email, email_type, is_primary, is_verified) \
+         VALUES ($1, $2, 'personal', false, $3)",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(user)
+    .bind::<Text, _>(address)
+    .bind::<Bool, _>(verified)
+    .execute(&mut pool.get().expect("conn"))
+    .expect("address");
+}
+
+#[actix_web::test]
+async fn an_unverified_address_stands_for_nobody_and_a_removed_seat_stays_removed() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    // A member claims the CEO's address on their own account, unverified;
+    // another holds a verified secondary address; a third was removed here.
+    add_address(&pool, ws.member_uuid, "ceo@customer.test", false);
+    let verified = account(
+        &pool,
+        "Verified Alias",
+        None,
+        "main@customer.test",
+        &[],
+        Some((ws.workspace_id, "member")),
+    );
+    add_address(&pool, verified, "alias@customer.test", true);
+    let removed = account(
+        &pool,
+        "Removed Here",
+        None,
+        "removed@customer.test",
+        &[],
+        Some((ws.workspace_id, "member")),
+    );
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        backend::repository::workspaces::remove_membership(
+            c,
+            ws.workspace_id,
+            removed,
+            backend::repository::workspaces::SeatWriteAuthority::Product,
+        )
+    })
+    .expect("remove");
+
+    let cast = vec![
+        person("1", "ceo@customer.test", PersonRole::Requester, true),
+        person("2", "alias@customer.test", PersonRole::Requester, true),
+        person("3", "removed@customer.test", PersonRole::Requester, true),
+    ];
+    let list = vec![
+        raised_by("401", "1", &[]),
+        raised_by("402", "2", &[]),
+        raised_by("403", "3", &[]),
+    ];
+    let dir = tempfile::tempdir().expect("dir");
+    run(
+        &pool,
+        &write_bundle_of(dir.path(), &cast, &list),
+        &options(&ws, Uuid::now_v7()),
+    )
+    .await;
+    let by_number = requesters(&pool, &ws);
+    assert_ne!(
+        by_number[&401], ws.member_uuid,
+        "an unverified claim matches nobody"
+    );
+    assert_eq!(
+        by_number[&402], verified,
+        "a verified secondary address still matches"
+    );
+    assert_eq!(
+        by_number[&403], removed,
+        "a removed member is still known here"
+    );
+    assert_eq!(
+        seat_of(&pool, ws.workspace_id, removed),
+        Some(("member".to_string(), true)),
+        "and their seat stays removed"
+    );
+}
+
+#[actix_web::test]
+async fn one_person_who_cant_be_seated_doesnt_stop_the_run() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    // No room for another staff seat.
+    {
+        let mut conn = pool.get().expect("conn");
+        diesel::sql_query(
+            "UPDATE workspaces SET seat_limit = (SELECT count(*) FROM workspace_members \
+             WHERE workspace_id = $1 AND removed_at IS NULL AND role IN ('owner','admin','agent')) \
+             WHERE id = $1",
+        )
+        .bind::<Integer, _>(ws.workspace_id)
+        .execute(&mut conn)
+        .expect("seat limit");
+    }
+    let dir = tempfile::tempdir().expect("dir");
+    let report = run(
+        &pool,
+        &write_bundle(dir.path(), &tickets()),
+        &options(&ws, Uuid::now_v7()),
+    )
+    .await;
+    assert_eq!(report.tickets_written, 2);
+    assert_eq!(
+        report.people_problems.len(),
+        1,
+        "{:?}",
+        report.people_problems
+    );
+    assert!(report.people_problems[0].contains("Alex Agent"));
+    let agent = account_of(&pool, "agent@acme.test");
+    assert_eq!(
+        seat_of(&pool, ws.workspace_id, agent),
+        None,
+        "brought across without a seat"
+    );
+    let thread = comments_of(&pool, &ws, imported_tickets(&pool, &ws)[0].id);
+    assert!(
+        thread.iter().any(|c| c.author == "Alex Agent"),
+        "{thread:?}"
+    );
 }
