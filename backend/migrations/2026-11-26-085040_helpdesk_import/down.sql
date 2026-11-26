@@ -1,6 +1,9 @@
 -- Restore the three outbox functions to their previous bodies (without the
--- import early return), drop the id map, and narrow the job types. The rows a
--- helpdesk import wrote stay; only its bookkeeping goes.
+-- import early return), drop the number reservation and the id map, and
+-- narrow the job types. The rows a helpdesk import wrote stay; only its
+-- bookkeeping goes.
+
+DROP FUNCTION public.reserve_ticket_numbers(integer);
 
 CREATE OR REPLACE FUNCTION public.notification_outbox_enqueue() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER

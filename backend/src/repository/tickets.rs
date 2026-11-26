@@ -488,32 +488,15 @@ pub fn create_ticket_with_annotation(
     })
 }
 
-/// Which of `ids` are tickets of `workspace_id`, each with whether it was
-/// merged into another ticket. For a helpdesk import's rerun, which adds
-/// replies only to tickets still here and not merged away.
-pub fn imported_targets(
-    conn: &mut DbConnection,
-    workspace_id: i32,
-    ids: &[i32],
-) -> QueryResult<std::collections::HashMap<i32, bool>> {
-    if ids.is_empty() {
-        return Ok(std::collections::HashMap::new());
-    }
-    let here: Vec<i32> = tickets::table
-        .filter(tickets::workspace_id.eq(workspace_id))
-        .filter(tickets::id.eq_any(ids))
-        .select(tickets::id)
-        .load(conn)?;
-    let merged: std::collections::HashSet<i32> = ticket_merges::table
-        .filter(ticket_merges::ticket_id.eq_any(&here))
-        .select(ticket_merges::ticket_id)
-        .load::<i32>(conn)?
-        .into_iter()
-        .collect();
-    Ok(here
-        .into_iter()
-        .map(|id| (id, merged.contains(&id)))
-        .collect())
+// sync-audit-only: moves the pinned workspace's ticket number sequence; writes no row
+/// Move the pinned workspace's ticket numbers past `through`, so a ticket
+/// opened here from now on can't take a number up to it: a helpdesk import
+/// keeping the source's numbers reserves them before its first ticket.
+pub fn reserve_numbers(conn: &mut DbConnection, through: i32) -> QueryResult<()> {
+    diesel::sql_query("SELECT public.reserve_ticket_numbers($1)")
+        .bind::<diesel::sql_types::Integer, _>(through)
+        .execute(conn)
+        .map(|_| ())
 }
 
 /// Whether `workspace_id` already has a ticket numbered `number`.

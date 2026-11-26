@@ -11,9 +11,13 @@
 //! Safe to run again. The id map records every ticket, reply and file as it
 //! lands, in the same transaction, so:
 //! - a run that died resumes at the first ticket the map doesn't have;
+//! - one ticket that can't be written is rolled back alone (a savepoint),
+//!   reported, and tried again by the next run; the rest of its batch lands;
 //! - a rerun on a fresher bundle skips what landed and adds only the new
-//!   replies (a ticket's own fields are never overwritten: the Nosdesk side
-//!   may have moved on);
+//!   replies. During a cutover it also brings a ticket's status, assignee
+//!   and closing up to date from the source, but only while nobody here has
+//!   changed the ticket since the import last wrote it; one changed here is
+//!   left alone and reported;
 //! - files are stored after their batch commits and attached one by one, so
 //!   a file that failed is picked up by the next run.
 
@@ -21,8 +25,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
-use diesel::QueryResult;
+use diesel::{Connection, QueryResult};
 use sha2::{Digest, Sha256};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::bundle::{self, Body, BodyFormat, Bundle, PriorityLevel, StatusKind};
@@ -43,6 +48,14 @@ pub const JOB_TYPE: &str = "helpdesk";
 /// Tickets per transaction. Large enough to amortise the transaction, small
 /// enough that a failure loses little and locks are short.
 pub const DEFAULT_BATCH: usize = 200;
+
+/// People per transaction.
+const PEOPLE_BATCH: usize = 500;
+
+/// The highest source number kept. A workspace's numbers continue from its
+/// highest, so keeping one near the top of the column's range would leave
+/// room for few tickets after it.
+const MAX_KEPT_NUMBER: i64 = 1_000_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumberPolicy {
@@ -70,6 +83,9 @@ pub struct LoadOptions {
     /// Create unmatched active source staff as agents (self-hosted only).
     pub create_agents: bool,
     pub batch_size: usize,
+    /// Stops the run between tickets and between files (the CLI cancels it
+    /// on Ctrl-C), so nothing is left half written.
+    pub cancel: CancellationToken,
 }
 
 impl LoadOptions {
@@ -88,8 +104,16 @@ pub enum LoadError {
     Pool(String),
     #[error("{0}")]
     Refused(String),
-    #[error("ticket {ticket} failed, so its batch was rolled back: {error}. Run the import again to resume.")]
-    Batch { ticket: String, error: String },
+    #[error("stopped; run the import again to carry on from here")]
+    Cancelled,
+}
+
+/// A run that stopped short: why, and what it did before.
+#[derive(Debug, thiserror::Error)]
+#[error("{error}")]
+pub struct LoadFailure {
+    pub error: LoadError,
+    pub report: Box<LoadReport>,
 }
 
 /// What a run would do, from the bundle and the workspace as they are.
@@ -123,17 +147,33 @@ pub struct Plan {
 pub struct LoadReport {
     pub tickets_written: u64,
     pub tickets_skipped: u64,
+    /// Tickets imported before whose status, assignee or closing were
+    /// brought up to date from the source.
+    pub tickets_updated: u64,
     pub comments_written: u64,
     pub attachments_written: u64,
     /// Files that weren't brought across, and why.
     pub attachment_problems: Vec<String>,
-    /// Tickets not brought across again, and why (deleted here since).
+    /// Tickets not brought across again, or whose new replies weren't
+    /// added, and why (deleted or merged here since).
     pub ticket_notes: Vec<String>,
+    /// Tickets that couldn't be written, and why. The next run tries them
+    /// again.
+    pub tickets_failed: Vec<String>,
+    /// Tickets changed here since they were imported, so the source's newer
+    /// status and assignee weren't applied.
+    pub tickets_changed_here: Vec<String>,
+    /// Tickets whose source number was taken here, and the number they got.
+    pub numbers_moved: Vec<String>,
+    /// Lines of the bundle that couldn't be read, and were skipped.
+    pub unreadable_lines: u64,
     pub people: BTreeMap<&'static str, u64>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct LoadProgress {
+    pub people_done: u64,
+    pub people_total: u64,
     pub tickets_done: u64,
     pub tickets_total: u64,
     pub comments_written: u64,
@@ -275,6 +315,99 @@ where
 
 // ---------------------------------------------------------------- plan
 
+/// What one read of the bundle's tickets found, without the database.
+#[derive(Debug, Default)]
+struct Scan {
+    /// Each ticket's source id, once, in bundle order.
+    ids: Vec<String>,
+    /// Lines that listed a ticket again.
+    repeated: u64,
+    /// Lines that couldn't be read.
+    unreadable: u64,
+    /// Every ticket carries a number, unique to it, between 1 and
+    /// [`MAX_KEPT_NUMBER`].
+    numbers_ok: bool,
+    /// The highest number, when they are.
+    top: Option<i32>,
+    /// Everyone the tickets mention, by source id.
+    mentioned: HashSet<String>,
+}
+
+/// Reads tickets.jsonl through `each`, skipping (and counting) lines that
+/// don't read as a ticket. Any other read error stops it.
+fn each_ticket(
+    bundle: &Bundle,
+    unreadable: &mut u64,
+    mut each: impl FnMut(bundle::Ticket),
+) -> Result<(), LoadError> {
+    for t in bundle.tickets()? {
+        match t {
+            Ok(t) => each(t),
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => *unreadable += 1,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(())
+}
+
+fn scan(bundle: &Bundle, mut also: impl FnMut(&bundle::Ticket)) -> Result<Scan, LoadError> {
+    let mut out = Scan {
+        numbers_ok: true,
+        ..Default::default()
+    };
+    let mut seen = HashSet::new();
+    let mut numbers: HashMap<i64, String> = HashMap::new();
+    let mut unreadable = 0;
+    each_ticket(bundle, &mut unreadable, |t| {
+        also(&t);
+        people::mentioned(&t, &mut out.mentioned);
+        // Unique per ticket: the same ticket listed twice may repeat it.
+        match t.number {
+            Some(n)
+                if (1..=MAX_KEPT_NUMBER).contains(&n)
+                    && numbers.entry(n).or_insert_with(|| t.source_id.clone()) == &t.source_id =>
+            {
+                let n = i32::try_from(n).unwrap_or(i32::MAX);
+                out.top = Some(out.top.map_or(n, |top| top.max(n)));
+            }
+            _ => out.numbers_ok = false,
+        }
+        if seen.insert(t.source_id.clone()) {
+            out.ids.push(t.source_id);
+        } else {
+            out.repeated += 1;
+        }
+    })?;
+    out.unreadable = unreadable;
+    if !out.numbers_ok {
+        out.top = None;
+    }
+    Ok(out)
+}
+
+/// The bundle's people the tickets mention, each once, as first listed,
+/// with the number of lines of people.jsonl that couldn't be read.
+fn mentioned_people(
+    bundle: &Bundle,
+    mentioned: &HashSet<String>,
+) -> Result<(Vec<bundle::Person>, u64), LoadError> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    let mut unreadable = 0;
+    for p in bundle.people()? {
+        match p {
+            Ok(p) => {
+                if mentioned.contains(&p.source_id) && seen.insert(p.source_id.clone()) {
+                    out.push(p);
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => unreadable += 1,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok((out, unreadable))
+}
+
 /// Plan the import without writing anything.
 pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Plan, LoadError> {
     let manifest = bundle.read_manifest()?;
@@ -297,12 +430,11 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
             ..Default::default()
         };
 
-        let mut ids = Vec::new();
-        let mut numbers: HashMap<i64, String> = HashMap::new();
-        let mut numbers_ok = true;
-        for t in b.tickets()? {
-            let t = t?;
-            plan.tickets += 1;
+        let mut counted = HashSet::new();
+        let found = scan(&b, |t| {
+            if !counted.insert(t.source_id.clone()) {
+                return;
+            }
             plan.comments += t.comments.len() as u64;
             for c in &t.comments {
                 for a in &c.attachments {
@@ -321,32 +453,28 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
                 let matched = cats.get(&ty.to_lowercase()).map(|(_, n)| n.clone());
                 plan.types.entry(ty.clone()).or_insert((matched, 0)).1 += 1;
             }
-            match t.number {
-                Some(n)
-                    if (1..=i64::from(i32::MAX)).contains(&n)
-                        && numbers.entry(n).or_insert_with(|| t.source_id.clone())
-                            == &t.source_id => {}
-                _ => numbers_ok = false,
-            }
-            ids.push(t.source_id);
-        }
+        })?;
+        plan.tickets = found.ids.len() as u64;
         plan.tickets_imported_already =
-            idmap::targets_of(conn, scope, Entity::Ticket, &ids)?.len() as u64;
+            idmap::targets_of(conn, scope, Entity::Ticket, &found.ids)?.len() as u64;
+        if found.repeated > 0 {
+            plan.notes.push(format!(
+                "{} tickets are listed more than once; each is written once",
+                found.repeated
+            ));
+        }
 
-        let (keep, reason) = number_decision(conn, scope, o.numbers, numbers_ok)?;
+        let (keep, reason) = number_decision(conn, scope, o.numbers, found.numbers_ok)?;
         plan.keep_numbers = keep;
         plan.numbers_reason = reason;
 
-        let mut referenced = HashSet::new();
-        for t in b.tickets()?.filter_map(Result::ok) {
-            people::mentioned(&t, &mut referenced);
+        let (persons, bad_people) = mentioned_people(&b, &found.mentioned)?;
+        let unreadable = found.unreadable + bad_people;
+        if unreadable > 0 {
+            plan.notes.push(format!(
+                "{unreadable} lines of the bundle can't be read and will be skipped"
+            ));
         }
-        let persons: Vec<bundle::Person> = b
-            .people()?
-            .filter_map(Result::ok)
-            .filter(|p| referenced.contains(&p.source_id))
-            .collect();
-        let persons = first_of_each(persons);
         let popts = PeopleOptions {
             scope,
             job_id: o.job_id,
@@ -363,12 +491,12 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
                         .email
                         .clone()
                         .unwrap_or_else(|| d.person.name.clone()),
-                    d.target_email.clone().unwrap_or_else(|| "—".into()),
+                    d.target_email.clone().unwrap_or_else(|| "none".into()),
                     d.outcome.label(),
                 ));
             }
         }
-        let missing_people = referenced.len() as u64 - persons.len() as u64;
+        let missing_people = found.mentioned.len() as u64 - persons.len() as u64;
         if missing_people > 0 {
             plan.notes.push(format!(
                 "{missing_people} people the tickets mention aren't in the bundle; their replies \
@@ -381,9 +509,10 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
     .await
 }
 
-/// Whether to keep the source's ticket numbers. Only when the workspace's
-/// tickets are all ones this source brought (none of its own to collide
-/// with), and the source's numbers are unique and fit.
+/// Whether to keep the source's ticket numbers. Only when every ticket in the
+/// workspace is one this source brought (none of its own, or another
+/// import's, to collide with, however many of its own were deleted since),
+/// and the source's numbers are unique and fit.
 fn number_decision(
     conn: &mut DbConnection,
     scope: Scope<'_>,
@@ -398,8 +527,10 @@ fn number_decision(
     match (room && numbers_ok, policy) {
         (true, _) => Ok((true, "the source's numbers are kept".into())),
         (false, NumberPolicy::Keep) => Err(LoadError::Refused(if !numbers_ok {
-            "the source's ticket numbers aren't unique positive integers, so they can't be kept"
-                .into()
+            format!(
+                "the source's ticket numbers aren't unique whole numbers from 1 to \
+                 {MAX_KEPT_NUMBER}, so they can't be kept"
+            )
         } else {
             format!(
                 "the workspace already has {others} tickets of its own, so the source's numbers \
@@ -421,16 +552,28 @@ fn number_decision(
 // ---------------------------------------------------------------- load
 
 /// Write the bundle into the workspace. Call [`plan`] first and show it.
+/// A run that stops short says what it did before in [`LoadFailure::report`].
 pub async fn load(
     pool: &Pool,
     storage: Arc<dyn Storage>,
     bundle: &Bundle,
     opts: &LoadOptions,
     progress: &(dyn Fn(&LoadProgress) + Send + Sync),
-) -> Result<LoadReport, LoadError> {
-    let manifest = bundle.read_manifest()?;
-    open_job(pool, opts, &manifest).await?;
+) -> Result<LoadReport, LoadFailure> {
     let mut report = LoadReport::default();
+    let opened = match bundle.read_manifest() {
+        Ok(manifest) => open_job(pool, opts, &manifest).await.map(|()| manifest),
+        Err(e) => Err(e.into()),
+    };
+    let manifest = match opened {
+        Ok(m) => m,
+        Err(error) => {
+            return Err(LoadFailure {
+                error,
+                report: Box::new(report),
+            })
+        }
+    };
     let result = write_all(
         pool,
         storage,
@@ -441,8 +584,14 @@ pub async fn load(
         &mut report,
     )
     .await;
-    close_job(pool, opts, &report, result.as_ref().err()).await?;
-    result.map(|()| report)
+    let closed = close_job(pool, opts, &report, result.as_ref().err()).await;
+    match result.and(closed) {
+        Ok(()) => Ok(report),
+        Err(error) => Err(LoadFailure {
+            error,
+            report: Box::new(report),
+        }),
+    }
 }
 
 /// Open the run's job row: who ran it, from which source, into which
@@ -527,9 +676,13 @@ async fn close_job(
     let summary = serde_json::json!({
         "tickets_written": report.tickets_written,
         "tickets_skipped": report.tickets_skipped,
+        "tickets_updated": report.tickets_updated,
+        "tickets_failed": report.tickets_failed.len(),
+        "tickets_changed_here": report.tickets_changed_here.len(),
         "comments_written": report.comments_written,
         "attachments_written": report.attachments_written,
         "attachment_problems": report.attachment_problems.len(),
+        "unreadable_lines": report.unreadable_lines,
         "people": report.people,
     });
     let error = error.map(ToString::to_string);
@@ -565,84 +718,91 @@ async fn write_all(
 ) -> Result<(), LoadError> {
     let source = manifest.source.clone();
     let instance = manifest.source_scope.clone();
+    let scope_parts = (opts.workspace_id, source.clone(), instance.clone());
+    let found = scan(bundle, |_| {})?;
 
-    // Settle numbering once, before the first batch, so a resumed run keeps
-    // the choice its first batch made (the map holds only our tickets then).
+    // Settle numbering once, before the first batch, and reserve the
+    // numbers being kept, so a ticket opened here meanwhile takes one after
+    // them rather than one the import has still to write.
     let keep_numbers = {
-        let (s, i, policy, ws) = (
-            source.clone(),
-            instance.clone(),
-            opts.numbers,
-            opts.workspace_id,
-        );
-        let numbers_ok = numbers_usable(bundle)?;
+        let (ws, s, i) = scope_parts.clone();
+        let (policy, numbers_ok, top) = (opts.numbers, found.numbers_ok, found.top);
         db(pool, opts.actor_context(), move |conn| {
-            Ok(number_decision(
-                conn,
-                Scope {
-                    workspace_id: ws,
-                    source: &s,
-                    instance: &i,
-                },
-                policy,
-                numbers_ok,
-            )?
-            .0)
+            let scope = Scope {
+                workspace_id: ws,
+                source: &s,
+                instance: &i,
+            };
+            let keep = number_decision(conn, scope, policy, numbers_ok)?.0;
+            if let (true, Some(top)) = (keep, top) {
+                crate::repository::tickets::reserve_numbers(conn, top)?;
+            }
+            Ok(keep)
         })
         .await?
     };
 
-    // People first: everyone the tickets mention, under the source's lock,
-    // with the placeholder author their unattachable replies go to.
-    let (people_map, placeholder): (Arc<HashMap<String, Resolved>>, Uuid) = {
-        let mut referenced = HashSet::new();
-        for t in bundle.tickets()?.filter_map(Result::ok) {
-            people::mentioned(&t, &mut referenced);
-        }
-        let persons: Vec<bundle::Person> = bundle
-            .people()?
-            .filter_map(Result::ok)
-            .filter(|p| referenced.contains(&p.source_id))
-            .collect();
-        let persons = first_of_each(persons);
-        let o = opts.clone();
-        let (s, i) = (source.clone(), instance.clone());
-        let (resolved, placeholder) = db(pool, opts.actor_context(), move |conn| {
-            let popts = PeopleOptions {
-                scope: Scope {
-                    workspace_id: o.workspace_id,
-                    source: &s,
-                    instance: &i,
-                },
-                job_id: o.job_id,
-                agent_map: &o.agent_map,
-                create_agents: o.create_agents,
-            };
-            idmap::lock_source(conn, popts.scope)?;
-            let placeholder = people::placeholder(conn, &popts)?;
-            Ok((
-                people::apply(conn, &persons, &popts, placeholder)?,
-                placeholder,
-            ))
-        })
-        .await?;
-        for r in resolved.values() {
-            *report.people.entry(r.outcome.label()).or_default() += 1;
-        }
-        (Arc::new(resolved), placeholder)
-    };
-
-    let total = manifest.counts.get("tickets").copied().unwrap_or(0);
+    // People first: everyone the tickets mention, in batches, each under
+    // the source's lock, with the placeholder author their unattachable
+    // replies go to.
+    let (persons, bad_people) = mentioned_people(bundle, &found.mentioned)?;
+    report.unreadable_lines += bad_people;
     let mut prog = LoadProgress {
-        tickets_total: total,
+        people_total: persons.len() as u64,
+        tickets_total: found.ids.len() as u64,
         ..Default::default()
     };
+    let placeholder: Uuid = {
+        let (ws, s, i) = scope_parts.clone();
+        let o = opts.clone();
+        db(pool, opts.actor_context(), move |conn| {
+            let popts = people_options(&o, ws, &s, &i);
+            idmap::lock_source(conn, popts.scope)?;
+            Ok(people::placeholder(conn, &popts)?)
+        })
+        .await?
+    };
+    let mut resolved: HashMap<String, Resolved> = HashMap::new();
+    for chunk in persons.chunks(PEOPLE_BATCH) {
+        if opts.cancel.is_cancelled() {
+            return Err(LoadError::Cancelled);
+        }
+        let (ws, s, i) = scope_parts.clone();
+        let o = opts.clone();
+        let chunk = chunk.to_vec();
+        let done = db(pool, opts.actor_context(), move |conn| {
+            let popts = people_options(&o, ws, &s, &i);
+            idmap::lock_source(conn, popts.scope)?;
+            Ok(people::apply(conn, &chunk, &popts, placeholder)?)
+        })
+        .await?;
+        prog.people_done += done.len() as u64;
+        resolved.extend(done);
+        progress(&prog);
+    }
+    for r in resolved.values() {
+        *report.people.entry(r.outcome.label()).or_default() += 1;
+    }
+    let people_map = Arc::new(resolved);
+
     let batch_size = opts.batch_size.max(1);
-    let mut reader = bundle.tickets()?;
+    let mut lines = bundle.tickets()?;
     loop {
+        if opts.cancel.is_cancelled() {
+            return Err(LoadError::Cancelled);
+        }
         let mut batch = Vec::with_capacity(batch_size);
-        for t in reader.by_ref().take(batch_size) {
-            batch.push(t?);
+        for t in lines.by_ref() {
+            match t {
+                Ok(t) => batch.push(t),
+                Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                    report.unreadable_lines += 1
+                }
+                Err(e) => return Err(e.into()),
+            }
+            if batch.len() == batch_size {
+                break;
+            }
         }
         if batch.is_empty() {
             break;
@@ -661,9 +821,13 @@ async fn write_all(
         )
         .await?;
         report.tickets_written += written.tickets;
-        report.tickets_skipped += n - written.tickets;
+        report.tickets_updated += written.updated;
+        report.tickets_skipped += n - written.tickets - written.failed.len() as u64;
         report.comments_written += written.comments;
         report.ticket_notes.extend(written.notes);
+        report.tickets_failed.extend(written.failed);
+        report.tickets_changed_here.extend(written.changed_here);
+        report.numbers_moved.extend(written.numbers_moved);
 
         let files = attach_files(
             pool,
@@ -689,34 +853,49 @@ async fn write_all(
     Ok(())
 }
 
-/// A person listed twice in a bundle is brought across once, as first listed.
-fn first_of_each(people: Vec<bundle::Person>) -> Vec<bundle::Person> {
-    let mut seen = HashSet::new();
-    people
-        .into_iter()
-        .filter(|p| seen.insert(p.source_id.clone()))
-        .collect()
-}
-
-fn numbers_usable(bundle: &Bundle) -> Result<bool, LoadError> {
-    // Unique per ticket: the same ticket listed twice may repeat its number.
-    let mut seen: HashMap<i64, String> = HashMap::new();
-    for t in bundle.tickets()? {
-        let t = t?;
-        match t.number {
-            Some(n)
-                if (1..=i64::from(i32::MAX)).contains(&n)
-                    && seen.entry(n).or_insert_with(|| t.source_id.clone()) == &t.source_id => {}
-            _ => return Ok(false),
-        }
+fn people_options<'a>(
+    o: &'a LoadOptions,
+    workspace_id: i32,
+    source: &'a str,
+    instance: &'a str,
+) -> PeopleOptions<'a> {
+    PeopleOptions {
+        scope: Scope {
+            workspace_id,
+            source,
+            instance,
+        },
+        job_id: o.job_id,
+        agent_map: &o.agent_map,
+        create_agents: o.create_agents,
     }
-    Ok(true)
 }
 
+#[derive(Default)]
 struct BatchWritten {
     tickets: u64,
+    updated: u64,
     comments: u64,
     notes: Vec<String>,
+    failed: Vec<String>,
+    changed_here: Vec<String>,
+    numbers_moved: Vec<String>,
+}
+
+/// What became of one ticket of a batch.
+enum Outcome {
+    Written {
+        id: i32,
+        comments: u64,
+        moved_from: Option<i32>,
+        number: i32,
+    },
+    Again {
+        comments: u64,
+        updated: bool,
+        changed_here: bool,
+    },
+    Note(String),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -749,63 +928,113 @@ async fn write_batch(
         let cats = categories(conn)?;
         let mut tags = TagCache::load(conn)?;
         let ids: Vec<String> = batch.iter().map(|t| t.source_id.clone()).collect();
-        let mut mapped = idmap::targets_of(conn, scope, Entity::Ticket, &ids)?;
-        let mut live = live_tickets(conn, o.workspace_id, &mapped)?;
+        let mapped = idmap::targets_of(conn, scope, Entity::Ticket, &ids)?;
+        let mut imported = idmap::imported_tickets(conn, scope, &ids)?;
 
-        let mut out = BatchWritten {
-            tickets: 0,
-            comments: 0,
-            notes: Vec::new(),
-        };
+        let mut out = BatchWritten::default();
+        let mut written_now: HashSet<String> = HashSet::new();
         for t in &batch {
+            if o.cancel.is_cancelled() {
+                break;
+            }
             let label = format!(
                 "{} #{}",
                 source_title(&s),
                 t.number.map_or(t.source_id.clone(), |n| n.to_string())
             );
-            let r = match mapped.get(&t.source_id).cloned() {
-                Some(target) => match target.parse::<i32>().ok().filter(|id| live.contains(id)) {
-                    Some(id) => append_new_comments(conn, scope, &o, &people, placeholder, id, t)
-                        .map(|c| (false, c)),
-                    None => {
-                        // Imported before and deleted here since: deleting
-                        // it was someone's choice, so it stays deleted.
-                        out.notes.push(format!(
-                            "{label}: deleted here since it was imported, so not brought back"
-                        ));
-                        Ok((false, 0))
-                    }
-                },
-                None => write_ticket(
-                    conn,
-                    scope,
-                    &o,
-                    keep_numbers,
-                    &people,
-                    placeholder,
-                    &states,
-                    &cats,
-                    &mut tags,
-                    t,
-                )
-                .map(|(id, c)| {
-                    // A ticket listed twice in one bundle is written once;
-                    // the second copy only adds replies the first lacked.
-                    mapped.insert(t.source_id.clone(), id.to_string());
-                    live.insert(id);
-                    (true, c)
-                }),
+            let ctx = TicketCtx {
+                scope,
+                opts: &o,
+                people: &people,
+                placeholder,
+                states: &states,
             };
-            match r {
-                Ok((new, comments)) => {
-                    out.tickets += u64::from(new);
-                    out.comments += comments;
+            // Each ticket in a savepoint: one that fails is rolled back alone,
+            // with any tag it created, and the rest of the batch carries on.
+            let tags_before = tags.clone();
+            let r = conn.transaction::<_, LoadError, _>(|conn| {
+                match (
+                    imported.get(&t.source_id),
+                    mapped.contains_key(&t.source_id),
+                ) {
+                    (Some(done), _) if done.merged => Ok(Outcome::Note(format!(
+                        "{label}: merged into another ticket here, so its new replies weren't added"
+                    ))),
+                    (Some(done), _) => {
+                        // A copy listed again in this bundle only adds
+                        // replies; its fields were written moments ago.
+                        let (updated, changed_here) = if written_now.contains(&t.source_id) {
+                            (false, false)
+                        } else {
+                            bring_up_to_date(conn, &ctx, done, t)?
+                        };
+                        let comments = append_new_comments(
+                            conn,
+                            scope,
+                            &o,
+                            &people,
+                            placeholder,
+                            done.ticket_id,
+                            t,
+                        )?;
+                        Ok(Outcome::Again {
+                            comments,
+                            updated,
+                            changed_here,
+                        })
+                    }
+                    // Imported before and deleted here since: deleting it
+                    // was someone's choice, so it stays deleted.
+                    (None, true) => Ok(Outcome::Note(format!(
+                        "{label}: deleted here since it was imported, so not brought back"
+                    ))),
+                    (None, false) => write_ticket(conn, &ctx, keep_numbers, &cats, &mut tags, t),
                 }
+            });
+            match r {
+                Ok(Outcome::Written {
+                    id,
+                    comments,
+                    moved_from,
+                    number,
+                }) => {
+                    out.tickets += 1;
+                    out.comments += comments;
+                    if let Some(wanted) = moved_from {
+                        out.numbers_moved.push(format!(
+                            "{label}: #{wanted} is taken here, so it is #{number}"
+                        ));
+                    }
+                    written_now.insert(t.source_id.clone());
+                    imported.insert(
+                        t.source_id.clone(),
+                        idmap::ImportedTicket {
+                            source_id: t.source_id.clone(),
+                            ticket_id: id,
+                            merged: false,
+                            untouched: true,
+                            source_updated_at: Some(naive(t.updated_at)),
+                        },
+                    );
+                }
+                Ok(Outcome::Again {
+                    comments,
+                    updated,
+                    changed_here,
+                }) => {
+                    out.comments += comments;
+                    out.updated += u64::from(updated);
+                    if changed_here {
+                        out.changed_here.push(format!(
+                            "{label}: changed here since it was imported, so its newer status \
+                             and assignee there weren't applied"
+                        ));
+                    }
+                }
+                Ok(Outcome::Note(note)) => out.notes.push(note),
                 Err(e) => {
-                    return Err(LoadError::Batch {
-                        ticket: label,
-                        error: e.to_string(),
-                    })
+                    tags = tags_before;
+                    out.failed.push(format!("{label}: {e}"));
                 }
             }
         }
@@ -814,20 +1043,63 @@ async fn write_batch(
     .await
 }
 
-/// Which of the mapped tickets still exist in the workspace.
-fn live_tickets(
-    conn: &mut DbConnection,
-    workspace_id: i32,
-    mapped: &HashMap<String, String>,
-) -> QueryResult<HashSet<i32>> {
-    let ids: Vec<i32> = mapped.values().filter_map(|v| v.parse().ok()).collect();
-    Ok(
-        crate::repository::tickets::imported_targets(conn, workspace_id, &ids)?
-            .into_keys()
-            .collect(),
-    )
+/// What writing one ticket needs, alongside the connection.
+struct TicketCtx<'a> {
+    scope: Scope<'a>,
+    opts: &'a LoadOptions,
+    people: &'a HashMap<String, Resolved>,
+    placeholder: Uuid,
+    states: &'a StateMap,
 }
 
+/// A ticket imported before, during a cutover: when the source changed it
+/// since the import last wrote it and nobody has changed it here, its
+/// status, assignee and closing follow the source (the closing kept as
+/// given, per the closing trigger's rule for a statement that sets it).
+/// Returns (updated, changed here so left alone).
+fn bring_up_to_date(
+    conn: &mut DbConnection,
+    ctx: &TicketCtx<'_>,
+    done: &idmap::ImportedTicket,
+    t: &bundle::Ticket,
+) -> Result<(bool, bool), LoadError> {
+    let source_at = naive(t.updated_at);
+    if done.source_updated_at.is_some_and(|at| source_at <= at) {
+        return Ok((false, false));
+    }
+    if !done.untouched {
+        return Ok((false, true));
+    }
+    let current = crate::repository::tickets::get_ticket_by_id(conn, done.ticket_id)?;
+    let (state_id, _) = ctx.states.state(t.status);
+    let assignee = t
+        .assignee
+        .as_ref()
+        .and_then(|a| ctx.people.get(a))
+        .filter(|r| r.staff)
+        .map(|r| r.uuid);
+    let mut change = crate::models::TicketUpdate::default();
+    if current.workflow_state_id != state_id {
+        change.workflow_state_id = Some(state_id);
+        change.closed_at = Some(
+            t.status
+                .is_finished()
+                .then(|| naive(t.solved_at.unwrap_or(t.updated_at))),
+        );
+    }
+    if current.assignee_uuid != assignee {
+        change.assignee_uuid = Some(assignee);
+    }
+    let changed = change.workflow_state_id.is_some() || change.assignee_uuid.is_some();
+    if changed {
+        crate::repository::tickets::update_ticket_partial(conn, done.ticket_id, change, None)
+            .map_err(diesel::result::Error::from)?;
+    }
+    idmap::touch_ticket(conn, ctx.scope, &t.source_id, source_at)?;
+    Ok((changed, false))
+}
+
+#[derive(Clone)]
 struct TagCache {
     by_name: HashMap<String, i32>,
 }
@@ -860,19 +1132,21 @@ impl TagCache {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn write_ticket(
     conn: &mut DbConnection,
-    scope: Scope<'_>,
-    opts: &LoadOptions,
+    ctx: &TicketCtx<'_>,
     keep_numbers: bool,
-    people: &HashMap<String, Resolved>,
-    placeholder: Uuid,
-    states: &StateMap,
     cats: &HashMap<String, (i32, String)>,
     tags: &mut TagCache,
     t: &bundle::Ticket,
-) -> Result<(i32, u64), LoadError> {
+) -> Result<Outcome, LoadError> {
+    let TicketCtx {
+        scope,
+        opts,
+        people,
+        placeholder,
+        states,
+    } = *ctx;
     let who = |id: &Option<String>| id.as_ref().and_then(|i| people.get(i));
     let requester = who(&t.requester);
     let assignee = who(&t.assignee);
@@ -886,10 +1160,13 @@ fn write_ticket(
         .and_then(|ty| cats.get(&ty.to_lowercase()));
 
     // The first public reply by someone who was staff at the source, seat
-    // here or not: that is when the requester was first answered.
+    // here or not: that is when the requester was first answered. The
+    // opening message is the request, whoever wrote it (an agent logging a
+    // call), so it never counts.
     let first_response = t
         .comments
         .iter()
+        .skip(1)
         .filter(|c| c.public)
         .find(|c| {
             c.author
@@ -902,6 +1179,18 @@ fn write_ticket(
         .status
         .is_finished()
         .then(|| naive(t.solved_at.unwrap_or(t.updated_at)));
+    // A kept number already taken here (the source reused it, or another
+    // ticket holds it) falls back to the next one, and the report says so.
+    let wanted = t
+        .number
+        .filter(|_| keep_numbers)
+        .and_then(|n| i32::try_from(n).ok());
+    let number = match wanted {
+        Some(n) if !crate::repository::tickets::number_taken(conn, opts.workspace_id, n)? => {
+            Some(n)
+        }
+        _ => None,
+    };
 
     let ticket: Ticket = crate::repository::tickets::import_ticket(
         conn,
@@ -922,11 +1211,7 @@ fn write_ticket(
             category_id: category.map(|(id, _)| *id),
             submitted_via: Some(HELPDESK_IMPORT.to_string()),
             created_by: Some(requester.map_or(placeholder, |r| r.uuid)),
-            number: if keep_numbers {
-                t.number.and_then(|n| i32::try_from(n).ok())
-            } else {
-                None
-            },
+            number,
             created_at: naive(t.created_at),
             updated_at: naive(t.updated_at),
             closed_at,
@@ -1000,7 +1285,12 @@ fn write_ticket(
         write_reply(conn, scope, opts, people, placeholder, ticket.id, c)?;
         comments += 1;
     }
-    Ok((ticket.id, comments))
+    Ok(Outcome::Written {
+        id: ticket.id,
+        comments,
+        moved_from: wanted.filter(|_| number.is_none()),
+        number: ticket.number,
+    })
 }
 
 /// One source reply, credited to its author's account (or the placeholder),
@@ -1258,6 +1548,11 @@ async fn attach_files(
             for a in &c.attachments {
                 if attached.contains_key(&a.source_id) {
                     continue;
+                }
+                // Between files only, so a file stored is always attached;
+                // the run stops before its next batch.
+                if opts.cancel.is_cancelled() {
+                    return Ok(out);
                 }
                 let label = format!(
                     "{} (on {} #{})",

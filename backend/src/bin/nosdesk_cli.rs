@@ -1419,6 +1419,7 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
         agent_map,
         create_agents: args.create_agents,
         batch_size: loader::DEFAULT_BATCH,
+        cancel: CancellationToken::new(),
     };
     println!();
     println!(
@@ -1441,10 +1442,25 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
     }
 
     let started = std::time::Instant::now();
+    {
+        // Stop between tickets and files, so nothing is left half written.
+        let cancel = opts.cancel.clone();
+        tokio::spawn(async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                eprintln!("\nStopping after the current ticket; run the same command to carry on.");
+                cancel.cancel();
+            }
+        });
+    }
     let result = loader::load(&pool, storage, &bundle, &opts, &|p| {
         eprint!(
-            "\r  {}/{} tickets, {} replies, {} files",
-            p.tickets_done, p.tickets_total, p.comments_written, p.attachments_written
+            "\r  {}/{} people, {}/{} tickets, {} replies, {} files",
+            p.people_done,
+            p.people_total,
+            p.tickets_done,
+            p.tickets_total,
+            p.comments_written,
+            p.attachments_written
         );
     })
     .await;
@@ -1465,8 +1481,15 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
         }
     }
 
-    let rep = result?;
-    let text = report::render_report(&rep);
+    // The report is written whether the run finished or not.
+    let (rep, failure) = match result {
+        Ok(rep) => (rep, None),
+        Err(f) => (*f.report, Some(f.error)),
+    };
+    let mut text = report::render_report(&rep);
+    if let Some(e) = &failure {
+        text.push_str(&format!("\nThe run stopped: {e}\n"));
+    }
     print!("{text}");
     let path = dir.join(format!("report-{}.txt", opts.job_id));
     fs::write(
@@ -1474,6 +1497,9 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
         format!("Import run {}\n\n{plan_text}\n{text}", opts.job_id),
     )
     .with_context(|| format!("writing {}", path.display()))?;
+    if let Some(e) = failure {
+        return Err(anyhow!("{e}. Report: {}", path.display()));
+    }
     println!();
     println!(
         "Import run {} finished in {}s. Report: {}",

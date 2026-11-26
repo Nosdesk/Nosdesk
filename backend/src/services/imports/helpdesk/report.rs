@@ -67,27 +67,59 @@ pub fn render_plan(plan: &Plan) -> String {
     s
 }
 
+/// A run's report, for the operator and the file left beside the bundle.
+/// It names tickets and files, never a download link (which can carry a
+/// token): the connector keeps those out of every reason it records.
 pub fn render_report(r: &LoadReport) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "Tickets written: {}", r.tickets_written);
     let _ = writeln!(s, "Tickets already there: {}", r.tickets_skipped);
+    let _ = writeln!(
+        s,
+        "Tickets brought up to date from the source: {}",
+        r.tickets_updated
+    );
     let _ = writeln!(s, "Replies written: {}", r.comments_written);
     let _ = writeln!(s, "Files attached: {}", r.attachments_written);
     if !r.people.is_empty() {
         let _ = writeln!(s, "People:");
         for (outcome, n) in &r.people {
-            let _ = writeln!(s, "  {outcome:<32} {n}");
+            let _ = writeln!(s, "  {outcome:<40} {n}");
         }
     }
-    if !r.attachment_problems.is_empty() {
+    list(
+        &mut s,
+        "Tickets that couldn't be written (the next run tries them again)",
+        &r.tickets_failed,
+    );
+    list(
+        &mut s,
+        "Tickets changed here since they were imported, left as they are",
+        &r.tickets_changed_here,
+    );
+    list(
+        &mut s,
+        "Tickets numbered after existing ones",
+        &r.numbers_moved,
+    );
+    list(&mut s, "Tickets not brought across again", &r.ticket_notes);
+    list(&mut s, "Files not brought across", &r.attachment_problems);
+    if r.unreadable_lines > 0 {
         let _ = writeln!(
             s,
-            "Files not brought across ({}):",
-            r.attachment_problems.len()
+            "Lines of the bundle that couldn't be read, skipped: {}",
+            r.unreadable_lines
         );
-        for p in &r.attachment_problems {
-            let _ = writeln!(s, "  - {p}");
-        }
     }
     s
+}
+
+fn list(s: &mut String, title: &str, items: &[String]) {
+    if items.is_empty() {
+        return;
+    }
+    let _ = writeln!(s, "{title} ({}):", items.len());
+    for item in items {
+        let _ = writeln!(s, "  - {item}");
+    }
 }

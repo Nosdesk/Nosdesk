@@ -233,6 +233,7 @@ fn options(ws: &WorkspaceSeed, job: Uuid) -> LoadOptions {
         agent_map: HashMap::new(),
         create_agents: true,
         batch_size: 1,
+        cancel: Default::default(),
     }
 }
 
@@ -587,7 +588,7 @@ async fn numbers_follow_existing_tickets_when_the_workspace_has_its_own() {
 }
 
 #[actix_web::test]
-async fn a_failed_batch_rolls_back_alone_and_the_next_run_resumes() {
+async fn a_ticket_that_fails_rolls_back_alone_and_the_next_run_writes_it() {
     let db = TestDb::new();
     let pool = db.pool_with_size(4);
     crate::common::ensure_test_keyring();
@@ -595,37 +596,70 @@ async fn a_failed_batch_rolls_back_alone_and_the_next_run_resumes() {
     let dir = tempfile::tempdir().expect("dir");
     let bundle = write_bundle(dir.path(), &tickets());
 
-    // The second ticket can't be written: its batch fails, the first's stays.
+    // The second ticket can't be written: it alone rolls back, in the same
+    // batch as the first, and the run carries on and says so.
     diesel::sql_query(
         "ALTER TABLE tickets ADD CONSTRAINT test_refuse CHECK (title <> 'New laptop')",
     )
     .execute(&mut pool.get().expect("conn"))
     .expect("constraint");
-    let failed = loader::load(
-        &pool,
-        storage(),
-        &bundle,
-        &options(&ws, Uuid::now_v7()),
-        &|_| {},
-    )
-    .await;
-    let err = failed.expect_err("the second batch fails");
-    assert!(err.to_string().contains("Zendesk #102"), "{err}");
-    assert_eq!(
-        imported_tickets(&pool, &ws).len(),
-        1,
-        "the first batch stays"
+    let mut opts = options(&ws, Uuid::now_v7());
+    opts.batch_size = 200;
+    let first = run(&pool, &bundle, &opts).await;
+    assert_eq!(first.tickets_written, 1);
+    assert_eq!(first.tickets_failed.len(), 1, "{:?}", first.tickets_failed);
+    assert!(
+        first.tickets_failed[0].contains("Zendesk #102"),
+        "{:?}",
+        first.tickets_failed
     );
+    assert_eq!(imported_tickets(&pool, &ws).len(), 1);
+    let report = backend::services::imports::helpdesk::report::render_report(&first);
+    assert!(report.contains("Zendesk #102"), "{report}");
 
     diesel::sql_query("ALTER TABLE tickets DROP CONSTRAINT test_refuse")
         .execute(&mut pool.get().expect("conn"))
         .expect("drop constraint");
     let resumed = run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
     assert_eq!((resumed.tickets_written, resumed.tickets_skipped), (1, 1));
+    assert!(resumed.tickets_failed.is_empty());
     let rows = imported_tickets(&pool, &ws);
     assert_eq!(rows.len(), 2);
     // Ticket 101's replies were written once, in the first run.
     assert_eq!(comments_of(&pool, &ws, rows[0].id).len(), 4);
+}
+
+#[actix_web::test]
+async fn a_record_with_a_nul_is_skipped_and_reported_and_the_rest_lands() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let mut list = tickets();
+    // A bundle from elsewhere, not mapped through the connector.
+    list[0].subject = "VPN\u{0} drops".into();
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle(dir.path(), &list);
+    // And a line that isn't a ticket at all.
+    {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(bundle.root().join("tickets.jsonl"))
+            .expect("tickets");
+        writeln!(f, "{{\"not\": \"a ticket\"}}").expect("line");
+    }
+    let report = run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    assert_eq!(report.tickets_written, 1);
+    assert_eq!(
+        report.tickets_failed.len(),
+        1,
+        "{:?}",
+        report.tickets_failed
+    );
+    assert!(report.tickets_failed[0].contains("Zendesk #101"));
+    assert_eq!(report.unreadable_lines, 1);
+    assert_eq!(imported_tickets(&pool, &ws)[0].number, 102);
 }
 
 #[actix_web::test]
@@ -1063,4 +1097,241 @@ async fn files_come_only_from_the_bundle_and_are_checked_as_uploads_are() {
             report.attachment_problems
         );
     }
+}
+
+fn ordinary_ticket(pool: &TestPool, ws: &WorkspaceSeed, title: &str) -> backend::models::Ticket {
+    run_in_workspace(pool, REF, ws.workspace_id, |c| {
+        let state = backend::repository::workflow_states::default_state(c)?;
+        backend::repository::tickets::create_ticket(
+            c,
+            backend::models::NewTicket {
+                title: title.into(),
+                workflow_state_id: state.id,
+                requester_uuid: Some(ws.member_uuid),
+                ..Default::default()
+            },
+        )
+    })
+    .expect("ordinary ticket")
+}
+
+#[actix_web::test]
+async fn kept_numbers_are_reserved_and_a_taken_one_falls_back() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle(dir.path(), &tickets());
+
+    // A ticket opened here while the import runs (after its first batch)
+    // takes a number after every number the import keeps.
+    let opened = std::sync::Mutex::new(None);
+    let store = storage();
+    loader::load(&pool, store, &bundle, &options(&ws, Uuid::now_v7()), &|p| {
+        let mut opened = opened.lock().expect("lock");
+        if p.tickets_done == 1 && opened.is_none() {
+            *opened = Some(ordinary_ticket(&pool, &ws, "Opened meanwhile").number);
+        }
+    })
+    .await
+    .expect("load");
+    assert_eq!(*opened.lock().expect("lock"), Some(103));
+    let numbers: Vec<i32> = imported_tickets(&pool, &ws)
+        .iter()
+        .map(|t| t.number)
+        .collect();
+    assert_eq!(numbers, vec![101, 102]);
+
+    // Deleting an imported ticket doesn't make the workspace's own tickets
+    // look negative: only the one opened here counts against keeping.
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query("DELETE FROM tickets WHERE number = 102 AND submitted_via = 'import'")
+            .execute(c)
+    })
+    .expect("delete");
+    let mut keep = options(&ws, Uuid::now_v7());
+    keep.numbers = NumberPolicy::Keep;
+    let err = loader::plan(&pool, &bundle, &keep)
+        .await
+        .expect_err("one ticket of the workspace's own");
+    assert!(err.to_string().contains("already has 1 tickets"), "{err}");
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query("DELETE FROM tickets WHERE title = 'Opened meanwhile'").execute(c)
+    })
+    .expect("delete own");
+    assert!(
+        loader::plan(&pool, &bundle, &keep)
+            .await
+            .expect("plan")
+            .keep_numbers,
+        "only the source's own tickets remain, one of them deleted"
+    );
+
+    // A new source ticket whose number is already held here (#101) gets the
+    // next one, and the report says so.
+    let mut reused = raised_by("201", "u-req", &[]);
+    reused.number = Some(101);
+    let dir2 = tempfile::tempdir().expect("dir");
+    let report = run(&pool, &write_bundle(dir2.path(), &[reused]), &keep).await;
+    assert_eq!(report.tickets_written, 1);
+    assert_eq!(report.numbers_moved.len(), 1, "{:?}", report.numbers_moved);
+    assert!(report.numbers_moved[0].contains("#101 is taken"));
+
+    // Numbers past the cap aren't kept.
+    let mut huge = raised_by("202", "u-req", &[]);
+    huge.number = Some(2_000_000_000);
+    let dir3 = tempfile::tempdir().expect("dir");
+    let plan = loader::plan(
+        &pool,
+        &write_bundle(dir3.path(), &[huge]),
+        &options(&ws, Uuid::now_v7()),
+    )
+    .await
+    .expect("plan");
+    assert!(!plan.keep_numbers, "{}", plan.numbers_reason);
+}
+
+#[actix_web::test]
+async fn two_loads_at_once_write_each_ticket_once() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(8);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle(dir.path(), &tickets());
+    let (a, b) = (options(&ws, Uuid::now_v7()), options(&ws, Uuid::now_v7()));
+    let (one, two) = futures::join!(run(&pool, &bundle, &a), run(&pool, &bundle, &b));
+    assert!(one.tickets_failed.is_empty(), "{:?}", one.tickets_failed);
+    assert!(two.tickets_failed.is_empty(), "{:?}", two.tickets_failed);
+    assert_eq!(one.tickets_written + two.tickets_written, 2);
+    assert_eq!(one.comments_written + two.comments_written, 5);
+    assert_eq!(one.attachments_written + two.attachments_written, 1);
+    let rows = imported_tickets(&pool, &ws);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(comments_of(&pool, &ws, rows[0].id).len(), 4);
+}
+
+#[derive(QueryableByName, Debug)]
+struct Standing {
+    #[diesel(sql_type = Text)]
+    category: String,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    closed_at: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Timestamptz)]
+    updated_at: DateTime<Utc>,
+}
+
+fn standing(pool: &TestPool, ws: &WorkspaceSeed, number: i32) -> Standing {
+    run_in_workspace(pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query(
+            "SELECT s.category::text AS category, t.closed_at, t.updated_at FROM tickets t \
+             JOIN workflow_states s ON s.id = t.workflow_state_id WHERE t.number = $1",
+        )
+        .bind::<Integer, _>(number)
+        .get_result::<Standing>(c)
+    })
+    .expect("standing")
+}
+
+#[actix_web::test]
+async fn a_cutover_rerun_follows_the_source_on_tickets_nobody_changed_here() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let mut list = tickets();
+    list.push(raised_by("103", "u-req", &[]));
+    let dir = tempfile::tempdir().expect("dir");
+    run(
+        &pool,
+        &write_bundle(dir.path(), &list),
+        &options(&ws, Uuid::now_v7()),
+    )
+    .await;
+
+    // History keeps the source's last change as its own.
+    assert_eq!(standing(&pool, &ws, 101).updated_at, at(3, 17));
+    assert_eq!(standing(&pool, &ws, 102).category, "active");
+
+    // Someone here replies on 103 before the cutover.
+    let t103 = imported_tickets(&pool, &ws)
+        .into_iter()
+        .find(|t| t.number == 103)
+        .expect("103");
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        backend::repository::comments::create_comment(
+            c,
+            backend::models::NewComment {
+                content: "On it".into(),
+                ticket_id: t103.id,
+                user_uuid: ws.admin_uuid,
+                is_internal: true,
+                ..Default::default()
+            },
+            None,
+        )
+    })
+    .expect("reply here");
+
+    // At the cutover, Zendesk has solved 102 and 103 since.
+    let mut fresher = list.clone();
+    for t in fresher.iter_mut().filter(|t| t.source_id != "101") {
+        t.status = StatusKind::Solved;
+        t.status_label = "solved".into();
+        t.solved_at = Some(at(8, 12));
+        t.updated_at = at(8, 12);
+    }
+    let job = Uuid::now_v7();
+    let dir2 = tempfile::tempdir().expect("dir");
+    let report = run(
+        &pool,
+        &write_bundle(dir2.path(), &fresher),
+        &options(&ws, job),
+    )
+    .await;
+    assert_eq!(report.tickets_updated, 1);
+    let solved = standing(&pool, &ws, 102);
+    assert_eq!(solved.category, "done");
+    assert_eq!(solved.closed_at, Some(at(8, 12)));
+    // Changed here: left alone, and listed.
+    assert_eq!(standing(&pool, &ws, 103).category, "active");
+    assert_eq!(
+        report.tickets_changed_here.len(),
+        1,
+        "{:?}",
+        report.tickets_changed_here
+    );
+    assert!(report.tickets_changed_here[0].contains("Zendesk #103"));
+
+    // Still quiet: the update reached clients but no outbox.
+    assert!(
+        count(
+            &pool,
+            "SELECT count(*) AS n FROM sync_actions WHERE actor_ref = $1 AND aggregate = 'ticket'",
+            job
+        ) > 0
+    );
+    for outbox in ["notification_outbox", "webhook_outbox", "rule_event_outbox"] {
+        let n = count(
+            &pool,
+            &format!(
+                "SELECT count(*) AS n FROM {outbox} o JOIN sync_actions s ON s.sync_id = o.sync_id \
+                 WHERE s.actor_ref = $1"
+            ),
+            job,
+        );
+        assert_eq!(n, 0, "{outbox} got {n} rows from the cutover");
+    }
+
+    // The same bundle again changes nothing: 102 was written by the import
+    // last, and is no newer at the source.
+    let again = run(
+        &pool,
+        &write_bundle(dir2.path(), &fresher),
+        &options(&ws, Uuid::now_v7()),
+    )
+    .await;
+    assert_eq!(again.tickets_updated, 0);
+    assert!(again.tickets_changed_here.len() <= 1);
 }

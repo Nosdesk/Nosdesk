@@ -130,6 +130,81 @@ pub fn other_tickets(conn: &mut DbConnection, scope: Scope<'_>) -> QueryResult<i
     .map(|c| c.n)
 }
 
+/// A ticket a source brought across before, as it stands here now.
+#[derive(Debug, Clone, QueryableByName)]
+pub struct ImportedTicket {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub source_id: String,
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    pub ticket_id: i32,
+    /// Merged into another ticket here: closed to new replies for good.
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    pub merged: bool,
+    /// Nobody has changed it here since the import last wrote it: its
+    /// `updated_at` is no later than the map's `written_at` for it.
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    pub untouched: bool,
+    /// When the source last changed it, as of that write.
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Timestamptz>)]
+    pub source_updated_at: Option<NaiveDateTime>,
+}
+
+// sync-audit-only: read-only (the tickets a source brought, as they stand here)
+/// Those of `source_ids` brought across before whose ticket is still in
+/// the workspace, keyed by source id. A mapped ticket missing from the
+/// answer was deleted here.
+pub fn imported_tickets(
+    conn: &mut DbConnection,
+    scope: Scope<'_>,
+    source_ids: &[String],
+) -> QueryResult<HashMap<String, ImportedTicket>> {
+    if source_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<ImportedTicket> = diesel::sql_query(
+        "SELECT m.source_id, t.id AS ticket_id, \
+                EXISTS (SELECT 1 FROM ticket_merges g WHERE g.ticket_id = t.id) AS merged, \
+                t.updated_at <= m.written_at AS untouched, m.source_updated_at \
+         FROM import_source_ids m \
+         JOIN tickets t ON t.id::text = m.target_id AND t.workspace_id = m.workspace_id \
+         WHERE m.workspace_id = $1 AND m.source = $2 AND m.source_scope = $3 \
+           AND m.entity = 'ticket' AND m.source_id = ANY($4)",
+    )
+    .bind::<diesel::sql_types::Integer, _>(scope.workspace_id)
+    .bind::<diesel::sql_types::Text, _>(scope.source)
+    .bind::<diesel::sql_types::Text, _>(scope.instance)
+    .bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(source_ids)
+    .load(conn)?;
+    Ok(rows.into_iter().map(|r| (r.source_id.clone(), r)).collect())
+}
+
+// sync-audit-only: import bookkeeping no client reads; the ticket write it follows is synced and audited
+/// Record that the import has just written ticket `source_id` again, from
+/// the source as it was at `source_updated_at`: the ticket counts as
+/// untouched here from now until someone changes it.
+pub fn touch_ticket(
+    conn: &mut DbConnection,
+    scope: Scope<'_>,
+    source_id: &str,
+    source_updated_at: NaiveDateTime,
+) -> QueryResult<()> {
+    diesel::sql_query(
+        "UPDATE import_source_ids m \
+         SET written_at = greatest(now(), t.updated_at), source_updated_at = $5 \
+         FROM tickets t \
+         WHERE t.id::text = m.target_id AND t.workspace_id = m.workspace_id \
+           AND m.workspace_id = $1 AND m.source = $2 AND m.source_scope = $3 \
+           AND m.entity = 'ticket' AND m.source_id = $4",
+    )
+    .bind::<diesel::sql_types::Integer, _>(scope.workspace_id)
+    .bind::<diesel::sql_types::Text, _>(scope.source)
+    .bind::<diesel::sql_types::Text, _>(scope.instance)
+    .bind::<diesel::sql_types::Text, _>(source_id)
+    .bind::<diesel::sql_types::Timestamptz, _>(source_updated_at)
+    .execute(conn)
+    .map(|_| ())
+}
+
 // sync-audit-only: import bookkeeping no client reads, cleared with the account it names
 /// Forget every mapping, in every workspace, to the account `user_uuid`:
 /// the account is being purged, so a rerun brings the person across again

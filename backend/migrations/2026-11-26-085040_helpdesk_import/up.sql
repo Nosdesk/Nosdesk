@@ -2,7 +2,7 @@
 -- another helpdesk (Zendesk first). Design:
 -- docs/plans/onboarding-1.2/02-peppermint-review-and-framework.md §2.
 --
--- Three pieces:
+-- Four pieces:
 --   1. `helpdesk` joins the import job types.
 --   2. `import_source_ids` maps every source record to the row it became, so
 --      a run can resume, a rerun skips what landed, and comments find their
@@ -10,6 +10,8 @@
 --   3. Rows written under an `import:<job>` actor reference stay quiet: the
 --      notification, rule and webhook outboxes skip them. The sync pool, SSE
 --      feed and search still see them.
+--   4. `reserve_ticket_numbers` lets an import keeping the source's numbers
+--      reserve them before it writes.
 
 -- ---------------------------------------------------------------------------
 -- 1. Job type
@@ -175,3 +177,29 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- 4. Kept numbers
+-- ---------------------------------------------------------------------------
+-- An import keeping the source's numbers moves the workspace's sequence past
+-- the highest of them before its first ticket, so a ticket opened here
+-- meanwhile can't take a number the import has still to write. The app role
+-- can't call advance_ticket_number (it is the owner's), so this moves the
+-- pinned workspace's sequence only.
+
+CREATE FUNCTION public.reserve_ticket_numbers(n integer) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+    ws integer := NULLIF(current_setting('app.workspace_id', true), '')::integer;
+BEGIN
+    IF ws IS NULL THEN
+        RAISE EXCEPTION 'reserve_ticket_numbers needs a pinned workspace';
+    END IF;
+    PERFORM public.advance_ticket_number(ws, n);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.reserve_ticket_numbers(integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.reserve_ticket_numbers(integer) TO nosdesk_app;
