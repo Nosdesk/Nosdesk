@@ -264,6 +264,12 @@ pub struct Ticket {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct FetchState {
     pub people_done: bool,
+    /// Where people.jsonl came from, set when it is written, so a run that
+    /// finishes a fetch another run started records the source that wrote
+    /// the people, not its own. None in a state saved before this was
+    /// recorded: the manifest then says unknown.
+    #[serde(default)]
+    pub people_source: Option<PeopleSource>,
     /// The source's cursor for people changed since the people were fetched,
     /// so the people the tickets fetched later name can be fetched too.
     #[serde(default)]

@@ -123,6 +123,7 @@ pub async fn read_export(
     run.progress.people = people;
     run.report(source);
     state.people_done = true;
+    state.people_source = Some(PeopleSource::Export);
 
     let fields = if !source.http.has_credential() {
         notes.push("Custom field titles need API access; without a Zendesk credential fields are labelled by id".into());
@@ -240,7 +241,7 @@ pub async fn read_export(
     bundle.write_state(&state)?;
     // People come from the zip alone, credential or not: Zendesk was never
     // asked for someone the zip lacks.
-    let manifest = run.manifest("zendesk", &source.scope, &state.notes, PeopleSource::Export);
+    let manifest = run.manifest("zendesk", &source.scope, &state.notes, state.people_source);
     bundle.write_manifest(&manifest)?;
     Ok(manifest)
 }

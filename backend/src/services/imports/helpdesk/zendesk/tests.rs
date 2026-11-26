@@ -167,6 +167,9 @@ struct Twists {
     /// User 4 is created while the tickets are fetched; ticket 103 names
     /// them.
     late_user: AtomicBool,
+    /// The user export gives no way on before its end: 1, no cursor after
+    /// page one; 2, page two hands back its own cursor.
+    users_stall: AtomicU32,
 }
 
 /// A small Zendesk account: two orgs and three users over two pages each,
@@ -199,7 +202,15 @@ fn account(api_base: &str, files_base: &str, twists: &Twists, req: &Req) -> Resp
                     declared_len: None,
                 };
             }
+            let stall = twists.users_stall.load(Ordering::SeqCst);
             match (q("start_time"), q("cursor")) {
+                (Some("0"), None) if stall == 1 => json_resp(json!({
+                    "users": [{"id": 1, "name": "Ada Admin", "email": "ada@acme.test", "role": "admin", "active": true}],
+                    "after_cursor": null, "end_of_stream": false
+                })),
+                (None, Some("u2")) if stall == 2 => json_resp(json!({
+                    "users": [], "after_cursor": "u2", "end_of_stream": false
+                })),
                 (Some("0"), None) => json_resp(json!({
                     "users": [
                         {"id": 1, "name": "Ada Admin", "email": "ada@acme.test", "role": "admin", "active": true},
@@ -648,6 +659,100 @@ async fn interrupted_fetch_resumes_and_writes_each_ticket_once() {
         1,
         "page one's files not downloaded again"
     );
+}
+
+#[tokio::test]
+async fn a_user_export_that_stops_before_its_end_fails_the_fetch() {
+    for stall in [1, 2] {
+        let s = setup().await;
+        s.twists.users_stall.store(stall, Ordering::SeqCst);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let bundle = Bundle::create(dir.path()).expect("bundle");
+        let mut src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+        let err = src
+            .fetch(&bundle, &no_progress, CancellationToken::new())
+            .await
+            .expect_err("stopped");
+        assert!(matches!(err, SourceError::Protocol(_)), "{stall}: {err:?}");
+        assert!(
+            !bundle.read_state().expect("state").people_done,
+            "{stall}: the people aren't taken as complete"
+        );
+        assert!(bundle.read_manifest().is_err(), "{stall}: no manifest");
+    }
+}
+
+#[tokio::test]
+async fn a_fetch_finishing_another_runs_people_keeps_their_source() {
+    let s = setup().await;
+    // An export read that died after saving its state as done, before its
+    // manifest; then one from a state saved before the source was kept.
+    for (saved, expected) in [
+        (
+            Some(bundle::PeopleSource::Export),
+            Some(bundle::PeopleSource::Export),
+        ),
+        (None, None),
+    ] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let bundle = Bundle::create(dir.path()).expect("bundle");
+        bundle.people_writer(true).expect("people");
+        bundle.tickets_writer(0).expect("tickets");
+        bundle
+            .write_state(&FetchState {
+                people_done: true,
+                people_source: saved,
+                tickets_done: true,
+                ..Default::default()
+            })
+            .expect("state");
+        let mut src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+        let manifest = src
+            .fetch(&bundle, &no_progress, CancellationToken::new())
+            .await
+            .expect("finished");
+        assert_eq!(manifest.people_source, expected, "{saved:?}");
+        assert_eq!(
+            bundle.read_manifest().expect("manifest").people_source,
+            expected
+        );
+    }
+    assert!(
+        s.api
+            .requests("/api/v2/incremental/users/cursor.json")
+            .is_empty(),
+        "the people weren't fetched again"
+    );
+}
+
+#[tokio::test]
+async fn retrying_files_keeps_the_people_source() {
+    let s = setup().await;
+    s.twists.break_5001.store(1000, Ordering::SeqCst);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bundle = Bundle::create(dir.path()).expect("bundle");
+    let mut src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    src.fetch(&bundle, &no_progress, CancellationToken::new())
+        .await
+        .expect("fetch");
+    for people_source in [
+        Some(bundle::PeopleSource::Api),
+        Some(bundle::PeopleSource::Export),
+        None,
+    ] {
+        let mut m = bundle.read_manifest().expect("manifest");
+        m.people_source = people_source;
+        bundle.write_manifest(&m).expect("manifest");
+        let retried = src
+            .retry_missing_files(&bundle, CancellationToken::new())
+            .await
+            .expect("retry");
+        assert!(matches!(retried, Retried::Done { .. }), "{retried:?}");
+        assert_eq!(
+            bundle.read_manifest().expect("manifest").people_source,
+            people_source
+        );
+    }
 }
 
 #[tokio::test]

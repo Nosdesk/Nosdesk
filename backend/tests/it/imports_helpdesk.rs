@@ -1867,6 +1867,74 @@ async fn a_tickets_only_export_refuses_and_writes_nothing() {
         (0, 0, 0),
         "no job, id map or placeholder"
     );
+    // Nor were the kept numbers (up to 102) reserved: the workspace's next
+    // ticket is its first.
+    assert_eq!(ordinary_ticket(&pool, &ws, "After the refusal").number, 1);
+}
+
+#[actix_web::test]
+async fn a_missing_watcher_or_reply_author_alone_still_refuses() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let opts = options(&ws, Uuid::now_v7());
+    let cast = vec![person(
+        "1",
+        "one@customer.test",
+        PersonRole::Requester,
+        true,
+    )];
+
+    // Only a watcher is missing.
+    let dir = tempfile::tempdir().expect("dir");
+    let watched = vec![raised_by("401", "1", &["9"])];
+    let bundle = write_bundle_from(dir.path(), &cast, &watched, Some(PeopleSource::Export));
+    let why = refused(&pool, &bundle, &opts).await;
+    assert!(
+        why.contains(
+            "1 person the bundle doesn't hold (not in the export), on 1 ticket and 0 replies"
+        ),
+        "{why}"
+    );
+
+    // Only a reply's author is missing.
+    let dir = tempfile::tempdir().expect("dir");
+    let mut answered = raised_by("402", "1", &[]);
+    answered
+        .comments
+        .push(comment("c402b", Some("9"), true, "<p>Reply</p>", at(1, 11)));
+    let bundle = write_bundle_from(dir.path(), &cast, &[answered], Some(PeopleSource::Export));
+    let why = refused(&pool, &bundle, &opts).await;
+    assert!(
+        why.contains(
+            "1 person the bundle doesn't hold (not in the export), on 1 ticket and 1 reply"
+        ),
+        "{why}"
+    );
+    assert!(imported_tickets(&pool, &ws).is_empty());
+}
+
+#[actix_web::test]
+async fn a_run_stopped_while_the_bundle_is_read_writes_nothing() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle(dir.path(), &tickets());
+    let job = Uuid::now_v7();
+    let opts = options(&ws, job);
+    opts.cancel.cancel();
+    let failed = loader::load(&pool, storage(), &bundle, &opts, &|_| {})
+        .await
+        .expect_err("stopped");
+    assert!(
+        matches!(failed.error, loader::LoadError::Cancelled),
+        "{failed:?}"
+    );
+    assert_eq!(traces(&pool, job), (0, 0, 0));
+    assert_eq!(ordinary_ticket(&pool, &ws, "After the stop").number, 1);
 }
 
 #[actix_web::test]

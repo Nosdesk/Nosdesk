@@ -205,10 +205,11 @@ struct HelpdeskImportArgs {
     create_agents: bool,
 
     /// Import even though the tickets name people the bundle doesn't hold
-    /// (a tickets-only export). Their tickets and replies are credited to
-    /// the placeholder author for good, and each ticket's import note names
-    /// its requester and assignee by Zendesk id. Not needed for people a
-    /// fetch from the API found gone at Zendesk.
+    /// (a tickets-only export). The tickets they requested and the replies
+    /// they wrote are credited to the placeholder author for good, tickets
+    /// assigned to them are unassigned, their watching is dropped, and each
+    /// ticket's import note names its requester and assignee by Zendesk id.
+    /// Not needed for people a fetch from the API found gone at Zendesk.
     #[arg(long)]
     allow_missing_people: bool,
 

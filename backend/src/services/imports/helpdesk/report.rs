@@ -45,9 +45,9 @@ pub fn render_plan(plan: &Plan) -> String {
     }
     let _ = writeln!(s, "\nPeople the tickets mention:");
     for (outcome, n) in &plan.people {
-        let _ = writeln!(s, "  {outcome:<32} {n}");
+        let _ = writeln!(s, "  {outcome:<40} {n}");
     }
-    missing_people(&mut s, plan.missing_people.as_ref(), 32);
+    missing_people(&mut s, plan.missing_people.as_ref(), 40);
     if !plan.staff.is_empty() {
         let _ = writeln!(s, "\nSource staff:");
         for (who, target, outcome) in &plan.staff {
@@ -138,7 +138,7 @@ fn missing_people(s: &mut String, missing: Option<&MissingPeople>, width: usize)
     let _ = writeln!(s, "  {outcome:<width$} {}", m.people);
     let _ = writeln!(
         s,
-        "    on {} and {}, credited to the placeholder author",
+        "    on {} and {}; their requests and replies go to the placeholder author",
         counted(m.tickets, "ticket", "tickets"),
         counted(m.replies, "reply", "replies")
     );

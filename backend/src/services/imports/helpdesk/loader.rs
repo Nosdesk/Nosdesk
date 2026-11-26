@@ -261,8 +261,8 @@ impl MissingPeople {
         let fix = match self.absence {
             Absence::NotInBundle => {
                 "The bundle predates recording where its people came from. To bring them \
-                 across, run again with --refetch (reading an export, with a zip that also \
-                 holds Zendesk's users export)."
+                 across, run again with --refetch and either a credential, or a zip that also \
+                 holds Zendesk's users export."
             }
             Absence::Unreadable => {
                 "Some lines of the bundle's people.jsonl can't be read, so they aren't \
@@ -276,8 +276,9 @@ impl MissingPeople {
         };
         Some(format!(
             "the tickets name {} the bundle doesn't hold ({}), on {} and {}. Imported now, \
-             those tickets and replies would be credited to the placeholder author for good. \
-             {fix} To import without them, pass --allow-missing-people: each affected \
+             the tickets they requested and the replies they wrote would be credited to the \
+             placeholder author for good, tickets assigned to them would be unassigned, and \
+             they would watch nothing. {fix} To import without them, pass --allow-missing-people: each affected \
              ticket's import note then names its requester and assignee by source id.",
             counted(self.people, "person", "people"),
             self.label,
@@ -747,6 +748,8 @@ pub async fn load(
                 .and_then(|m| m.refusal(opts.allow_missing_people))
             {
                 Some(why) => Err(LoadError::Refused(why)),
+                // Stopped while the bundle was read: nothing written yet.
+                None if opts.cancel.is_cancelled() => Err(LoadError::Cancelled),
                 None => open_job(pool, opts, &prepared.manifest)
                     .await
                     .map(|()| prepared),
@@ -2111,6 +2114,10 @@ mod tests {
             .refusal(false)
             .expect("refused");
         assert!(why.contains("--refetch"), "{why}");
+        assert!(
+            why.contains("a credential") && why.contains("users export"),
+            "{why}"
+        );
         assert_eq!(missing(Absence::NotInBundle).refusal(true), None);
 
         let why = missing(Absence::Unreadable)
