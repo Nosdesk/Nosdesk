@@ -340,6 +340,7 @@ pub async fn sso_callback(
         Ok(Ok(u)) => u,
         Ok(Err(Refused::Domain)) => return Ok(back_to_login("domain")),
         Ok(Err(Refused::StaffElsewhere)) => return Ok(back_to_login("staff_elsewhere")),
+        Ok(Err(Refused::PlatformRole)) => return Ok(back_to_login("platform_role")),
         Err(e) => {
             tracing::error!(error = ?e, "portal sso: resolving the person failed");
             return Ok(back_to_login("failed"));

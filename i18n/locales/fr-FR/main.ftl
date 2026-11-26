@@ -9822,6 +9822,12 @@ portal-sso-error-staff-elsewhere = Ce compte fait partie d'une équipe d'assista
 teams-tab-staff-elsewhere-title = Connectez-vous autrement
 # MT: pending native review (fr-FR)
 teams-tab-staff-elsewhere-body = Votre compte fait partie d'une équipe d'assistance ailleurs dans Nosdesk, il ne peut donc pas se connecter à ce portail d'assistance depuis Teams. Ouvrez plutôt le portail dans votre navigateur.
+# MT: pending native review (fr-FR)
+portal-sso-error-platform-role = Ce compte ne peut pas se connecter au portail d'assistance de cette façon. Utilisez plutôt votre connexion habituelle.
+# MT: pending native review (fr-FR)
+teams-tab-platform-role-title = Connectez-vous autrement
+# MT: pending native review (fr-FR)
+teams-tab-platform-role-body = Ce compte ne peut pas se connecter au portail d'assistance depuis Teams. Utilisez plutôt votre connexion habituelle.
 teams-tab-failed-title = Nous n'avons pas pu vous connecter
 teams-tab-failed-body = Réessayez dans un instant.
 teams-tab-retry = Réessayer

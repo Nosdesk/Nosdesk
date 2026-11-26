@@ -62,6 +62,9 @@ pub enum Refused {
     /// The account holds or held a staff seat in another workspace: a team
     /// member there isn't this workspace's provider to sign in as.
     StaffElsewhere,
+    /// The account holds a platform role (platform admin, audit reviewer): no
+    /// workspace's provider speaks for it.
+    PlatformRole,
 }
 
 // sync-audit-only: links identities, provisions the requester and seat through their own audited repository writes
@@ -88,8 +91,11 @@ pub fn resolve(
         .email
         .map(|e| e.trim().to_lowercase())
         .filter(|e| e.contains('@'));
-    let user = match linked.iter().flatten().next() {
-        Some(user) => *user,
+    let (user, platform_role) = match linked.iter().flatten().next() {
+        Some(user) => (
+            *user,
+            crate::repository::users::platform_role_of(conn, user)?,
+        ),
         None => {
             let Some(email) = email.as_deref() else {
                 return Ok(Err(Refused::Domain));
@@ -107,10 +113,18 @@ pub fn resolve(
                 .map(str::to_string)
                 .or_else(|| crate::utils::name_from_email(email))
                 .unwrap_or_else(|| email.to_string());
-            crate::repository::user_helpers::find_or_provision_requester(email, &name, conn, None)?
-                .uuid
+            let found = crate::repository::user_helpers::find_or_provision_requester(
+                email, &name, conn, None,
+            )?;
+            (found.uuid, Some(found.platform_role))
         }
     };
+    // An account with a platform role is the deployment's, not any one
+    // workspace's: an admin listing its domain doesn't get to sign in as it.
+    // An unreadable or unknown role counts as one.
+    if platform_role.as_deref() != Some(crate::models::PlatformRole::User.as_str()) {
+        return Ok(Err(Refused::PlatformRole));
+    }
     // A listed domain is the admin's word, not proof they own it. Someone who
     // is or was on another workspace's team isn't this provider's to sign in
     // as, whether found by email or by a key linked earlier. A requester
