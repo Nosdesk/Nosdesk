@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::client::RetryPolicy;
 use super::*;
+use crate::services::imports::helpdesk::bundle::InputSet;
 use crate::services::imports::helpdesk::bundle::{BodyFormat, PersonRole, StatusKind};
 
 /// The allowlist is a process-global env var, and other tests in the crate
@@ -170,6 +171,8 @@ struct Twists {
     /// The user export gives no way on before its end: 1, no cursor after
     /// page one; 2, page two hands back its own cursor.
     users_stall: AtomicU32,
+    /// Show Many Users answers 401.
+    deny_show_many: AtomicBool,
 }
 
 /// A small Zendesk account: two orgs and three users over two pages each,
@@ -242,6 +245,40 @@ fn account(api_base: &str, files_base: &str, twists: &Twists, req: &Req) -> Resp
                 _ => status(400),
             }
         }
+        // Show Many: users with an even id under 1000 exist (4 deleted,
+        // with the phone Zendesk still holds), the rest are gone.
+        "/api/v2/users/show_many.json" => {
+            if twists.deny_show_many.load(Ordering::SeqCst) {
+                return status(401);
+            }
+            let users: Vec<Value> = q("ids")
+                .unwrap_or_default()
+                .split(',')
+                .filter_map(|id| id.parse::<i64>().ok())
+                .filter(|id| id % 2 == 0 && *id < 1000)
+                .map(|id| {
+                    json!({"id": id, "name": format!("Filled {id}"),
+                           "email": format!("filled{id}@example.com"), "role": "end-user",
+                           "active": id != 4, "phone": "+61200000000", "organization_id": 950})
+                })
+                .collect();
+            json_resp(json!({"users": users}))
+        }
+        "/api/v2/organizations/show_many.json" => {
+            let orgs: Vec<Value> = q("ids")
+                .unwrap_or_default()
+                .split(',')
+                .filter_map(|id| id.parse::<i64>().ok())
+                .map(|id| json!({"id": id, "name": format!("Org {id}"), "domain_names": ["org.test"]}))
+                .collect();
+            json_resp(json!({"organizations": orgs}))
+        }
+        "/api/v2/groups.json" => json_resp(json!({
+            "groups": [{"id": 10, "name": "Tier 2"}], "meta": {"has_more": false}
+        })),
+        "/api/v2/brands.json" => json_resp(json!({
+            "brands": [{"id": 20, "name": "Acme Support"}], "meta": {"has_more": false}
+        })),
         "/api/v2/ticket_fields.json" => {
             if twists.fields_503_once.swap(false, Ordering::SeqCst) {
                 return status(503);
@@ -992,7 +1029,7 @@ async fn reads_a_json_export_zip() {
     let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
     let manifest = read_export(
         &src,
-        &zip_path,
+        std::slice::from_ref(&zip_path),
         &bundle,
         &no_progress,
         CancellationToken::new(),
@@ -1091,7 +1128,7 @@ async fn export_reads_without_a_credential() {
         .expect("source");
     let manifest = read_export(
         &src,
-        &zip_path,
+        std::slice::from_ref(&zip_path),
         &bundle,
         &no_progress,
         CancellationToken::new(),
@@ -1171,7 +1208,14 @@ async fn read_zip(
     let bundle = Bundle::create(out).expect("bundle");
     let src = with_local_allowlisted(|| ZendeskSource::for_export_with_base_url(api_base))
         .expect("source");
-    let manifest = read_export(&src, zip, &bundle, &no_progress, CancellationToken::new()).await?;
+    let manifest = read_export(
+        &src,
+        &[zip.to_path_buf()],
+        &bundle,
+        &no_progress,
+        CancellationToken::new(),
+    )
+    .await?;
     Ok((bundle, manifest))
 }
 
@@ -1490,4 +1534,424 @@ async fn a_file_that_keeps_failing_is_given_up_after_three_more_runs() {
         Retried::Nothing
     );
     assert_eq!(s.api.requests("/attachments/5001").len(), requests);
+}
+
+// ---------------------------------------------------------------- Phase 1:
+// several zips, the input set, and the API fill
+
+fn ndjson(lines: &[Value]) -> Vec<u8> {
+    lines
+        .iter()
+        .map(|l| format!("{l}\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+fn zip_at(path: &std::path::Path, entries: &[(&str, Vec<u8>)]) -> std::path::PathBuf {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(path).expect("zip"));
+    for (name, bytes) in entries {
+        zip.start_file(*name, zip::write::SimpleFileOptions::default())
+            .expect("entry");
+        zip.write_all(bytes).expect("bytes");
+    }
+    zip.finish().expect("finish");
+    path.to_path_buf()
+}
+
+fn export_ticket(id: i64, v: Value) -> Value {
+    let mut t = json!({
+        "id": id, "subject": format!("Ticket {id}"), "status": "open", "requester_id": 3,
+        "created_at": "2023-05-01T09:00:00Z", "updated_at": "2023-05-02T09:00:00Z",
+        "comments": [{"id": id * 10, "author_id": 3, "public": true,
+                      "created_at": "2023-05-01T09:00:00Z", "body": "hello"}]
+    });
+    if let (Some(t), Some(extra)) = (t.as_object_mut(), v.as_object()) {
+        for (k, val) in extra {
+            t.insert(k.clone(), val.clone());
+        }
+    }
+    json!({ "ticket": t })
+}
+
+async fn read_zips(
+    src: &ZendeskSource,
+    zips: &[std::path::PathBuf],
+    out: &std::path::Path,
+) -> (Bundle, Manifest) {
+    let bundle = Bundle::create(out).expect("bundle");
+    let manifest = read_export(src, zips, &bundle, &no_progress, CancellationToken::new())
+        .await
+        .expect("export");
+    (bundle, manifest)
+}
+
+fn people_of(b: &Bundle) -> HashMap<String, bundle::Person> {
+    b.people()
+        .expect("people")
+        .map(|p| p.expect("person"))
+        .map(|p| (p.source_id.clone(), p))
+        .collect()
+}
+
+fn tickets_of(b: &Bundle) -> Vec<bundle::Ticket> {
+    b.tickets()
+        .expect("tickets")
+        .map(|t| t.expect("ticket"))
+        .collect()
+}
+
+fn no_incremental(server: &MockServer) {
+    let log = server.log.lock().expect("log");
+    assert!(
+        log.iter().all(|r| !r.path.contains("/incremental/")),
+        "{:?}",
+        log.iter().map(|r| &r.path).collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+async fn two_zips_merge_and_the_later_record_wins() {
+    let s = setup().await;
+    let dir = tempfile::tempdir().expect("dir");
+    let older = zip_at(
+        &dir.path().join("tickets.zip"),
+        &[(
+            "export_1",
+            ndjson(&[
+                export_ticket(201, json!({"subject": "Old subject"})),
+                export_ticket(202, json!({})),
+                json!({"user": {"id": 3, "name": "Cara Old", "email": "cara@example.com",
+                                "role": "end-user", "updated_at": "2023-01-01T00:00:00Z"}}),
+            ]),
+        )],
+    );
+    let newer = zip_at(
+        &dir.path().join("users.zip"),
+        &[(
+            "export_2",
+            ndjson(&[
+                export_ticket(
+                    201,
+                    json!({"subject": "New subject", "updated_at": "2023-06-01T00:00:00Z"}),
+                ),
+                json!({"user": {"id": 3, "name": "Cara New", "email": "cara@example.com",
+                                "role": "end-user", "updated_at": "2023-02-01T00:00:00Z",
+                                "organization_id": 900}}),
+                json!({"organization": {"id": 900, "name": "Acme"}}),
+            ]),
+        )],
+    );
+    let src = with_local_allowlisted(|| ZendeskSource::for_export_with_base_url(&s.api.base()))
+        .expect("source");
+    let (bundle, manifest) =
+        read_zips(&src, &[older.clone(), newer.clone()], &dir.path().join("b")).await;
+
+    let tickets = tickets_of(&bundle);
+    let subjects: Vec<(&str, &str)> = tickets
+        .iter()
+        .map(|t| (t.source_id.as_str(), t.subject.as_str()))
+        .collect();
+    assert_eq!(subjects.len(), 2, "{subjects:?}");
+    assert!(subjects.contains(&("201", "New subject")), "{subjects:?}");
+    assert!(subjects.contains(&("202", "Ticket 202")), "{subjects:?}");
+    let cara = &people_of(&bundle)["3"];
+    assert_eq!(cara.name, "Cara New");
+    assert_eq!(cara.organization.as_deref(), Some("Acme"));
+    assert_eq!(bundle.organizations().expect("orgs").len(), 1);
+    assert_eq!(manifest.person_detail, bundle::PERSON_DETAIL);
+    let inputs = manifest.inputs.expect("inputs");
+    assert_eq!(inputs.names(), vec!["tickets.zip", "users.zip"]);
+    assert!(!inputs.credential && !inputs.api_fill);
+    assert_eq!(manifest.fill, None, "no credential, no fill");
+    assert!(
+        s.api.log.lock().expect("log").is_empty(),
+        "nothing asked of the API"
+    );
+}
+
+#[tokio::test]
+async fn input_set_change_refuses_without_refetch() {
+    let s = setup().await;
+    let dir = tempfile::tempdir().expect("dir");
+    let a = zip_at(
+        &dir.path().join("tickets.zip"),
+        &[("export_1", ndjson(&[export_ticket(201, json!({}))]))],
+    );
+    let b = zip_at(
+        &dir.path().join("users.zip"),
+        &[(
+            "export_2",
+            ndjson(&[json!({"user": {"id": 3, "name": "Cara", "email": "c@x.test"}})]),
+        )],
+    );
+    let src = with_local_allowlisted(|| ZendeskSource::for_export_with_base_url(&s.api.base()))
+        .expect("source");
+    let (_, manifest) = read_zips(&src, std::slice::from_ref(&a), &dir.path().join("b")).await;
+
+    let same = InputSet::of(std::slice::from_ref(&a), false, true).expect("set");
+    assert_eq!(reuse_refusal(&manifest, &same), None);
+    // The same file moved is the same input.
+    let moved = dir.path().join("moved.zip");
+    std::fs::copy(&a, &moved).expect("copy");
+    let set = InputSet::of(std::slice::from_ref(&moved), false, true).expect("set");
+    assert_eq!(reuse_refusal(&manifest, &set), None);
+
+    let more = InputSet::of(&[a.clone(), b.clone()], false, true).expect("set");
+    let why = reuse_refusal(&manifest, &more).expect("refused");
+    assert!(why.contains("read from tickets.zip"), "{why}");
+    assert!(why.contains("tickets.zip, users.zip"), "{why}");
+    assert!(why.contains("add --refetch"), "{why}");
+    // A credential now, where there was none: the fill would add people.
+    let with_credential = InputSet::of(std::slice::from_ref(&a), true, true).expect("set");
+    assert!(reuse_refusal(&manifest, &with_credential).is_some());
+
+    // A bundle older than the record refuses new zips, not an API rerun.
+    let old = Manifest {
+        inputs: None,
+        ..manifest.clone()
+    };
+    assert!(reuse_refusal(&old, &same).is_some());
+    let api = InputSet::of(&[], true, true).expect("set");
+    assert!(!api.api_fill, "an API fetch has no fill");
+    assert_eq!(reuse_refusal(&old, &api), None);
+}
+
+/// An export whose tickets name `missing` people no zip holds, as
+/// watchers, beside Cara (3), whom it holds.
+fn export_naming(dir: &std::path::Path, missing: &[i64]) -> std::path::PathBuf {
+    zip_at(
+        &dir.join("export.zip"),
+        &[(
+            "export_1",
+            ndjson(&[
+                export_ticket(201, json!({"collaborator_ids": missing})),
+                json!({"user": {"id": 3, "name": "Cara", "email": "cara@example.com",
+                                "role": "end-user", "organization_id": 900}}),
+                json!({"organization": {"id": 900, "name": "Acme"}}),
+            ]),
+        )],
+    )
+}
+
+#[tokio::test]
+async fn fill_asks_show_many_in_hundreds_without_brand_all() {
+    let s = setup().await;
+    let dir = tempfile::tempdir().expect("dir");
+    let missing: Vec<i64> = (2000..2150).collect();
+    let zip = export_naming(dir.path(), &missing);
+    let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    let (_, manifest) = read_zips(&src, &[zip], &dir.path().join("b")).await;
+
+    let asked = s.api.requests("/api/v2/users/show_many.json");
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    let mut all = Vec::new();
+    for r in &asked {
+        let ids: Vec<&str> = r.query["ids"].split(',').collect();
+        assert!(ids.len() <= 100, "{}", ids.len());
+        all.extend(ids.into_iter().map(str::to_string));
+        assert_eq!(
+            r.query.get("include_deleted").map(String::as_str),
+            Some("true")
+        );
+        assert!(!r.query.contains_key("brand_id"), "{:?}", r.query);
+        assert!(r.auth.is_some());
+    }
+    assert_eq!(all.len(), 150);
+    no_incremental(&s.api);
+    let fill = manifest.fill.expect("fill");
+    assert_eq!((fill.people_asked, fill.people_returned), (150, 0));
+    assert_eq!(fill.gone.len(), 150);
+}
+
+#[tokio::test]
+async fn fill_marks_unreturned_ids_gone() {
+    let s = setup().await;
+    let dir = tempfile::tempdir().expect("dir");
+    // 4 is returned (deleted at Zendesk), 6 returned, 5 not returned.
+    let zip = export_naming(dir.path(), &[4, 5, 6]);
+    let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    let (bundle, manifest) = read_zips(&src, &[zip.clone()], &dir.path().join("b")).await;
+    let fill = manifest.fill.clone().expect("fill");
+    assert_eq!(fill.people_asked, 3);
+    assert_eq!(fill.people_returned, 2);
+    assert_eq!(fill.gone, vec!["5"]);
+    assert_eq!(fill.failed, None);
+    assert_eq!(
+        fill.organizations, 1,
+        "the filled people's organization 950"
+    );
+    let people = people_of(&bundle);
+    let deleted = &people["4"];
+    assert!(deleted.deleted);
+    assert_eq!(
+        deleted.phone, None,
+        "nothing of a deleted person's but their name"
+    );
+    let six = &people["6"];
+    assert!(!six.deleted && six.active);
+    assert_eq!(six.phone.as_deref(), Some("+61200000000"));
+    assert_eq!(six.organization.as_deref(), Some("Org 950"));
+    assert!(!people.contains_key("5"));
+    assert_eq!(manifest.people_source, Some(bundle::PeopleSource::Export));
+    assert_eq!(
+        s.api.requests("/api/v2/organizations/show_many.json")[0].query["ids"],
+        "950"
+    );
+    no_incremental(&s.api);
+
+    // A fill refused at Zendesk confirms no one gone: they stay "not in
+    // the export", and the fill's failure is recorded.
+    s.twists.deny_show_many.store(true, Ordering::SeqCst);
+    let (_, manifest) = read_zips(&src, &[zip], &dir.path().join("b2")).await;
+    let fill = manifest.fill.expect("fill");
+    assert!(fill.gone.is_empty());
+    assert_eq!(fill.people_returned, 0);
+    let why = fill.failed.expect("failed");
+    assert!(why.contains("refused the credential"), "{why}");
+    assert!(
+        manifest
+            .notes
+            .iter()
+            .any(|n| n.contains("The API fill stopped")),
+        "{:?}",
+        manifest.notes
+    );
+}
+
+#[tokio::test]
+async fn over_1mb_ticket_gets_its_comments() {
+    let s = setup().await;
+    let dir = tempfile::tempdir().expect("dir");
+    // Ticket 101 sent without its conversation, as Zendesk does over 1 MB;
+    // 999 too, which the API no longer has.
+    let zip = zip_at(
+        &dir.path().join("export.zip"),
+        &[(
+            "export_1",
+            ndjson(&[
+                export_ticket(101, json!({"comments": null, "description": "Too big"})),
+                export_ticket(999, json!({"comments": [], "description": "Gone too"})),
+                json!({"user": {"id": 3, "name": "Cara", "email": "cara@example.com"}}),
+                json!({"user": {"id": 2, "name": "Alan", "email": "alan@acme.test", "role": "agent"}}),
+            ]),
+        )],
+    );
+    let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    let (bundle, manifest) = read_zips(&src, &[zip.clone()], &dir.path().join("b")).await;
+    let tickets = tickets_of(&bundle);
+    let filled = tickets.iter().find(|t| t.source_id == "101").expect("101");
+    let ids: Vec<&str> = filled
+        .comments
+        .iter()
+        .map(|c| c.source_id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["1001", "1002"], "both pages of its conversation");
+    let gone = tickets.iter().find(|t| t.source_id == "999").expect("999");
+    assert_eq!(gone.comments.len(), 1);
+    assert_eq!(gone.comments[0].body.value, "Gone too");
+    assert_eq!(manifest.fill.expect("fill").conversations, 1);
+    assert!(
+        manifest
+            .notes
+            .iter()
+            .any(|n| n.starts_with("1 tickets came without their conversation")),
+        "{:?}",
+        manifest.notes
+    );
+    // Each ticket's comments asked for once, one request at a time.
+    assert_eq!(s.api.requests("/api/v2/tickets/101/comments.json").len(), 2);
+    no_incremental(&s.api);
+}
+
+#[tokio::test]
+async fn no_api_fill_fetches_nothing() {
+    let s = setup().await;
+    let dir = tempfile::tempdir().expect("dir");
+    let zip = zip_at(
+        &dir.path().join("export.zip"),
+        &[(
+            "export_1",
+            ndjson(&[
+                export_ticket(
+                    101,
+                    json!({"comments": null, "description": "Too big", "group_id": 10,
+                           "brand_id": 20, "collaborator_ids": [5, 6]}),
+                ),
+                json!({"user": {"id": 3, "name": "Cara", "email": "cara@example.com"}}),
+            ]),
+        )],
+    );
+    let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into())).without_api_fill();
+    assert!(!src.fills_from_api());
+    let (bundle, manifest) = read_zips(&src, &[zip], &dir.path().join("b")).await;
+    assert!(
+        s.api.log.lock().expect("log").is_empty(),
+        "{:?}",
+        s.api.log.lock().expect("log")
+    );
+    assert_eq!(manifest.fill, None);
+    let inputs = manifest.inputs.expect("inputs");
+    assert!(inputs.credential && !inputs.api_fill);
+    let t = &tickets_of(&bundle)[0];
+    assert_eq!(t.comments[0].body.value, "Too big");
+    assert_eq!(
+        t.fields.get("Group there").map(String::as_str),
+        Some("id 10")
+    );
+}
+
+#[tokio::test]
+async fn group_and_brand_names_or_ids() {
+    let s = setup().await;
+    let dir = tempfile::tempdir().expect("dir");
+    let zip = zip_at(
+        &dir.path().join("export.zip"),
+        &[(
+            "export_1",
+            ndjson(&[
+                export_ticket(
+                    201,
+                    json!({"group_id": 10, "brand_id": 20, "organization_id": 900}),
+                ),
+                export_ticket(202, json!({"group_id": 11, "brand_id": 20})),
+                json!({"user": {"id": 3, "name": "Cara", "email": "cara@example.com"}}),
+                json!({"organization": {"id": 900, "name": "Acme", "shared_tickets": true}}),
+            ]),
+        )],
+    );
+    let field = |t: &bundle::Ticket, k: &str| t.fields.get(k).cloned();
+
+    // With a credential: names, each list asked for once.
+    let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    let (bundle, _) = read_zips(&src, &[zip.clone()], &dir.path().join("b")).await;
+    let tickets = tickets_of(&bundle);
+    assert_eq!(field(&tickets[0], "Group there").as_deref(), Some("Tier 2"));
+    assert_eq!(
+        field(&tickets[0], "Brand there").as_deref(),
+        Some("Acme Support")
+    );
+    assert_eq!(
+        field(&tickets[0], "Organization there").as_deref(),
+        Some("Acme")
+    );
+    assert_eq!(tickets[0].organization_id.as_deref(), Some("900"));
+    assert_eq!(field(&tickets[1], "Group there").as_deref(), Some("id 11"));
+    assert_eq!(s.api.requests("/api/v2/groups.json").len(), 1);
+    assert_eq!(s.api.requests("/api/v2/brands.json").len(), 1);
+    no_incremental(&s.api);
+    let orgs = bundle.organizations().expect("orgs");
+    assert!(orgs[0].shared_tickets);
+
+    // Without one: the ids.
+    let src = with_local_allowlisted(|| ZendeskSource::for_export_with_base_url(&s.api.base()))
+        .expect("source");
+    let (bundle, _) = read_zips(&src, &[zip], &dir.path().join("b2")).await;
+    let tickets = tickets_of(&bundle);
+    assert_eq!(field(&tickets[0], "Group there").as_deref(), Some("id 10"));
+    assert_eq!(field(&tickets[0], "Brand there").as_deref(), Some("id 20"));
+    assert_eq!(
+        field(&tickets[0], "Organization there").as_deref(),
+        Some("Acme")
+    );
 }

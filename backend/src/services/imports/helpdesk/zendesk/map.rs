@@ -8,7 +8,8 @@ use chrono::{DateTime, Utc};
 
 use super::api;
 use crate::services::imports::helpdesk::bundle::{
-    Attachment, Body, BodyFormat, Comment, Person, PersonRole, PriorityLevel, StatusKind, Ticket,
+    self, Attachment, Body, BodyFormat, Comment, Person, PersonRole, PriorityLevel, StatusKind,
+    Ticket,
 };
 
 /// `s` without NUL characters, which Postgres text can't hold: one stray
@@ -22,15 +23,48 @@ pub fn text(s: &str) -> String {
 }
 
 /// Organisation id → name, so a person carries their organisation by name.
+/// A deleted organization is nobody's, so it isn't here.
 pub type Organizations = HashMap<i64, String>;
 
-pub fn organizations(orgs: impl IntoIterator<Item = api::Organization>) -> Organizations {
+pub fn organizations<'a>(orgs: impl IntoIterator<Item = &'a api::Organization>) -> Organizations {
     orgs.into_iter()
-        .filter_map(|o| {
-            let name = text(o.name?.trim());
-            (!name.is_empty()).then_some((o.id, name))
-        })
+        .filter_map(organization)
+        .filter(|o| !o.deleted)
+        .filter_map(|o| Some((o.source_id.parse().ok()?, o.name)))
         .collect()
+}
+
+/// The bundle's record of an organization, or None when it has no name.
+/// Whether its members shared tickets is `ticket_restriction` when Zendesk
+/// sends it, else the older `shared_tickets`.
+pub fn organization(o: &api::Organization) -> Option<bundle::Organization> {
+    let name = text(o.name.as_deref()?.trim());
+    if name.is_empty() {
+        return None;
+    }
+    let shared_tickets = match o.ticket_restriction.as_deref() {
+        Some(r) => r == "organization",
+        None => o.shared_tickets.unwrap_or(false),
+    };
+    Some(bundle::Organization {
+        source_id: o.id.to_string(),
+        name,
+        domain_names: o
+            .domain_names
+            .iter()
+            .map(|d| text(d.trim()).to_lowercase())
+            .filter(|d| !d.is_empty())
+            .collect(),
+        shared_tickets,
+        deleted: o.deleted_at.is_some(),
+    })
+}
+
+/// Staff with partial access at Zendesk: a light agent, a chat-only agent,
+/// a contributor, an agent who may only write private comments, or another
+/// account's agent through ticket sharing.
+fn limited_staff(u: &api::User) -> bool {
+    matches!(u.role_type, Some(1..=3)) || u.only_private_comments || u.shared_agent
 }
 
 pub fn person(u: &api::User, orgs: &Organizations) -> Person {
@@ -40,6 +74,14 @@ pub fn person(u: &api::User, orgs: &Organizations) -> Person {
         // "end-user", and anything Zendesk adds later: the least access.
         _ => PersonRole::Requester,
     };
+    // `active: false` is Zendesk's deleted; suspended is its own flag.
+    let deleted = !u.active;
+    let staff = role.is_staff();
+    let phone = u
+        .phone
+        .as_deref()
+        .map(|p| text(p.trim()))
+        .filter(|p| !p.is_empty() && p.chars().count() <= 64);
     let email = u
         .email
         .as_deref()
@@ -59,9 +101,45 @@ pub fn person(u: &api::User, orgs: &Organizations) -> Person {
         name,
         role,
         active: u.active && !u.suspended,
+        deleted,
+        limited_staff: staff && limited_staff(u),
+        custom_role: role == PersonRole::Agent && u.role_type == Some(0),
         organization: u.organization_id.and_then(|id| orgs.get(&id).cloned()),
+        organization_id: u.organization_id.map(|id| id.to_string()),
+        // Nothing of a deleted person's but their name, and never a shared
+        // number, which is a switchboard rather than theirs.
+        phone: phone.filter(|_| !deleted && !u.shared_phone_number),
+        shared_phone: !deleted && u.shared_phone_number && u.phone.is_some(),
         created_at: u.created_at,
         updated_at: u.updated_at,
+    }
+}
+
+/// Names for the ticket's group, organization and brand at Zendesk, for
+/// its import note. A name the connector couldn't fetch is shown as the id.
+#[derive(Debug, Default)]
+pub struct Labels {
+    pub organizations: Organizations,
+    pub groups: HashMap<i64, String>,
+    pub brands: HashMap<i64, String>,
+}
+
+impl Labels {
+    pub fn names(items: impl IntoIterator<Item = api::Named>) -> HashMap<i64, String> {
+        items
+            .into_iter()
+            .filter_map(|n| {
+                let name = text(n.name?.trim());
+                (!name.is_empty()).then_some((n.id, name))
+            })
+            .collect()
+    }
+
+    fn line(names: &HashMap<i64, String>, id: i64) -> String {
+        names
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| format!("id {id}"))
     }
 }
 
@@ -226,6 +304,7 @@ pub fn ticket(
     t: &api::Ticket,
     created_at: DateTime<Utc>,
     fields: &FieldCatalog,
+    labels: &Labels,
     mut comments: Vec<Comment>,
     solved_at: Option<DateTime<Utc>>,
 ) -> Ticket {
@@ -264,6 +343,21 @@ pub fn ticket(
         };
         field_values.insert(key, value);
     }
+    for (label, id, names) in [
+        ("Group there", t.group_id, &labels.groups),
+        (
+            "Organization there",
+            t.organization_id,
+            &labels.organizations,
+        ),
+        ("Brand there", t.brand_id, &labels.brands),
+    ] {
+        if let Some(id) = id {
+            field_values
+                .entry(label.to_string())
+                .or_insert_with(|| Labels::line(names, id));
+        }
+    }
 
     let status_label = text(t.status.as_deref().unwrap_or("open"));
     let subject = t
@@ -290,6 +384,7 @@ pub fn ticket(
         created_at,
         updated_at: t.updated_at.unwrap_or(created_at),
         solved_at: solved_at.or_else(|| t.metric_set.as_ref().and_then(|m| m.solved_at)),
+        organization_id: t.organization_id.map(|id| id.to_string()),
         fields: field_values,
         comments,
     }
@@ -306,10 +401,9 @@ mod tests {
 
     #[test]
     fn people_map_role_email_activity_and_organisation() {
-        let orgs = organizations(vec![api::Organization {
-            id: 9,
-            name: Some("Acme".into()),
-        }]);
+        let acme: api::Organization =
+            serde_json::from_value(json!({"id": 9, "name": "Acme"})).expect("org");
+        let orgs = organizations([&acme]);
         let u: api::User = serde_json::from_value(json!({
             "id": 5, "name": "Ann", "email": "Ann@Example.COM", "role": "admin",
             "active": true, "suspended": true, "organization_id": 9
@@ -320,6 +414,7 @@ mod tests {
         assert_eq!(p.email.as_deref(), Some("ann@example.com"));
         assert_eq!(p.role, PersonRole::Admin);
         assert!(!p.active, "suspended is inactive");
+        assert!(!p.deleted, "suspended is not deleted");
         assert_eq!(p.organization.as_deref(), Some("Acme"));
 
         let u: api::User =
@@ -330,6 +425,123 @@ mod tests {
         assert_eq!(p.email, None);
         assert_eq!(p.name, "Zendesk user 6");
         assert!(p.active);
+    }
+
+    fn user(v: serde_json::Value) -> api::User {
+        serde_json::from_value(v).expect("user")
+    }
+
+    #[test]
+    fn limited_staff_from_role_type_and_private_comments() {
+        let orgs = Organizations::new();
+        for (v, limited, custom) in [
+            (
+                json!({"id": 1, "role": "agent", "role_type": 1}),
+                true,
+                false,
+            ),
+            (
+                json!({"id": 2, "role": "agent", "role_type": 2}),
+                true,
+                false,
+            ),
+            (
+                json!({"id": 3, "role": "agent", "role_type": 3}),
+                true,
+                false,
+            ),
+            (
+                json!({"id": 4, "role": "agent", "only_private_comments": true}),
+                true,
+                false,
+            ),
+            (
+                json!({"id": 5, "role": "agent", "shared_agent": true}),
+                true,
+                false,
+            ),
+            (
+                json!({"id": 6, "role": "agent", "role_type": 0}),
+                false,
+                true,
+            ),
+            (
+                json!({"id": 7, "role": "agent", "role_type": null}),
+                false,
+                false,
+            ),
+            (
+                json!({"id": 8, "role": "admin", "role_type": 4}),
+                false,
+                false,
+            ),
+            // An end user is never staff, limited or not.
+            (
+                json!({"id": 9, "role": "end-user", "only_private_comments": true}),
+                false,
+                false,
+            ),
+        ] {
+            let p = person(&user(v.clone()), &orgs);
+            assert_eq!(p.limited_staff, limited, "{v}");
+            assert_eq!(p.custom_role, custom, "{v}");
+        }
+    }
+
+    #[test]
+    fn deleted_is_not_suspended() {
+        let orgs = Organizations::new();
+        let deleted = person(
+            &user(
+                json!({"id": 1, "email": "d@x.test", "active": false, "phone": "+61 2 9999 0000"}),
+            ),
+            &orgs,
+        );
+        assert!(deleted.deleted && !deleted.active);
+        assert_eq!(deleted.phone, None, "nothing but a deleted person's name");
+        let suspended = person(
+            &user(json!({"id": 2, "email": "s@x.test", "active": true, "suspended": true})),
+            &orgs,
+        );
+        assert!(!suspended.deleted && !suspended.active);
+        let active = person(&user(json!({"id": 3, "active": null})), &orgs);
+        assert!(!active.deleted && active.active);
+    }
+
+    #[test]
+    fn shared_phone_is_dropped() {
+        let orgs = Organizations::new();
+        let own = person(&user(json!({"id": 1, "phone": " +61299990000 "})), &orgs);
+        assert_eq!(own.phone.as_deref(), Some("+61299990000"));
+        assert!(!own.shared_phone);
+        let shared = person(
+            &user(json!({"id": 2, "phone": "+61299990000", "shared_phone_number": true})),
+            &orgs,
+        );
+        assert_eq!(shared.phone, None);
+        assert!(shared.shared_phone);
+    }
+
+    #[test]
+    fn organizations_read_sharing_and_a_deleted_one_is_nobodys() {
+        let o = |v| serde_json::from_value::<api::Organization>(v).expect("org");
+        let acme = o(
+            json!({"id": 1, "name": "Acme", "domain_names": ["Acme.TEST"],
+                            "shared_tickets": false, "ticket_restriction": "organization"}),
+        );
+        let beta = o(json!({"id": 2, "name": "Beta", "shared_tickets": true}));
+        let gone = o(json!({"id": 3, "name": "Gone", "deleted_at": "2025-01-01T00:00:00Z"}));
+        let rec = organization(&acme).expect("acme");
+        assert!(rec.shared_tickets, "ticket_restriction wins");
+        assert_eq!(rec.domain_names, vec!["acme.test"]);
+        assert!(organization(&beta).expect("beta").shared_tickets);
+        assert!(organization(&gone).expect("gone").deleted);
+        let names = organizations([&acme, &beta, &gone]);
+        assert_eq!(names.len(), 2);
+        let u = user(json!({"id": 9, "organization_id": 3}));
+        let p = person(&u, &names);
+        assert_eq!(p.organization, None);
+        assert_eq!(p.organization_id.as_deref(), Some("3"));
     }
 
     #[test]
@@ -346,7 +558,7 @@ mod tests {
             "custom_fields": [{"id": 1, "value": "north"}, {"id": 2, "value": "so\u{0}uth"}]
         }));
         let at = ticket_created_at(&t).expect("created");
-        let out = ticket(&t, at, &catalog, vec![], None);
+        let out = ticket(&t, at, &catalog, &Labels::default(), vec![], None);
         assert_eq!(out.subject, "VPN down");
         assert_eq!(out.tags, vec!["ab"]);
         assert_eq!(out.fields.get("Site").map(String::as_str), Some("north"));
@@ -383,7 +595,7 @@ mod tests {
             ]
         }));
         let at = ticket_created_at(&t).expect("created");
-        let out = ticket(&t, at, &catalog, vec![], None);
+        let out = ticket(&t, at, &catalog, &Labels::default(), vec![], None);
         assert_eq!(out.number, Some(42));
         assert_eq!(out.status, StatusKind::OnHold);
         assert_eq!(out.status_label, "hold");

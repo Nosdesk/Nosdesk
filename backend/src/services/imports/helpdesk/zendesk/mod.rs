@@ -30,6 +30,7 @@
 mod api;
 mod client;
 pub mod export;
+mod fill;
 mod map;
 #[cfg(test)]
 mod tests;
@@ -45,11 +46,11 @@ use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
-use super::bundle::{self, Attachment, Bundle, FetchState, Manifest};
+use super::bundle::{self, Attachment, Bundle, FetchState, InputSet, Manifest};
 use super::source::{FetchProgress, HelpdeskSource, SourceError};
 use crate::utils::egress;
 use client::Http;
-use map::FieldCatalog;
+use map::{FieldCatalog, Labels};
 
 pub use export::read_export;
 
@@ -104,6 +105,9 @@ pub struct ZendeskSource {
     http: Http,
     max_attachment_bytes: u64,
     ticket_page_size: u32,
+    /// With a credential, reading an export asks the API for what the
+    /// export lacks. Off with `--no-api-fill`.
+    api_fill: bool,
 }
 
 impl ZendeskSource {
@@ -187,7 +191,24 @@ impl ZendeskSource {
             http,
             max_attachment_bytes: MAX_ATTACHMENT_BYTES,
             ticket_page_size: TICKET_PAGE_SIZE,
+            api_fill: true,
         }
+    }
+
+    /// Reading an export asks the API for nothing, credential or not: no
+    /// people, organizations, names, conversations or field titles.
+    pub fn without_api_fill(mut self) -> Self {
+        self.api_fill = false;
+        self
+    }
+
+    /// Whether reading an export will ask the API for what it lacks.
+    pub fn fills_from_api(&self) -> bool {
+        self.api_fill && self.http.has_credential()
+    }
+
+    pub fn has_credential(&self) -> bool {
+        self.http.has_credential()
     }
 
     /// Every item of a cursor-paginated list (`page[size]`, `meta`).
@@ -231,14 +252,19 @@ impl ZendeskSource {
         run: &mut Run<'_>,
         cancel: &CancellationToken,
     ) -> Result<Option<String>, SourceError> {
-        let orgs = self
+        let listed = self
             .list_all(
                 "/api/v2/organizations.json",
                 |p: api::OrganizationsPage| (p.organizations, p.meta),
                 cancel,
             )
             .await?;
-        let orgs = map::organizations(orgs);
+        let mut org_writer = bundle.organizations_writer()?;
+        for o in listed.iter().filter_map(map::organization) {
+            org_writer.write(&o)?;
+        }
+        org_writer.checkpoint()?;
+        let orgs = map::organizations(&listed);
 
         let mut writer = bundle.people_writer(true)?;
         let mut seen = HashSet::new();
@@ -273,12 +299,13 @@ impl ZendeskSource {
             return Ok(None);
         };
         let orgs = map::organizations(
-            self.list_all(
-                "/api/v2/organizations.json",
-                |p: api::OrganizationsPage| (p.organizations, p.meta),
-                cancel,
-            )
-            .await?,
+            &self
+                .list_all(
+                    "/api/v2/organizations.json",
+                    |p: api::OrganizationsPage| (p.organizations, p.meta),
+                    cancel,
+                )
+                .await?,
         );
         let mut seen: HashSet<i64> = bundle
             .people()?
@@ -365,14 +392,33 @@ impl ZendeskSource {
         t: &api::Ticket,
         solved_at: Option<chrono::DateTime<Utc>>,
         fields: &FieldCatalog,
+        labels: &Labels,
         cancel: &CancellationToken,
     ) -> Result<TicketOutcome, SourceError> {
         let Some(created_at) = map::ticket_created_at(t) else {
             return Ok(TicketOutcome::Skipped("tickets_without_dates"));
         };
+        let Some(raw) = self.fetch_comments(t.id, cancel).await? else {
+            return Ok(TicketOutcome::Skipped("tickets_vanished"));
+        };
+        let (ticket, stats) = self
+            .assemble(
+                bundle, t, created_at, solved_at, fields, labels, &raw, cancel,
+            )
+            .await?;
+        Ok(TicketOutcome::Fetched(Box::new(ticket), stats))
+    }
+
+    /// A ticket's whole conversation, a page at a time. None when the
+    /// ticket is gone (404).
+    async fn fetch_comments(
+        &self,
+        ticket_id: i64,
+        cancel: &CancellationToken,
+    ) -> Result<Option<Vec<api::Comment>>, SourceError> {
         // Joined, not formatted: the ticket-link lint reads any formatted
         // `/tickets/` path as a hand-built Nosdesk link.
-        let path = ["/api/v2/tickets", &t.id.to_string(), "comments.json"].join("/");
+        let path = ["/api/v2/tickets", &ticket_id.to_string(), "comments.json"].join("/");
         let size = LIST_PAGE_SIZE.to_string();
         let mut raw = Vec::new();
         let mut after: Option<String> = None;
@@ -387,20 +433,16 @@ impl ZendeskSource {
                 .get_json::<api::CommentsPage>(&url, cancel)
                 .await?
             else {
-                return Ok(TicketOutcome::Skipped("tickets_vanished"));
+                return Ok(None);
             };
             raw.extend(page.comments);
             match page.meta.after_cursor {
                 Some(next) if page.meta.has_more && after.as_deref() != Some(next.as_str()) => {
                     after = Some(next)
                 }
-                _ => break,
+                _ => return Ok(Some(raw)),
             }
         }
-        let (ticket, stats) = self
-            .assemble(bundle, t, created_at, solved_at, fields, &raw, cancel)
-            .await?;
-        Ok(TicketOutcome::Fetched(Box::new(ticket), stats))
     }
 
     /// Maps a ticket and its raw comments, downloading every attachment.
@@ -413,6 +455,7 @@ impl ZendeskSource {
         created_at: chrono::DateTime<Utc>,
         solved_at: Option<chrono::DateTime<Utc>>,
         fields: &FieldCatalog,
+        labels: &Labels,
         raw: &[api::Comment],
         cancel: &CancellationToken,
     ) -> Result<(bundle::Ticket, Stats), SourceError> {
@@ -436,7 +479,7 @@ impl ZendeskSource {
             comments.push(comment);
         }
         Ok((
-            map::ticket(t, created_at, fields, comments, solved_at),
+            map::ticket(t, created_at, fields, labels, comments, solved_at),
             stats,
         ))
     }
@@ -631,6 +674,18 @@ impl ZendeskSource {
             )
             .await?,
         );
+        // Organization names from the list the people fetch kept. Group and
+        // brand names aren't fetched on this path, which keeps to the
+        // requests it always made, so the note names those by id.
+        let labels = Labels {
+            organizations: bundle
+                .organizations()?
+                .into_iter()
+                .filter(|o| !o.deleted)
+                .filter_map(|o| Some((o.source_id.parse().ok()?, o.name)))
+                .collect(),
+            ..Default::default()
+        };
 
         let mut writer = bundle.tickets_writer(state.tickets_len)?;
         let mut seen = written_ticket_ids(bundle, state.tickets_len)?;
@@ -695,7 +750,7 @@ impl ZendeskSource {
                 .into_iter()
                 .map(|t| {
                     let solved_at = solved.get(&t.id).copied();
-                    self.fetch_ticket(bundle, t, solved_at, &fields, cancel)
+                    self.fetch_ticket(bundle, t, solved_at, &fields, &labels, cancel)
                 })
                 .collect();
             let outcomes: Vec<TicketOutcome> = stream::iter(pending)
@@ -778,6 +833,7 @@ impl HelpdeskSource for ZendeskSource {
             state.people_cursor = self.fetch_people(bundle, &mut run, &cancel).await?;
             state.people_done = true;
             state.people_source = Some(bundle::PeopleSource::Api);
+            state.person_detail = bundle::PERSON_DETAIL;
             state.counts = run.counts.clone();
             bundle.write_state(&state)?;
         }
@@ -808,14 +864,50 @@ impl HelpdeskSource for ZendeskSource {
         // (every user the export returns, so someone people.jsonl lacks is
         // gone at Zendesk), or the earlier run it carried on from, which
         // may have read an export.
-        let manifest = run.manifest(
+        let mut manifest = run.manifest(
             self.source(),
             &self.scope,
             &state.notes,
             state.people_source,
         );
+        manifest.person_detail = state.person_detail;
+        manifest.inputs = Some(InputSet {
+            zips: Vec::new(),
+            credential: true,
+            api_fill: false,
+        });
         bundle.write_manifest(&manifest)?;
         Ok(manifest)
+    }
+}
+
+/// Why a complete bundle can't be reused for a run given `current`, or None
+/// when it can. A bundle read from other inputs would silently ignore the
+/// new ones, so the operator is told to read them with --refetch.
+pub fn reuse_refusal(manifest: &Manifest, current: &InputSet) -> Option<String> {
+    let names = |set: &InputSet| {
+        let mut parts = set.names();
+        if parts.is_empty() {
+            parts.push("the API".into());
+        } else if set.api_fill {
+            parts.push("the API fill".into());
+        }
+        parts.join(", ")
+    };
+    match &manifest.inputs {
+        Some(before) if before.same_as(current) => None,
+        Some(before) => Some(format!(
+            "this bundle was read from {}, not {}; add --refetch to read the new set",
+            names(before),
+            names(current)
+        )),
+        // Older than recording its inputs: what it was read from is
+        // unknown, so new zips can't be taken for the same ones.
+        None if !current.zips.is_empty() => Some(format!(
+            "this bundle doesn't record what it was read from; add --refetch to read {}",
+            names(current)
+        )),
+        None => None,
     }
 }
 
@@ -974,6 +1066,9 @@ impl<'a> Run<'a> {
             counts,
             notes,
             people_source,
+            person_detail: 0,
+            inputs: None,
+            fill: None,
         }
     }
 }

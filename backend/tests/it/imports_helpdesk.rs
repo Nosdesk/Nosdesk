@@ -16,8 +16,8 @@ use diesel::sql_types::{BigInt, Bool, Integer, Nullable, Text, Timestamptz};
 use uuid::Uuid;
 
 use backend::services::imports::helpdesk::bundle::{
-    Attachment, Body, BodyFormat, Bundle, Comment, Manifest, PeopleSource, Person, PersonRole,
-    PriorityLevel, StatusKind, Ticket, FORMAT_VERSION,
+    Attachment, Body, BodyFormat, Bundle, Comment, Fill, Manifest, Organization, PeopleSource,
+    Person, PersonRole, PriorityLevel, StatusKind, Ticket, FORMAT_VERSION, PERSON_DETAIL,
 };
 use backend::services::imports::helpdesk::loader::{self, LoadOptions, NumberPolicy};
 use backend::sync::session::run_in_workspace;
@@ -63,7 +63,13 @@ fn people() -> Vec<Person> {
         name: name.into(),
         role,
         active: true,
+        deleted: false,
+        limited_staff: false,
+        custom_role: false,
         organization: None,
+        organization_id: None,
+        phone: None,
+        shared_phone: false,
         created_at: None,
         updated_at: None,
     };
@@ -106,6 +112,7 @@ fn tickets() -> Vec<Ticket> {
         created_at: at(1, 9),
         updated_at: at(3, 17),
         solved_at: Some(at(3, 16)),
+        organization_id: None,
         fields: BTreeMap::from([("Region".to_string(), "APAC".to_string())]),
         comments: vec![
             comment(
@@ -168,6 +175,7 @@ fn tickets() -> Vec<Ticket> {
         created_at: at(5, 8),
         updated_at: at(5, 9),
         solved_at: None,
+        organization_id: None,
         fields: BTreeMap::new(),
         comments: vec![
             comment(
@@ -225,6 +233,9 @@ fn write_bundle_from(
         counts: BTreeMap::from([("tickets".to_string(), tickets.len() as u64)]),
         notes: vec![],
         people_source,
+        person_detail: PERSON_DETAIL,
+        inputs: None,
+        fill: None,
     })
     .expect("manifest");
     b
@@ -248,6 +259,7 @@ fn options(ws: &WorkspaceSeed, job: Uuid) -> LoadOptions {
         create_agents: true,
         allow_missing_people: false,
         batch_size: 1,
+        people_batch_size: 500,
         cancel: Default::default(),
     }
 }
@@ -775,7 +787,13 @@ fn person(id: &str, email: &str, role: PersonRole, active: bool) -> Person {
         name: format!("Source {id}"),
         role,
         active,
+        deleted: false,
+        limited_staff: false,
+        custom_role: false,
         organization: None,
+        organization_id: None,
+        phone: None,
+        shared_phone: false,
         created_at: None,
         updated_at: None,
     }
@@ -797,6 +815,7 @@ fn raised_by(id: &str, requester: &str, watchers: &[&str]) -> Ticket {
         created_at: at(1, 9),
         updated_at: at(1, 10),
         solved_at: None,
+        organization_id: None,
         fields: BTreeMap::new(),
         comments: vec![comment(
             &format!("c{id}"),
@@ -1779,7 +1798,7 @@ async fn the_fallback_never_makes_a_second_account_for_an_address() {
     let placeholder = Uuid::now_v7();
     let staff = person("9", "dup@acme.test", PersonRole::Agent, true);
     let instead = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
-        Ok(people::fallback(c, &staff, &opts, placeholder))
+        Ok(people::fallback(c, &staff, &[&staff], &opts, placeholder))
     })
     .expect("fallback");
     assert!(instead.withheld(), "{instead:?}");
@@ -1794,7 +1813,7 @@ async fn the_fallback_never_makes_a_second_account_for_an_address() {
     // With the address free, staff keep their name on an unseated account.
     let free = person("10", "free@acme.test", PersonRole::Agent, true);
     let made = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
-        Ok(people::fallback(c, &free, &opts, placeholder))
+        Ok(people::fallback(c, &free, &[&free], &opts, placeholder))
     })
     .expect("fallback");
     assert!(!made.withheld());
@@ -2101,4 +2120,1006 @@ async fn a_bundle_that_predates_the_people_source_refuses() {
     assert!(why.contains("(not in the bundle)"), "{why}");
     assert!(imported_tickets(&pool, &ws).is_empty());
     assert_eq!(traces(&pool, job), (0, 0, 0));
+}
+
+// ---------------------------------------------------------------- Phase 1:
+// people and organizations
+
+/// A bundle as the connector writes it now, with its organizations and the
+/// manifest as `tweak` leaves it.
+fn write_bundle_with(
+    dir: &std::path::Path,
+    people: &[Person],
+    tickets: &[Ticket],
+    orgs: &[Organization],
+    tweak: impl FnOnce(&mut Manifest),
+) -> Bundle {
+    let b = write_bundle_from(dir, people, tickets, Some(PeopleSource::Export));
+    let mut w = b.organizations_writer().expect("orgs");
+    for o in orgs {
+        w.write(o).expect("org");
+    }
+    w.checkpoint().expect("flush");
+    let mut m = b.read_manifest().expect("manifest");
+    tweak(&mut m);
+    b.write_manifest(&m).expect("manifest");
+    b
+}
+
+fn org(id: &str, name: &str) -> Organization {
+    Organization {
+        source_id: id.into(),
+        name: name.into(),
+        ..Default::default()
+    }
+}
+
+/// `person` with an organization and a phone at the source.
+fn customer(id: &str, email: &str, organization: Option<&str>, phone: Option<&str>) -> Person {
+    Person {
+        organization: organization.map(str::to_string),
+        organization_id: organization.map(|_| format!("org-{id}")),
+        phone: phone.map(str::to_string),
+        ..person(id, email, PersonRole::Requester, true)
+    }
+}
+
+#[derive(QueryableByName, Debug, PartialEq)]
+struct ProfileRow {
+    #[diesel(sql_type = Nullable<Text>)]
+    organization: Option<String>,
+    #[diesel(sql_type = Bool)]
+    directory_synced: bool,
+}
+
+/// The account's profile in `ws`, read pinned to it.
+fn profile_of(pool: &TestPool, ws: i32, user: Uuid) -> Option<ProfileRow> {
+    run_in_workspace(pool, REF, ws, |c| {
+        diesel::sql_query(
+            "SELECT organization, directory_synced FROM user_profiles \
+             WHERE user_uuid = $1 AND workspace_id = $2",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(user)
+        .bind::<Integer, _>(ws)
+        .get_result::<ProfileRow>(c)
+        .optional()
+    })
+    .expect("profile")
+}
+
+#[derive(QueryableByName, Debug, PartialEq)]
+struct PhoneRow {
+    #[diesel(sql_type = Integer)]
+    id: i32,
+    #[diesel(sql_type = Text)]
+    phone: String,
+    #[diesel(sql_type = Text)]
+    phone_type: String,
+    #[diesel(sql_type = Bool)]
+    is_primary: bool,
+    #[diesel(sql_type = Nullable<Text>)]
+    source: Option<String>,
+}
+
+fn phones_of(pool: &TestPool, ws: i32, user: Uuid) -> Vec<PhoneRow> {
+    run_in_workspace(pool, REF, ws, |c| {
+        diesel::sql_query(
+            "SELECT id, phone, phone_type, is_primary, source FROM user_phone_numbers \
+             WHERE user_uuid = $1 AND workspace_id = $2 ORDER BY id",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(user)
+        .bind::<Integer, _>(ws)
+        .load::<PhoneRow>(c)
+    })
+    .expect("phones")
+}
+
+/// Id map rows of `entity` for source id `id`, in `ws`.
+fn mapped(pool: &TestPool, ws: i32, entity: &str, id: &str) -> Vec<String> {
+    #[derive(QueryableByName)]
+    struct T {
+        #[diesel(sql_type = Text)]
+        target_id: String,
+    }
+    let mut conn = pool.get().expect("conn");
+    diesel::sql_query(
+        "SELECT target_id FROM import_source_ids \
+         WHERE workspace_id = $1 AND entity = $2 AND source_id = $3",
+    )
+    .bind::<Integer, _>(ws)
+    .bind::<Text, _>(entity)
+    .bind::<Text, _>(id)
+    .load::<T>(&mut conn)
+    .expect("id map")
+    .into_iter()
+    .map(|t| t.target_id)
+    .collect()
+}
+
+fn addresses(pool: &TestPool, email: &str) -> i64 {
+    let mut conn = pool.get().expect("conn");
+    diesel::sql_query("SELECT count(*) AS n FROM user_emails WHERE lower(email) = lower($1)")
+        .bind::<Text, _>(email)
+        .get_result::<Count>(&mut conn)
+        .expect("count")
+        .n
+}
+
+/// The import's metadata on each reply of `number`, oldest first.
+fn reply_metadata(pool: &TestPool, ws: &WorkspaceSeed, number: i32) -> Vec<serde_json::Value> {
+    #[derive(QueryableByName)]
+    struct M {
+        #[diesel(sql_type = diesel::sql_types::Jsonb)]
+        meta: serde_json::Value,
+    }
+    run_in_workspace(pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query(
+            "SELECT c.channel_metadata->'import' AS meta FROM comments c \
+             JOIN tickets t ON t.id = c.ticket_id \
+             WHERE t.number = $1 AND c.channel_metadata->'import'->>'source_id' NOT LIKE 'import-note:%' \
+             ORDER BY c.created_at, c.id",
+        )
+        .bind::<Integer, _>(number)
+        .load::<M>(c)
+    })
+    .expect("metadata")
+    .into_iter()
+    .map(|m| m.meta)
+    .collect()
+}
+
+fn quiet(pool: &TestPool, job: Uuid) {
+    for outbox in ["notification_outbox", "webhook_outbox", "rule_event_outbox"] {
+        let n = count(
+            pool,
+            &format!(
+                "SELECT count(*) AS n FROM {outbox} o JOIN sync_actions s ON s.sync_id = o.sync_id \
+                 WHERE s.actor_ref = $1"
+            ),
+            job,
+        );
+        assert_eq!(n, 0, "{outbox} got {n} rows from the import");
+    }
+}
+
+#[actix_web::test]
+async fn deleted_person_keeps_name_not_address() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    // One deleted person's address is a member's here; the other's is free,
+    // and a third's belongs to an account from elsewhere.
+    let member = account(
+        &pool,
+        "Mo Member",
+        None,
+        "mo@customer.test",
+        &[],
+        Some((ws.workspace_id, "member")),
+    );
+    let elsewhere = account(&pool, "Else", None, "else@customer.test", &[], None);
+    let deleted = |id: &str, email: &str, name: &str| Person {
+        name: name.into(),
+        deleted: true,
+        active: false,
+        phone: None,
+        ..customer(id, email, Some("Acme"), None)
+    };
+    let cast = vec![
+        deleted("d1", "dee@customer.test", "Dee Deleted"),
+        deleted("d2", "mo@customer.test", "Mo At Zendesk"),
+        deleted("d3", "else@customer.test", "Else At Zendesk"),
+        person("a1", "agent@acme.test", PersonRole::Agent, true),
+    ];
+    let mut t501 = raised_by("501", "d1", &[]);
+    t501.assignee = Some("d1".into());
+    t501.comments.push(comment(
+        "c501b",
+        Some("a1"),
+        true,
+        "<p>On it</p>",
+        at(1, 11),
+    ));
+    let tickets = vec![
+        t501,
+        raised_by("502", "d2", &[]),
+        raised_by("503", "d3", &[]),
+    ];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &cast, &tickets, &[], |_| {});
+    let job = Uuid::now_v7();
+    let opts = options(&ws, job);
+
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    assert_eq!(plan.refused, None);
+    assert_eq!(plan.people_detail.deleted, 3);
+    assert_eq!(
+        plan.people.get("deleted at the source (placeholder)"),
+        Some(&2),
+        "{:?}",
+        plan.people
+    );
+    let text = backend::services::imports::helpdesk::report::render_plan(&plan);
+    assert!(
+        text.contains("Deleted at Zendesk: 3, history kept under their name, no address stored"),
+        "{text}"
+    );
+
+    let report = run(&pool, &bundle, &opts).await;
+    assert_eq!(report.tickets_written, 3);
+    quiet(&pool, job);
+    // No account, address or profile for the deleted person.
+    assert_eq!(addresses(&pool, "dee@customer.test"), 0);
+    assert!(mapped(&pool, ws.workspace_id, "person", "d1").is_empty());
+    assert!(mapped(&pool, ws.workspace_id, "profile", "d1").is_empty());
+    // Their history: the placeholder, with their name, not their address.
+    let reqs = requesters(&pool, &ws);
+    assert_ne!(reqs[&501], member);
+    let thread = comments_of(&pool, &ws, ticket_id(&pool, &ws, 501));
+    assert_eq!(thread[1].author, "Unknown (Zendesk)");
+    let note = &thread[0].content;
+    assert!(
+        note.contains(
+            "Requested there by Dee Deleted (deleted at Zendesk); credited to the placeholder author."
+        ),
+        "{note}"
+    );
+    assert!(
+        note.contains("It was assigned to Dee Deleted (deleted at Zendesk), so it is unassigned."),
+        "{note}"
+    );
+    assert!(!note.contains("dee@customer.test"), "{note}");
+    let meta = reply_metadata(&pool, &ws, 501);
+    assert_eq!(meta[0]["author_name"], "Dee Deleted");
+    assert!(meta[0]["author_email"].is_null(), "{}", meta[0]);
+    // The member here keeps the deleted person's history; their profile is
+    // left alone.
+    assert_eq!(reqs[&502], member);
+    assert_eq!(profile_of(&pool, ws.workspace_id, member), None);
+    // An account from elsewhere is never reached on a deleted person's word.
+    assert_ne!(reqs[&503], elsewhere);
+    assert_eq!(seat_of(&pool, ws.workspace_id, elsewhere), None);
+}
+
+#[actix_web::test]
+async fn shared_address_is_one_account_in_any_batch_size() {
+    use chrono::Duration;
+    for batch in [1usize, 500] {
+        let db = TestDb::new();
+        let pool = db.pool_with_size(4);
+        crate::common::ensure_test_keyring();
+        let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+        let at_day = |d: i64| Some(at(1, 0) + Duration::days(d));
+        let sharer = |id: &str, role, created: i64, name: &str| Person {
+            name: name.into(),
+            created_at: at_day(created),
+            ..person(id, "Same@Customer.test", role, true)
+        };
+        let late = sharer("s1", PersonRole::Requester, 2, "Late Name");
+        let early_agent = sharer("s2", PersonRole::Agent, 1, "Early Name");
+        let gone = Person {
+            deleted: true,
+            active: false,
+            ..sharer("s3", PersonRole::Requester, 0, "Gone Name")
+        };
+        let cast = vec![
+            late,
+            person("f1", "f1@customer.test", PersonRole::Requester, true),
+            early_agent,
+            person("f2", "f2@customer.test", PersonRole::Requester, true),
+            gone,
+        ];
+        let mut t = raised_by("601", "s1", &["s2", "f1"]);
+        t.comments.push(comment(
+            "c601b",
+            Some("s3"),
+            true,
+            "<p>Me too</p>",
+            at(1, 12),
+        ));
+        let tickets = vec![t, raised_by("602", "f2", &[])];
+        let dir = tempfile::tempdir().expect("dir");
+        let bundle = write_bundle_with(dir.path(), &cast, &tickets, &[], |_| {});
+        let mut opts = options(&ws, Uuid::now_v7());
+        opts.people_batch_size = batch;
+
+        let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+        assert_eq!(
+            (
+                plan.people_detail.shared_addresses,
+                plan.people_detail.shared_address_people
+            ),
+            (1, 3)
+        );
+        run(&pool, &bundle, &opts).await;
+        assert_eq!(addresses(&pool, "same@customer.test"), 1, "batch {batch}");
+        let account = account_of(&pool, "same@customer.test");
+        // The least privilege: a requester, never created as an agent.
+        assert_eq!(
+            seat_of(&pool, ws.workspace_id, account),
+            Some(("member".to_string(), false)),
+            "batch {batch}"
+        );
+        // Named for the earliest-created active member.
+        let name: String = {
+            #[derive(QueryableByName)]
+            struct N {
+                #[diesel(sql_type = Text)]
+                name: String,
+            }
+            diesel::sql_query("SELECT name FROM users WHERE uuid = $1")
+                .bind::<diesel::sql_types::Uuid, _>(account)
+                .get_result::<N>(&mut pool.get().expect("conn"))
+                .expect("name")
+                .name
+        };
+        assert_eq!(name, "Early Name", "batch {batch}");
+        // Everyone at the address maps to it; each reply keeps its own name.
+        for id in ["s1", "s2", "s3"] {
+            assert_eq!(
+                mapped(&pool, ws.workspace_id, "person", id),
+                vec![account.to_string()],
+                "{id}, batch {batch}"
+            );
+        }
+        assert_eq!(requesters(&pool, &ws)[&601], account);
+        let meta = reply_metadata(&pool, &ws, 601);
+        assert_eq!(meta[1]["author_name"], "Gone Name");
+    }
+}
+
+#[actix_web::test]
+async fn organization_filled_once_and_cleared_stays_cleared() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let cast = vec![customer("o1", "olive@customer.test", Some("Acme"), None)];
+    let tickets = vec![raised_by("701", "o1", &[])];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(
+        dir.path(),
+        &cast,
+        &tickets,
+        &[org("org-o1", "Acme")],
+        |_| {},
+    );
+    let job = Uuid::now_v7();
+    let opts = options(&ws, job);
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    assert_eq!(plan.people_detail.organizations, 1);
+    assert_eq!(plan.people_detail.profile.organizations, 1);
+
+    let report = run(&pool, &bundle, &opts).await;
+    assert_eq!(report.profile.organizations, 1);
+    quiet(&pool, job);
+    let olive = account_of(&pool, "olive@customer.test");
+    assert_eq!(
+        profile_of(&pool, ws.workspace_id, olive).and_then(|p| p.organization),
+        Some("Acme".to_string())
+    );
+    // Only in this workspace.
+    let other = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).b;
+    assert_eq!(profile_of(&pool, other.workspace_id, olive), None);
+    assert_eq!(
+        mapped(&pool, ws.workspace_id, "profile", "o1"),
+        vec![olive.to_string()]
+    );
+
+    // Cleared here: a rerun leaves it cleared.
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query("UPDATE user_profiles SET organization = NULL WHERE user_uuid = $1")
+            .bind::<diesel::sql_types::Uuid, _>(olive)
+            .execute(c)
+    })
+    .expect("clear");
+    let plan = loader::plan(&pool, &bundle, &options(&ws, Uuid::now_v7()))
+        .await
+        .expect("plan");
+    assert_eq!(plan.people_detail.profile.organizations, 0);
+    let again = run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    assert_eq!(again.profile, Default::default());
+    assert_eq!(
+        profile_of(&pool, ws.workspace_id, olive).and_then(|p| p.organization),
+        None
+    );
+}
+
+#[actix_web::test]
+async fn organization_skips_directory_synced_profile() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let synced = account(
+        &pool,
+        "Sid Synced",
+        None,
+        "sid@customer.test",
+        &[],
+        Some((ws.workspace_id, "member")),
+    );
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query(
+            "INSERT INTO user_profiles (user_uuid, directory_synced, custom_fields) \
+             VALUES ($1, true, '{}'::jsonb)",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(synced)
+        .execute(c)
+    })
+    .expect("synced profile");
+    let cast = vec![customer(
+        "y1",
+        "sid@customer.test",
+        Some("Zendesk Org"),
+        Some("+61299990000"),
+    )];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(
+        dir.path(),
+        &cast,
+        &[raised_by("801", "y1", &[])],
+        &[org("org-y1", "Zendesk Org")],
+        |_| {},
+    );
+    let opts = options(&ws, Uuid::now_v7());
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    assert_eq!(plan.people_detail.profile.directory_synced, 1);
+    assert_eq!(plan.people_detail.profile.organizations, 0);
+    let report = run(&pool, &bundle, &opts).await;
+    assert_eq!(report.profile.directory_synced, 1);
+    assert_eq!(
+        profile_of(&pool, ws.workspace_id, synced),
+        Some(ProfileRow {
+            organization: None,
+            directory_synced: true
+        })
+    );
+    assert!(phones_of(&pool, ws.workspace_id, synced).is_empty());
+}
+
+#[actix_web::test]
+async fn people_from_1176_get_profile_on_rerun() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    // As #1176 brought them across: no organization or phone written.
+    let then = vec![customer("p1", "pat@customer.test", None, None)];
+    let tickets = vec![raised_by("901", "p1", &[])];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &then, &tickets, &[], |m| {
+        m.person_detail = 0;
+    });
+    let mut first = options(&ws, Uuid::now_v7());
+    first.create_agents = false;
+    run(&pool, &bundle, &first).await;
+    let pat = account_of(&pool, "pat@customer.test");
+    assert!(mapped(&pool, ws.workspace_id, "profile", "p1").is_empty());
+
+    // A fresh bundle carries them; the rerun fills the profile once.
+    let now = vec![customer(
+        "p1",
+        "pat@customer.test",
+        Some("Acme"),
+        Some("+61 2 9999 0000"),
+    )];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &now, &tickets, &[org("org-p1", "Acme")], |_| {});
+    let plan = loader::plan(&pool, &bundle, &options(&ws, Uuid::now_v7()))
+        .await
+        .expect("plan");
+    assert_eq!(plan.people.get("already imported"), Some(&1));
+    assert_eq!(
+        (
+            plan.people_detail.profile.organizations,
+            plan.people_detail.profile.phones
+        ),
+        (1, 1)
+    );
+    let report = run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    assert_eq!(
+        (report.profile.organizations, report.profile.phones),
+        (1, 1)
+    );
+    assert_eq!(
+        profile_of(&pool, ws.workspace_id, pat).and_then(|p| p.organization),
+        Some("Acme".to_string())
+    );
+    assert_eq!(phones_of(&pool, ws.workspace_id, pat).len(), 1);
+}
+
+#[actix_web::test]
+async fn phone_added_once_and_deleted_stays_deleted() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    // One with a phone here already, one without; a shared number isn't
+    // carried at all.
+    let has_one = account(
+        &pool,
+        "Hal",
+        None,
+        "hal@customer.test",
+        &[],
+        Some((ws.workspace_id, "member")),
+    );
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query(
+            "INSERT INTO user_phone_numbers (user_uuid, phone, phone_type, is_primary) \
+             VALUES ($1, '+1 555 0100', 'work', true)",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(has_one)
+        .execute(c)
+    })
+    .expect("phone");
+    let cast = vec![
+        customer("n1", "nia@customer.test", None, Some("+61299990000")),
+        customer("n2", "hal@customer.test", None, Some("+61288880000")),
+        Person {
+            shared_phone: true,
+            ..customer("n3", "sam@customer.test", None, None)
+        },
+    ];
+    let tickets = vec![
+        raised_by("1001", "n1", &[]),
+        raised_by("1002", "n2", &[]),
+        raised_by("1003", "n3", &[]),
+    ];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &cast, &tickets, &[], |_| {});
+    let opts = options(&ws, Uuid::now_v7());
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    assert_eq!(
+        (
+            plan.people_detail.profile.phones,
+            plan.people_detail.profile.phones_kept,
+            plan.people_detail.shared_phones
+        ),
+        (1, 1, 1)
+    );
+    let report = run(&pool, &bundle, &opts).await;
+    assert_eq!((report.profile.phones, report.profile.phones_kept), (1, 1));
+    let nia = account_of(&pool, "nia@customer.test");
+    let phones = phones_of(&pool, ws.workspace_id, nia);
+    assert_eq!(phones.len(), 1);
+    let p = &phones[0];
+    assert_eq!(
+        (
+            p.phone.as_str(),
+            p.phone_type.as_str(),
+            p.is_primary,
+            p.source.as_deref()
+        ),
+        ("+61299990000", "other", true, None),
+        "a manual row, editable here"
+    );
+    assert_eq!(
+        mapped(&pool, ws.workspace_id, "phone", "n1"),
+        vec![p.id.to_string()]
+    );
+    assert_eq!(phones_of(&pool, ws.workspace_id, has_one).len(), 1);
+    assert!(phones_of(
+        &pool,
+        ws.workspace_id,
+        account_of(&pool, "sam@customer.test")
+    )
+    .is_empty());
+
+    // Deleted here: not added again.
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query("DELETE FROM user_phone_numbers WHERE id = $1")
+            .bind::<Integer, _>(p.id)
+            .execute(c)
+    })
+    .expect("delete");
+    run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    assert!(phones_of(&pool, ws.workspace_id, nia).is_empty());
+}
+
+#[actix_web::test]
+async fn purge_then_rerun_brings_the_person_back() {
+    use backend::sync::actor::ActorContext;
+    use backend::sync::session::{pin_workspace, with_actor_bypass_context};
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let cast = vec![
+        customer(
+            "q1",
+            "quin@customer.test",
+            Some("Acme"),
+            Some("+61299990000"),
+        ),
+        customer(
+            "q2",
+            "ray@customer.test",
+            Some("Beta"),
+            Some("+61288880000"),
+        ),
+    ];
+    let tickets = vec![raised_by("1101", "q1", &[]), raised_by("1102", "q2", &[])];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &cast, &tickets, &[], |_| {});
+    run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    let quin = account_of(&pool, "quin@customer.test");
+    for entity in ["person", "profile", "phone"] {
+        assert_eq!(
+            mapped(&pool, ws.workspace_id, entity, "q1").len(),
+            1,
+            "{entity}"
+        );
+    }
+
+    // The purge forgets the person, their profile and their phone.
+    let mut conn = pool.get().expect("conn");
+    with_actor_bypass_context(&mut conn, &ActorContext::system(REF), |c| {
+        pin_workspace(c, ws.workspace_id)?;
+        backend::repository::users::purge_user(&quin, c, None)
+    })
+    .expect("purge");
+    drop(conn);
+    for entity in ["person", "profile", "phone"] {
+        assert!(
+            mapped(&pool, ws.workspace_id, entity, "q1").is_empty(),
+            "{entity}"
+        );
+    }
+    // Ray's mapping points at an account that is no longer one of the
+    // workspace's people: the stale forget clears all three too.
+    {
+        let mut conn = pool.get().expect("conn");
+        diesel::sql_query(
+            "UPDATE import_source_ids SET target_id = $2 \
+             WHERE workspace_id = $1 AND source_id = 'q2' AND entity IN ('person', 'profile')",
+        )
+        .bind::<Integer, _>(ws.workspace_id)
+        .bind::<Text, _>(Uuid::now_v7().to_string())
+        .execute(&mut conn)
+        .expect("stale");
+        diesel::sql_query("DELETE FROM user_emails WHERE lower(email) = 'ray@customer.test'")
+            .execute(&mut conn)
+            .expect("free the address");
+    }
+
+    // A rerun brings them back, profile and phone included, without
+    // tripping over a mapping left behind.
+    let report = run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    assert!(
+        report.people_problems.is_empty(),
+        "{:?}",
+        report.people_problems
+    );
+    assert!(
+        report.profile_problems.is_empty(),
+        "{:?}",
+        report.profile_problems
+    );
+    for (id, email, org) in [
+        ("q1", "quin@customer.test", "Acme"),
+        ("q2", "ray@customer.test", "Beta"),
+    ] {
+        let back = account_of(&pool, email);
+        assert_ne!(back, quin);
+        assert_eq!(
+            mapped(&pool, ws.workspace_id, "person", id),
+            vec![back.to_string()]
+        );
+        assert_eq!(
+            profile_of(&pool, ws.workspace_id, back).and_then(|p| p.organization),
+            Some(org.to_string())
+        );
+        assert_eq!(phones_of(&pool, ws.workspace_id, back).len(), 1, "{id}");
+    }
+}
+
+#[actix_web::test]
+async fn changed_at_zendesk_reported_not_applied() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let then = Person {
+        name: "Old Name".into(),
+        updated_at: Some(at(1, 9)),
+        ..person("c1", "old@customer.test", PersonRole::Requester, true)
+    };
+    let tickets = vec![raised_by("1201", "c1", &[])];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &[then.clone()], &tickets, &[], |_| {});
+    run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    let account = account_of(&pool, "old@customer.test");
+
+    // Renamed and readdressed at Zendesk since.
+    let now = Person {
+        name: "New Name".into(),
+        email: Some("new@customer.test".into()),
+        updated_at: Some(at(5, 9)),
+        ..then
+    };
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &[now], &tickets, &[], |_| {});
+    let plan = loader::plan(&pool, &bundle, &options(&ws, Uuid::now_v7()))
+        .await
+        .expect("plan");
+    assert_eq!(plan.people_detail.changed_at_source.len(), 1);
+    let text = backend::services::imports::helpdesk::report::render_plan(&plan);
+    assert!(
+        text.contains("Changed at Zendesk since the last import: 1 person (not applied)"),
+        "{text}"
+    );
+    let report = run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    assert_eq!(
+        report.changed_at_source,
+        vec!["New Name (source id c1)".to_string()]
+    );
+    assert_eq!(addresses(&pool, "new@customer.test"), 0);
+    assert_eq!(account_of(&pool, "old@customer.test"), account);
+    let names = comments_of(&pool, &ws, ticket_id(&pool, &ws, 1201));
+    assert_eq!(names[1].author, "Old Name");
+}
+
+#[actix_web::test]
+async fn old_bundle_refuses_create_agents() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &people(), &tickets(), &[], |m| {
+        m.people_source = Some(PeopleSource::Api);
+        m.person_detail = 0;
+    });
+    let job = Uuid::now_v7();
+    let mut opts = options(&ws, job);
+    assert!(opts.create_agents);
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    let why = plan.refused.clone().expect("refused");
+    assert!(
+        why.contains("--create-agents") && why.contains("--refetch"),
+        "{why}"
+    );
+    let why = refused(&pool, &bundle, &opts).await;
+    assert!(why.contains("limited staff"), "{why}");
+    assert_eq!(traces(&pool, job), (0, 0, 0));
+
+    // Without the flag it goes ahead.
+    opts.create_agents = false;
+    let report = run(&pool, &bundle, &opts).await;
+    assert_eq!(report.tickets_written, 2);
+}
+
+#[actix_web::test]
+async fn requester_organization_rule_matches() {
+    use backend::models::RuleTriggerKind;
+    use backend::services::rules::conditions;
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let cast = vec![
+        customer("r1", "rita@acme.test", Some("Acme Corp"), None),
+        customer("r2", "ben@beta.test", Some("Beta"), None),
+    ];
+    let tickets = vec![raised_by("1301", "r1", &[]), raised_by("1302", "r2", &[])];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &cast, &tickets, &[], |_| {});
+    run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+
+    let predicate = conditions::compile(
+        &serde_json::json!({
+            "kind": "leaf", "field": "ticket.requester.organization", "op": "eq", "value": "acme corp"
+        }),
+        RuleTriggerKind::TicketCreated,
+    )
+    .expect("conditions");
+    let ids = [ticket_id(&pool, &ws, 1301), ticket_id(&pool, &ws, 1302)];
+    let facts = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        backend::repository::rules::load_ticket_facts(c, &ids)
+    })
+    .expect("facts");
+    let matched: Vec<i32> = facts
+        .iter()
+        .filter(|f| predicate.matches(f, None))
+        .map(|f| f.id)
+        .collect();
+    assert_eq!(matched, vec![ids[0]]);
+}
+
+#[actix_web::test]
+async fn people_the_fill_found_gone_need_no_flag_but_the_rest_refuse() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let cast = vec![person(
+        "1",
+        "one@customer.test",
+        PersonRole::Requester,
+        true,
+    )];
+    let mut t = raised_by("1401", "1", &["ghost"]);
+    t.comments.push(comment(
+        "c1401b",
+        Some("ghost"),
+        true,
+        "<p>Hi</p>",
+        at(1, 11),
+    ));
+    let lost = raised_by("1402", "lost", &[]);
+    let fill = |m: &mut Manifest| {
+        m.fill = Some(Fill {
+            people_asked: 2,
+            gone: vec!["ghost".into()],
+            ..Default::default()
+        });
+    };
+
+    // Only the one the fill confirmed gone: no flag needed.
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &cast, std::slice::from_ref(&t), &[], fill);
+    let opts = options(&ws, Uuid::now_v7());
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    assert_eq!(plan.refused, None);
+    assert_eq!(plan.missing_people, None);
+    let gone = plan.gone_people.clone().expect("gone");
+    assert_eq!((gone.people, gone.tickets, gone.replies), (1, 1, 1));
+    let text = backend::services::imports::helpdesk::report::render_plan(&plan);
+    assert!(
+        text.contains("Gone at Zendesk (asked, not returned): 1, on 1 ticket and 1 reply;"),
+        "{text}"
+    );
+    assert!(text.contains("Filled from the API: 0 people"), "{text}");
+
+    // Someone else the export lacks and the fill never confirmed: refused.
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &cast, &[t.clone(), lost], &[], fill);
+    let job = Uuid::now_v7();
+    let mut opts = options(&ws, job);
+    let why = refused(&pool, &bundle, &opts).await;
+    assert!(
+        why.contains("1 person the bundle doesn't hold (not in the export), on 1 ticket"),
+        "{why}"
+    );
+    assert_eq!(traces(&pool, job), (0, 0, 0));
+    opts.allow_missing_people = true;
+    let report = run(&pool, &bundle, &opts).await;
+    assert_eq!(report.tickets_written, 2);
+    let note = &comments_of(&pool, &ws, ticket_id(&pool, &ws, 1402))[0].content;
+    assert!(
+        note.contains("Requested there by Zendesk user lost (not in the export)"),
+        "{note}"
+    );
+}
+
+/// The plan an operator sees for a bundle shaped as the export reader and
+/// the API fill write one: printed with `--nocapture` for the record.
+#[actix_web::test]
+async fn the_plan_reads_as_the_operator_sees_it() {
+    use backend::services::imports::helpdesk::bundle::{InputFile, InputSet};
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let mut light = person("l1", "light@acme.test", PersonRole::Agent, true);
+    light.limited_staff = true;
+    let mut custom = person("k1", "custom@acme.test", PersonRole::Agent, true);
+    custom.custom_role = true;
+    let mut dee = customer("d1", "dee@customer.test", None, None);
+    dee.deleted = true;
+    dee.active = false;
+    let mut shared = customer("s9", "front@customer.test", None, None);
+    shared.shared_phone = true;
+    let cast = vec![
+        Person {
+            organization_id: Some("o1".into()),
+            ..customer(
+                "c1",
+                "cara@customer.test",
+                Some("Customer Co"),
+                Some("+61299990000"),
+            )
+        },
+        Person {
+            organization_id: Some("o1".into()),
+            ..customer("c2", "Cara@Customer.test", Some("Customer Co"), None)
+        },
+        Person {
+            organization_id: Some("o9".into()),
+            ..customer("c3", "nemo@customer.test", None, None)
+        },
+        shared,
+        dee,
+        light,
+        custom,
+    ];
+    let mut big = raised_by("1501", "c1", &["c2", "s9"]);
+    big.organization_id = Some("o1".into());
+    big.assignee = Some("l1".into());
+    big.comments.push(comment(
+        "c1501b",
+        Some("k1"),
+        true,
+        "<p>Hello</p>",
+        at(1, 10),
+    ));
+    big.comments.push(comment(
+        "c1501c",
+        Some("ghost"),
+        true,
+        "<p>Old</p>",
+        at(1, 11),
+    ));
+    let tickets = vec![
+        big,
+        raised_by("1502", "c3", &[]),
+        raised_by("1503", "d1", &[]),
+    ];
+    let orgs = vec![
+        Organization {
+            domain_names: vec!["customer.test".into()],
+            ..org("o1", "Customer Co")
+        },
+        Organization {
+            shared_tickets: true,
+            ..org("o2", "Sharing Co")
+        },
+    ];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &cast, &tickets, &orgs, |m| {
+        m.inputs = Some(InputSet {
+            zips: ["tickets.zip", "users.zip", "organizations.zip"]
+                .iter()
+                .map(|n| InputFile {
+                    path: format!("/exports/{n}"),
+                    size: 1,
+                    sha256: (*n).into(),
+                })
+                .collect(),
+            credential: true,
+            api_fill: true,
+        });
+        m.fill = Some(Fill {
+            people_asked: 3,
+            people_returned: 2,
+            gone: vec!["ghost".into()],
+            organizations: 1,
+            conversations: 1,
+            failed: None,
+        });
+    });
+    let plan = loader::plan(&pool, &bundle, &options(&ws, Uuid::now_v7()))
+        .await
+        .expect("plan");
+    let text = backend::services::imports::helpdesk::report::render_plan(&plan);
+    println!("{text}");
+    for line in [
+        "Read from: tickets.zip, users.zip, organizations.zip (+ API fill)",
+        "People the tickets mention: 8",
+        "Gone at Zendesk (asked, not returned): 1, on 1 ticket and 1 reply;",
+        "Deleted at Zendesk: 1, history kept under their name, no address stored",
+        "Shared addresses: 1 address used by 2 Zendesk users, one account each",
+        "Limited staff (light agents, chat only, contributors): 1, no seat unless mapped",
+        "Custom-role agents: 1 (check with --map-agent): custom@acme.test",
+        "Organizations with someone brought across: 1",
+        "As the person's organization: 1 (already set here: 0; directory-synced: 0)",
+        "Named but not in the bundle, so no organization: 1 person",
+        "Not carried: domain names (1 organization), notes, details, fields, tags",
+        "Portal sharing by domain is off. At 1 non-free-mail domain, 2 tickets from organizations that didn't share at Zendesk would be shared if it were turned on",
+        "Phones: 1 (already one here: 0; shared numbers skipped: 1)",
+        "Not read: other addresses, user fields, notes, tags, photos, external ids, locale",
+        "Filled from the API: 2 people, 1 organization, 1 conversation over 1 MB",
+    ] {
+        assert!(text.contains(line), "missing {line:?} in\n{text}");
+    }
+    // Limited staff are never made agents, even with --create-agents.
+    let light = plan
+        .staff
+        .iter()
+        .find(|(who, _, _)| who == "light@acme.test")
+        .expect("light");
+    assert_eq!(light.2, "former staff, no seat");
 }

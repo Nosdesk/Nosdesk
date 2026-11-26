@@ -49,8 +49,9 @@ pub const JOB_TYPE: &str = "helpdesk";
 /// enough that a failure loses little and locks are short.
 pub const DEFAULT_BATCH: usize = 200;
 
-/// People per transaction.
-const PEOPLE_BATCH: usize = 500;
+/// People per transaction, about: people who share an address are never
+/// split across two.
+pub const PEOPLE_BATCH: usize = 500;
 
 /// The highest source number kept. A workspace's numbers continue from its
 /// highest, so keeping one near the top of the column's range would leave
@@ -87,6 +88,8 @@ pub struct LoadOptions {
     /// replies go to the placeholder author for good.
     pub allow_missing_people: bool,
     pub batch_size: usize,
+    /// People per transaction ([`PEOPLE_BATCH`]).
+    pub people_batch_size: usize,
     /// Stops the run between tickets and between files (the CLI cancels it
     /// on Ctrl-C), so nothing is left half written.
     pub cancel: CancellationToken,
@@ -141,14 +144,64 @@ pub struct Plan {
     pub people: BTreeMap<&'static str, u64>,
     /// Source staff and where each lands, for the operator to check.
     pub staff: Vec<(String, String, &'static str)>,
-    /// People the tickets name that the bundle doesn't hold.
+    /// People the tickets name that the bundle doesn't hold, for a reason
+    /// that needs the operator's say-so (or, on an API bundle, gone at the
+    /// source).
     pub missing_people: Option<MissingPeople>,
+    /// People the API fill asked the source for that it didn't return:
+    /// gone there, so no say-so is needed.
+    pub gone_people: Option<MissingPeople>,
     /// Why a run with these options would refuse to write, when it would.
     pub refused: Option<String>,
+    /// What the bundle was read from, when it says.
+    pub inputs: Option<bundle::InputSet>,
+    /// What the API fill fetched, when one ran.
+    pub fill: Option<bundle::Fill>,
+    pub people_detail: PeopleDetail,
     pub notes: Vec<String>,
     /// A rough guess at the time to write, assuming ~50 tickets a second
     /// (not yet measured on a real account; files and long threads slow it).
     pub estimated_minutes: u64,
+}
+
+/// What the plan says about the people beyond each one's outcome.
+#[derive(Debug, Clone, Default)]
+pub struct PeopleDetail {
+    /// People the tickets mention.
+    pub mentioned: u64,
+    /// Deleted at the source: their history keeps their name, no address
+    /// is stored.
+    pub deleted: u64,
+    /// Addresses more than one source person used, and those people.
+    pub shared_addresses: u64,
+    pub shared_address_people: u64,
+    /// Staff with partial access at the source, given no seat unless mapped.
+    pub limited_staff: u64,
+    /// Agents on a custom role at the source, by address or name.
+    pub custom_role_agents: Vec<String>,
+    /// Organizations someone brought across belongs to.
+    pub organizations: u64,
+    /// Of those, the ones with domain names, which aren't carried.
+    pub organizations_with_domains: u64,
+    /// People whose organization the bundle doesn't hold: no organization.
+    pub organizations_missing: u64,
+    pub profile: people::ProfileTally,
+    /// Primary phones not carried because they are shared numbers.
+    pub shared_phones: u64,
+    /// People brought across before whom the source has changed since.
+    pub changed_at_source: Vec<String>,
+    pub sharing: Option<SharingNote>,
+}
+
+/// What portal sharing by domain would show colleagues that the source
+/// didn't: imported tickets from organizations that didn't share them (or
+/// none), raised by requesters at a domain that isn't free mail.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SharingNote {
+    /// Whether the workspace shares by domain now.
+    pub on: bool,
+    pub domains: u64,
+    pub tickets: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -184,6 +237,16 @@ pub struct LoadReport {
     /// People the tickets name that the bundle doesn't hold, credited to
     /// the placeholder author.
     pub missing_people: Option<MissingPeople>,
+    /// People the API fill found gone at the source, credited to the
+    /// placeholder author.
+    pub gone_people: Option<MissingPeople>,
+    /// What the profile fill wrote.
+    pub profile: people::ProfileTally,
+    /// People whose organization or phone couldn't be written, and why.
+    pub profile_problems: Vec<String>,
+    /// People brought across before whom the source has changed since,
+    /// left as they are.
+    pub changed_at_source: Vec<String>,
 }
 
 /// Why a bundle lacks someone its tickets name.
@@ -285,6 +348,26 @@ impl MissingPeople {
             counted(self.tickets, "ticket", "tickets"),
             counted(self.replies, "reply", "replies"),
         ))
+    }
+}
+
+/// How someone the bundle lacks is named in a ticket's import note: gone at
+/// the source when the fill asked for them and it didn't return them,
+/// otherwise as the bundle's people source says.
+#[derive(Debug, Clone)]
+pub struct Absent {
+    pub label: String,
+    pub gone: HashSet<String>,
+    pub gone_label: String,
+}
+
+impl Absent {
+    fn of(&self, id: &str) -> &str {
+        if self.gone.contains(id) {
+            &self.gone_label
+        } else {
+            &self.label
+        }
     }
 }
 
@@ -525,6 +608,8 @@ fn mentioned_people(
                     // Postgres text can't hold.
                     p.name = p.name.replace('\0', "");
                     p.email = p.email.map(|e| e.replace('\0', ""));
+                    p.organization = p.organization.map(|o| o.replace('\0', ""));
+                    p.phone = p.phone.map(|n| n.replace('\0', ""));
                     out.push(p);
                 }
             }
@@ -537,26 +622,40 @@ fn mentioned_people(
 
 /// The people the tickets name and `persons` lacks, and the tickets and
 /// replies that are theirs (each ticket as first listed, as the plan counts
-/// it). None when nobody is missing. `people_unreadable` is the number of
-/// lines of people.jsonl that couldn't be read, any of which may be one of
-/// them.
+/// it), in two groups: those the bundle's people source leaves unexplained
+/// (first), and those the API fill asked for and the source didn't return,
+/// gone there (second). None for a group with nobody in it.
+/// `people_unreadable` is the number of lines of people.jsonl that couldn't
+/// be read, any of which may be one of them.
 fn missing_people(
     bundle: &Bundle,
     manifest: &bundle::Manifest,
     mentioned: &HashSet<String>,
     persons: &[bundle::Person],
     people_unreadable: u64,
-) -> Result<Option<MissingPeople>, LoadError> {
+) -> Result<(Option<MissingPeople>, Option<MissingPeople>), LoadError> {
     let held: HashSet<&str> = persons.iter().map(|p| p.source_id.as_str()).collect();
-    let missing: HashSet<&str> = mentioned
+    let gone_at_source: HashSet<&str> = manifest
+        .fill
         .iter()
-        .map(String::as_str)
-        .filter(|id| !held.contains(id))
+        .flat_map(|f| f.gone.iter().map(String::as_str))
         .collect();
-    if missing.is_empty() {
-        return Ok(None);
+    let (mut missing, mut gone) = (HashSet::new(), HashSet::new());
+    for id in mentioned.iter().map(String::as_str) {
+        if held.contains(id) {
+            continue;
+        }
+        if gone_at_source.contains(id) {
+            gone.insert(id);
+        } else {
+            missing.insert(id);
+        }
     }
-    let (mut tickets, mut replies) = (0, 0);
+    if missing.is_empty() && gone.is_empty() {
+        return Ok((None, None));
+    }
+    // (tickets, replies) for each group.
+    let mut touched = [(0u64, 0u64); 2];
     let mut seen = HashSet::new();
     let mut unreadable = 0;
     each_ticket(bundle, &mut unreadable, |t| {
@@ -565,25 +664,45 @@ fn missing_people(
         }
         let mut named = HashSet::new();
         people::mentioned(&t, &mut named);
-        if named.iter().any(|id| missing.contains(id.as_str())) {
-            tickets += 1;
+        for (i, set) in [&missing, &gone].into_iter().enumerate() {
+            if named.iter().any(|id| set.contains(id.as_str())) {
+                touched[i].0 += 1;
+            }
+            let mut written = HashSet::new();
+            touched[i].1 += t
+                .comments
+                .iter()
+                .filter(|c| written.insert(c.source_id.as_str()))
+                .filter(|c| c.author.as_deref().is_some_and(|a| set.contains(a)))
+                .count() as u64;
         }
-        let mut written = HashSet::new();
-        replies += t
-            .comments
-            .iter()
-            .filter(|c| written.insert(c.source_id.as_str()))
-            .filter(|c| c.author.as_deref().is_some_and(|a| missing.contains(a)))
-            .count() as u64;
     })?;
     let absence = Absence::of(manifest.people_source, people_unreadable > 0);
-    Ok(Some(MissingPeople {
-        people: missing.len() as u64,
-        tickets,
-        replies,
-        absence,
-        label: absence.label(&manifest.source),
-    }))
+    let group = |n: usize, (tickets, replies): (u64, u64), absence: Absence| {
+        (n > 0).then(|| MissingPeople {
+            people: n as u64,
+            tickets,
+            replies,
+            absence,
+            label: absence.label(&manifest.source),
+        })
+    };
+    Ok((
+        group(missing.len(), touched[0], absence),
+        group(gone.len(), touched[1], Absence::GoneAtSource),
+    ))
+}
+
+/// Why `--create-agents` can't be used on this bundle, when it can't: one
+/// written before people records said who was limited staff at the source
+/// reads them all as full agents, and would seat them.
+fn create_agents_refusal(manifest: &bundle::Manifest, create_agents: bool) -> Option<String> {
+    (create_agents && manifest.person_detail < bundle::PERSON_DETAIL).then(|| {
+        "this bundle predates recording who was limited staff at the source (light agents, \
+         chat-only agents, contributors), so --create-agents would make them agents here. Run \
+         again with --refetch to read the source again, or without --create-agents."
+            .to_string()
+    })
 }
 
 /// Plan the import without writing anything.
@@ -609,9 +728,15 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
         };
 
         let mut counted = HashSet::new();
+        // Each ticket's requester and organization, for what portal sharing
+        // by domain would show.
+        let mut raised: Vec<(String, Option<String>)> = Vec::new();
         let found = scan(&b, |t| {
             if !counted.insert(t.source_id.clone()) {
                 return;
+            }
+            if let Some(r) = &t.requester {
+                raised.push((r.clone(), t.organization_id.clone()));
             }
             plan.comments += t.comments.len() as u64;
             for c in &t.comments {
@@ -653,14 +778,26 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
                 "{unreadable} lines of the bundle can't be read and will be skipped"
             ));
         }
+        let (missing, gone) = missing_people(&b, &m, &found.mentioned, &persons, bad_people)?;
+        plan.missing_people = missing;
+        plan.gone_people = gone;
+        plan.inputs = m.inputs.clone();
+        plan.fill = m.fill.clone();
+        let organizations = b.organizations()?;
+        plan.people_detail = people_detail(&persons, &organizations, found.mentioned.len());
+        plan.people_detail.sharing = sharing_note(conn, &raised, &persons, &organizations)?;
+
+        let groups = people::group_by_address(persons);
         let popts = PeopleOptions {
             scope,
             job_id: o.job_id,
             agent_map: &o.agent_map,
             create_agents: o.create_agents,
         };
-        let people_plan = people::plan(conn, &persons, &popts)?;
+        let people_plan = people::plan(conn, &groups, &popts)?;
         plan.notes.extend(people_plan.warnings);
+        plan.people_detail.profile = people_plan.profile;
+        plan.people_detail.changed_at_source = people_plan.changed_at_source;
         for d in people_plan.decisions {
             *plan.people.entry(d.outcome.label()).or_default() += 1;
             if d.person.role.is_staff() {
@@ -674,15 +811,115 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
                 ));
             }
         }
-        plan.missing_people = missing_people(&b, &m, &found.mentioned, &persons, bad_people)?;
         plan.refused = plan
             .missing_people
             .as_ref()
-            .and_then(|missing| missing.refusal(o.allow_missing_people));
+            .and_then(|missing| missing.refusal(o.allow_missing_people))
+            .or_else(|| create_agents_refusal(&m, o.create_agents));
         plan.estimated_minutes = (plan.tickets - plan.tickets_imported_already) / (50 * 60) + 1;
         Ok(plan)
     })
     .await
+}
+
+/// The plan's counts of the people beyond their outcomes, from the bundle.
+fn people_detail(
+    persons: &[bundle::Person],
+    organizations: &[bundle::Organization],
+    mentioned: usize,
+) -> PeopleDetail {
+    let orgs: HashMap<&str, &bundle::Organization> = organizations
+        .iter()
+        .filter(|o| !o.deleted)
+        .map(|o| (o.source_id.as_str(), o))
+        .collect();
+    let mut detail = PeopleDetail {
+        mentioned: mentioned as u64,
+        ..Default::default()
+    };
+    let mut by_address: HashMap<String, u64> = HashMap::new();
+    let mut belonged: HashSet<&str> = HashSet::new();
+    for p in persons {
+        if let Some(e) = &p.email {
+            *by_address.entry(e.to_lowercase()).or_default() += 1;
+        }
+        detail.deleted += u64::from(p.deleted);
+        if p.deleted {
+            continue;
+        }
+        detail.limited_staff += u64::from(p.role.is_staff() && p.limited_staff);
+        detail.shared_phones += u64::from(p.shared_phone);
+        if p.custom_role {
+            detail
+                .custom_role_agents
+                .push(p.email.clone().unwrap_or_else(|| p.name.clone()));
+        }
+        match p.organization_id.as_deref() {
+            Some(id) if orgs.contains_key(id) => {
+                belonged.insert(id);
+            }
+            // Named, and the bundle doesn't hold it (or not alive): none.
+            Some(_) if p.organization.is_none() => detail.organizations_missing += 1,
+            _ => {}
+        }
+    }
+    for n in by_address.values().filter(|n| **n > 1) {
+        detail.shared_addresses += 1;
+        detail.shared_address_people += n;
+    }
+    detail.organizations = belonged.len() as u64;
+    detail.organizations_with_domains = belonged
+        .iter()
+        .filter(|id| orgs.get(*id).is_some_and(|o| !o.domain_names.is_empty()))
+        .count() as u64;
+    detail
+}
+
+/// What portal sharing by domain would show colleagues that the source
+/// didn't. Sharing keys on a requester's verified address, which imported
+/// requesters prove only by signing in, so this is what would come to be
+/// shared as they do. None when nothing would.
+fn sharing_note(
+    conn: &mut DbConnection,
+    raised: &[(String, Option<String>)],
+    persons: &[bundle::Person],
+    organizations: &[bundle::Organization],
+) -> Result<Option<SharingNote>, LoadError> {
+    let shared: HashSet<&str> = organizations
+        .iter()
+        .filter(|o| o.shared_tickets && !o.deleted)
+        .map(|o| o.source_id.as_str())
+        .collect();
+    let domain_of: HashMap<&str, String> = persons
+        .iter()
+        .filter(|p| !p.deleted)
+        .filter_map(|p| {
+            let email = p.email.as_deref()?;
+            let domain = email.rsplit_once('@')?.1.to_lowercase();
+            (!crate::utils::free_mail::is_free_mail(email))
+                .then_some((p.source_id.as_str(), domain))
+        })
+        .collect();
+    let mut domains = HashSet::new();
+    let mut tickets = 0u64;
+    for (requester, org) in raised {
+        if org.as_deref().is_some_and(|o| shared.contains(o)) {
+            continue;
+        }
+        if let Some(d) = domain_of.get(requester.as_str()) {
+            domains.insert(d.clone());
+            tickets += 1;
+        }
+    }
+    if tickets == 0 {
+        return Ok(None);
+    }
+    let on = crate::repository::site_settings::get_site_settings(conn)?.portal_share_by_domain;
+    Ok(Some(SharingNote {
+        on,
+        domains: domains.len() as u64,
+        tickets,
+    }))
 }
 
 /// Whether to keep the source's ticket numbers. Only when every ticket in the
@@ -742,11 +979,13 @@ pub async fn load(
     let opened = match prepare(bundle) {
         Ok(prepared) => {
             report.missing_people = prepared.missing.clone();
-            match prepared
+            report.gone_people = prepared.gone.clone();
+            let refusal = prepared
                 .missing
                 .as_ref()
                 .and_then(|m| m.refusal(opts.allow_missing_people))
-            {
+                .or_else(|| create_agents_refusal(&prepared.manifest, opts.create_agents));
+            match refusal {
                 Some(why) => Err(LoadError::Refused(why)),
                 // Stopped while the bundle was read: nothing written yet.
                 None if opts.cancel.is_cancelled() => Err(LoadError::Cancelled),
@@ -781,24 +1020,30 @@ pub async fn load(
 struct Prepared {
     manifest: bundle::Manifest,
     found: Scan,
-    /// The bundle's people the tickets mention.
-    persons: Vec<bundle::Person>,
+    /// The bundle's people the tickets mention, grouped by address.
+    groups: Vec<people::AddressGroup>,
+    people_total: u64,
     /// Lines of people.jsonl that couldn't be read.
     bad_people: u64,
     missing: Option<MissingPeople>,
+    gone: Option<MissingPeople>,
 }
 
 fn prepare(bundle: &Bundle) -> Result<Prepared, LoadError> {
     let manifest = bundle.read_manifest()?;
     let found = scan(bundle, |_| {})?;
     let (persons, bad_people) = mentioned_people(bundle, &found.mentioned)?;
-    let missing = missing_people(bundle, &manifest, &found.mentioned, &persons, bad_people)?;
+    let (missing, gone) =
+        missing_people(bundle, &manifest, &found.mentioned, &persons, bad_people)?;
+    let people_total = persons.len() as u64;
     Ok(Prepared {
         manifest,
         found,
-        persons,
+        groups: people::group_by_address(persons),
+        people_total,
         bad_people,
         missing,
+        gone,
     })
 }
 
@@ -826,6 +1071,11 @@ async fn open_job(
         "create_agents": opts.create_agents,
         "mapped_agents": opts.agent_map.len(),
         "allow_missing_people": opts.allow_missing_people,
+        "inputs": manifest.inputs.as_ref().map(|i| serde_json::json!({
+            "zips": i.names(),
+            "credential": i.credential,
+            "api_fill": i.api_fill,
+        })),
     });
     db(pool, opts.actor_context(), move |conn| {
         use crate::models::{ImportJobUpdate, NewImportJob};
@@ -901,6 +1151,11 @@ async fn close_job(
             "replies": m.replies,
             "label": m.label,
         })),
+        "gone_people": report.gone_people.as_ref().map(|m| m.people),
+        "organizations_filled": report.profile.organizations,
+        "phones_added": report.profile.phones,
+        "profile_problems": report.profile_problems.len(),
+        "changed_at_source": report.changed_at_source.len(),
     });
     let error = error.map(ToString::to_string);
     let written = i32::try_from(report.tickets_written).unwrap_or(i32::MAX);
@@ -936,15 +1191,28 @@ async fn write_all(
     let Prepared {
         manifest,
         found,
-        persons,
+        groups,
+        people_total,
         bad_people,
         missing,
+        gone: _,
     } = prepared;
     let source = manifest.source.clone();
     let instance = manifest.source_scope.clone();
     let scope_parts = (opts.workspace_id, source.clone(), instance.clone());
     // How an absent person is named in a ticket's import note.
-    let absent = missing.map_or_else(|| Absence::NotInBundle.label(&source), |m| m.label);
+    let absent = Absent {
+        label: missing.map_or_else(
+            || Absence::of(manifest.people_source, bad_people > 0).label(&source),
+            |m| m.label,
+        ),
+        gone: manifest
+            .fill
+            .iter()
+            .flat_map(|f| f.gone.iter().cloned())
+            .collect(),
+        gone_label: Absence::GoneAtSource.label(&source),
+    };
 
     // Settle numbering once, before the first batch, and reserve the
     // numbers being kept, so a ticket opened here meanwhile takes one after
@@ -972,7 +1240,7 @@ async fn write_all(
     // replies go to.
     report.unreadable_lines += bad_people;
     let mut prog = LoadProgress {
-        people_total: persons.len() as u64,
+        people_total,
         tickets_total: found.ids.len() as u64,
         ..Default::default()
     };
@@ -987,7 +1255,7 @@ async fn write_all(
         .await?
     };
     let mut resolved: HashMap<String, Resolved> = HashMap::new();
-    for chunk in persons.chunks(PEOPLE_BATCH) {
+    for chunk in group_batches(&groups, opts.people_batch_size.max(1)) {
         if opts.cancel.is_cancelled() {
             return Err(LoadError::Cancelled);
         }
@@ -1003,12 +1271,16 @@ async fn write_all(
         prog.people_done += done.resolved.len() as u64;
         resolved.extend(done.resolved);
         report.people_problems.extend(done.problems);
+        report.profile_problems.extend(done.profile_problems);
+        report.changed_at_source.extend(done.changed_at_source);
+        report.profile.add(&done.profile);
         progress(&prog);
     }
     for r in resolved.values() {
         *report.people.entry(r.outcome.label()).or_default() += 1;
     }
     let people_map = Arc::new(resolved);
+    let absent = Arc::new(absent);
 
     let batch_size = opts.batch_size.max(1);
     let mut lines = bundle.tickets()?;
@@ -1081,6 +1353,23 @@ async fn write_all(
     Ok(())
 }
 
+/// `groups` in batches of about `size` people, never splitting a group.
+fn group_batches(groups: &[people::AddressGroup], size: usize) -> Vec<&[people::AddressGroup]> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start < groups.len() {
+        let mut end = start;
+        let mut n = 0;
+        while end < groups.len() && (n == 0 || n + groups[end].members.len() <= size) {
+            n += groups[end].members.len();
+            end += 1;
+        }
+        out.push(&groups[start..end]);
+        start = end;
+    }
+    out
+}
+
 fn people_options<'a>(
     o: &'a LoadOptions,
     workspace_id: i32,
@@ -1142,7 +1431,7 @@ async fn write_batch(
     keep_numbers: bool,
     people: &Arc<HashMap<String, Resolved>>,
     placeholder: Uuid,
-    absent: &str,
+    absent: &Arc<Absent>,
     batch: Vec<bundle::Ticket>,
 ) -> Result<BatchWritten, LoadError> {
     let (s, i, o, people, absent) = (
@@ -1150,7 +1439,7 @@ async fn write_batch(
         instance.to_string(),
         opts.clone(),
         Arc::clone(people),
-        absent.to_string(),
+        Arc::clone(absent),
     );
     db(pool, opts.actor_context(), move |conn| {
         let scope = Scope {
@@ -1337,7 +1626,7 @@ struct TicketCtx<'a> {
     placeholder: Uuid,
     states: &'a StateMap,
     /// Why someone the ticket names isn't among `people`, in words.
-    absent: &'a str,
+    absent: &'a Absent,
 }
 
 /// A ticket imported before, during a cutover: when the source changed it
@@ -1673,7 +1962,7 @@ fn import_note(
     t: &bundle::Ticket,
     requester: Option<&Resolved>,
     assignee: Option<&Resolved>,
-    absent: &str,
+    absent: &Absent,
 ) -> String {
     let title = source_title(source);
     let mut lines = vec![match t.number {
@@ -1682,10 +1971,16 @@ fn import_note(
     }];
     lines.push(format!("Status there: {}.", t.status_label));
     // Someone the bundle doesn't hold is named by source id only: it is all
-    // the bundle has, and enough to look them up there.
+    // the bundle has, and enough to look them up there. Someone deleted
+    // there is named by name only.
     match (&t.requester, requester) {
         (Some(id), None) => lines.push(format!(
-            "Requested there by {title} user {id} ({absent}); credited to the placeholder author."
+            "Requested there by {title} user {id} ({}); credited to the placeholder author.",
+            absent.of(id)
+        )),
+        (_, Some(r)) if r.deleted() => lines.push(format!(
+            "Requested there by {} (deleted at {title}); credited to the placeholder author.",
+            r.source_name
         )),
         (_, Some(r)) if r.withheld() => lines.push(format!(
             "Requested there by {}; credited to the placeholder author.",
@@ -1695,7 +1990,12 @@ fn import_note(
     }
     match (&t.assignee, assignee) {
         (Some(id), None) => lines.push(format!(
-            "It was assigned to {title} user {id} ({absent}), so it is unassigned."
+            "It was assigned to {title} user {id} ({}), so it is unassigned.",
+            absent.of(id)
+        )),
+        (_, Some(a)) if a.deleted() => lines.push(format!(
+            "It was assigned to {} (deleted at {title}), so it is unassigned.",
+            a.source_name
         )),
         (_, Some(a)) if a.withheld() => lines.push(format!(
             "It was assigned to {}, who has no seat here, so it is unassigned.",
@@ -2152,10 +2452,16 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             solved_at: None,
+            organization_id: None,
             fields: BTreeMap::new(),
             comments: vec![],
         };
-        let note = import_note("zendesk", &t, None, None, "not in the export");
+        let absent = Absent {
+            label: "not in the export".into(),
+            gone: HashSet::from(["902".to_string()]),
+            gone_label: "gone at Zendesk".into(),
+        };
+        let note = import_note("zendesk", &t, None, None, &absent);
         assert!(
             note.contains(
                 "Requested there by Zendesk user 901 (not in the export); credited to the \
@@ -2165,7 +2471,7 @@ mod tests {
         );
         assert!(
             note.contains(
-                "It was assigned to Zendesk user 902 (not in the export), so it is unassigned."
+                "It was assigned to Zendesk user 902 (gone at Zendesk), so it is unassigned."
             ),
             "{note}"
         );
@@ -2174,7 +2480,7 @@ mod tests {
             assignee: None,
             ..t
         };
-        let note = import_note("zendesk", &nobody, None, None, "not in the export");
+        let note = import_note("zendesk", &nobody, None, None, &absent);
         assert!(!note.contains("user"), "{note}");
     }
 }

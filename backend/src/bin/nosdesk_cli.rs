@@ -176,11 +176,19 @@ struct HelpdeskImportArgs {
     #[arg(long)]
     email: Option<String>,
 
-    /// Read a Zendesk JSON data export instead of the API. A credential is
-    /// optional; without one, custom field titles and sign-in-only files
-    /// can't be fetched.
+    /// Read a Zendesk JSON data export instead of the API. Repeatable:
+    /// give the tickets, users and organizations exports together. A
+    /// credential is optional; with one, the API fills what the exports
+    /// lack (people the tickets name, their organizations, conversations
+    /// over 1 MB, group and brand names, custom field titles), one request
+    /// at a time and never from an incremental export.
     #[arg(long, value_name = "ZIP")]
-    export_zip: Option<PathBuf>,
+    export_zip: Vec<PathBuf>,
+
+    /// With --export-zip and a credential, ask the API for nothing: what
+    /// the exports lack stays missing.
+    #[arg(long)]
+    no_api_fill: bool,
 
     /// Where the fetched copy is kept. Reused (and a fetch resumed) when it
     /// exists. Defaults to ./helpdesk-import-<source>-<subdomain>.
@@ -1332,7 +1340,7 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
         }),
         (None, None) => None,
     };
-    if auth.is_none() && args.export_zip.is_none() {
+    if auth.is_none() && args.export_zip.is_empty() {
         bail!("give --oauth-token-env, --api-token-env with --email, or --export-zip");
     }
     let mut source = match (&args.base_url, auth) {
@@ -1341,6 +1349,9 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
         (None, Some(a)) => ZendeskSource::new(&args.subdomain, a)?,
         (None, None) => ZendeskSource::for_export(&args.subdomain)?,
     };
+    if args.no_api_fill {
+        source = source.without_api_fill();
+    }
 
     let dir = args.bundle.clone().unwrap_or_else(|| {
         PathBuf::from(format!(
@@ -1350,7 +1361,18 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
     });
     // A copy of a customer's helpdesk: created readable by its owner only.
     let bundle = Bundle::create(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    let complete = bundle.read_manifest().is_ok();
+    let manifest = bundle.read_manifest().ok();
+    let complete = manifest.is_some();
+    // A complete copy read from other inputs would quietly ignore the new
+    // ones: refused, unless they are read afresh.
+    if let (Some(m), false) = (&manifest, args.refetch) {
+        let current =
+            bundle::InputSet::of(&args.export_zip, source.has_credential(), !args.no_api_fill)
+                .context("reading the export zips")?;
+        if let Some(why) = zendesk::reuse_refusal(m, &current) {
+            bail!("{why}. Nothing was written.");
+        }
+    }
 
     if !complete || args.refetch {
         if args.refetch && complete {
@@ -1382,9 +1404,10 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
             );
         };
         eprintln!("Fetching into {} ...", dir.display());
-        let fetched = match &args.export_zip {
-            Some(zip) => zendesk::read_export(&source, zip, &bundle, &progress, cancel).await,
-            None => source.fetch(&bundle, &progress, cancel).await,
+        let fetched = if args.export_zip.is_empty() {
+            source.fetch(&bundle, &progress, cancel).await
+        } else {
+            zendesk::read_export(&source, &args.export_zip, &bundle, &progress, cancel).await
         };
         let manifest = match fetched {
             Ok(m) => m,
@@ -1449,6 +1472,7 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
         create_agents: args.create_agents,
         allow_missing_people: args.allow_missing_people,
         batch_size: loader::DEFAULT_BATCH,
+        people_batch_size: loader::PEOPLE_BATCH,
         cancel: CancellationToken::new(),
     };
     println!();

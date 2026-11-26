@@ -34,18 +34,19 @@
 //! sign-in is listed as missing with that reason. The read starts the bundle over: an interrupted read
 //! is simply run again (attachments already on disk are kept).
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{self, BufRead, BufReader, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::{api, map, Run, ZendeskSource};
+use super::{api, fill, map, Run, ZendeskSource};
 use crate::services::imports::helpdesk::bundle::{
-    Body, BodyFormat, Bundle, Comment, FetchState, Manifest, PeopleSource,
+    self, Body, BodyFormat, Bundle, Comment, FetchState, Fill, InputSet, Manifest, PeopleSource,
 };
+use crate::services::imports::helpdesk::people;
 use crate::services::imports::helpdesk::source::{FetchProgress, SourceError};
 
 /// How much the reader takes at once.
@@ -73,60 +74,76 @@ enum Kind {
     Organization,
 }
 
-/// Reads the export at `zip_path` into `bundle`, starting it over, and
-/// writes the manifest. `source` supplies the scope (the subdomain) and the
-/// client for attachment downloads; its credential is used, as on the API
-/// path, only for Zendesk's own hosts, and also to look up custom field
-/// titles, which the export doesn't carry (without them a field is
-/// labelled by id).
+/// Reads the exports at `zips` into `bundle`, starting it over, and writes
+/// the manifest. Every zip is read for every kind, so a tickets export, a
+/// users export and an organizations export can be given together; a
+/// record in two zips keeps the copy with the later `updated_at`.
+///
+/// `source` supplies the scope (the subdomain) and the client for
+/// attachment downloads; its credential is used, as on the API path, only
+/// for Zendesk's own hosts. With a credential, and unless the fill is off
+/// ([`ZendeskSource::without_api_fill`]), the API fills what the exports
+/// lack, by id and one request at a time (see [`super::fill`]): custom
+/// field titles, group and brand names, the conversations of tickets sent
+/// without them, the people the tickets name and the exports don't hold,
+/// and their organizations. A fill that fails is recorded, and what it
+/// hadn't fetched stays as the exports left it.
 pub async fn read_export(
     source: &ZendeskSource,
-    zip_path: &Path,
+    zips: &[PathBuf],
     bundle: &Bundle,
     progress: &(dyn Fn(&FetchProgress) + Send + Sync),
     cancel: CancellationToken,
 ) -> Result<Manifest, SourceError> {
     // Starting over: a manifest from an earlier read would make a half
     // rewritten bundle look complete.
-    match std::fs::remove_file(
-        bundle
-            .root()
-            .join(crate::services::imports::helpdesk::bundle::MANIFEST),
-    ) {
+    match std::fs::remove_file(bundle.root().join(bundle::MANIFEST)) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.into()),
     }
+    let inputs = {
+        let (zips, credential, fill) =
+            (zips.to_vec(), source.http.has_credential(), source.api_fill);
+        tokio::task::spawn_blocking(move || InputSet::of(&zips, credential, fill))
+            .await
+            .map_err(|e| SourceError::Protocol(format!("export reader stopped: {e}")))??
+    };
     let mut state = FetchState::default();
     bundle.write_state(&state)?;
     let mut run = Run::new(&state, progress);
     let mut notes = vec!["Read from a Zendesk JSON export, not the API".to_string()];
+    let filling = source.fills_from_api();
+    let mut fill = Fill::default();
 
-    // Pass one: organisations and people, which fit in memory.
-    let path = zip_path.to_path_buf();
-    let (orgs, users, people_tally) = tokio::task::spawn_blocking(move || read_people(&path))
-        .await
-        .map_err(|e| SourceError::Protocol(format!("export reader stopped: {e}")))??;
-    let orgs = map::organizations(orgs);
-    let mut writer = bundle.people_writer(true)?;
-    let mut seen = HashSet::new();
-    let mut people = 0u64;
-    for u in &users {
-        if seen.insert(u.id) {
-            writer.write(&map::person(u, &orgs))?;
-            people += 1;
+    // Pass one: organisations and people, which fit in memory. Across zips
+    // the later `updated_at` wins.
+    let paths = zips.to_vec();
+    let (orgs, users, people_tally) = tokio::task::spawn_blocking(move || {
+        let mut orgs: BTreeMap<i64, api::Organization> = BTreeMap::new();
+        let mut users: BTreeMap<i64, api::User> = BTreeMap::new();
+        let mut tally = Tally::default();
+        for path in &paths {
+            let (o, u, t) = read_people(path)?;
+            for o in o {
+                keep_later(&mut orgs, o.id, o, |o| o.updated_at);
+            }
+            for u in u {
+                keep_later(&mut users, u.id, u, |u| u.updated_at);
+            }
+            tally.add(&t);
         }
-    }
-    writer.checkpoint()?;
-    drop(users);
-    run.counts.insert("people".into(), people);
-    run.progress.people = people;
-    run.report(source);
-    state.people_done = true;
-    state.people_source = Some(PeopleSource::Export);
+        Ok::<_, SourceError>((orgs, users, tally))
+    })
+    .await
+    .map_err(|e| SourceError::Protocol(format!("export reader stopped: {e}")))??;
+    let (mut orgs, mut users) = (orgs, users);
 
     let fields = if !source.http.has_credential() {
         notes.push("Custom field titles need API access; without a Zendesk credential fields are labelled by id".into());
+        map::FieldCatalog::default()
+    } else if !source.api_fill {
+        notes.push("The API fill is off, so custom fields are labelled by id".into());
         map::FieldCatalog::default()
     } else {
         match source
@@ -147,29 +164,64 @@ pub async fn read_export(
             }
         }
     };
+    let mut labels = map::Labels {
+        organizations: map::organizations(orgs.values()),
+        ..Default::default()
+    };
+    // Fetched the first time a ticket needs them; None once tried.
+    let mut groups_tried = false;
+    let mut brands_tried = false;
+
+    // With several zips, which copy of each ticket is kept: a cheap first
+    // read of ids and dates, so the tickets themselves still stream.
+    let winners = if zips.len() > 1 {
+        let paths = zips.to_vec();
+        Some(
+            tokio::task::spawn_blocking(move || ticket_winners(&paths))
+                .await
+                .map_err(|e| SourceError::Protocol(format!("export reader stopped: {e}")))??,
+        )
+    } else {
+        None
+    };
 
     // Pass two: tickets, streamed from a reader thread so an export of any
     // size never sits in memory.
-    let (tx, mut rx) = mpsc::channel::<api::Ticket>(64);
-    let path = zip_path.to_path_buf();
-    let reader = tokio::task::spawn_blocking(move || read_tickets(&path, &tx));
+    let (tx, mut rx) = mpsc::channel::<(usize, api::Ticket)>(64);
+    let paths = zips.to_vec();
+    let reader = tokio::task::spawn_blocking(move || {
+        let mut tally = Tally::default();
+        for (i, path) in paths.iter().enumerate() {
+            match read_tickets(path, i, &tx)? {
+                Some(t) => tally.add(&t),
+                // The receiver went: the run stopped.
+                None => break,
+            }
+        }
+        Ok::<_, SourceError>(tally)
+    });
 
     let mut writer = bundle.tickets_writer(0)?;
     let mut seen = HashSet::new();
     let mut since_checkpoint = 0u64;
+    let mut mentioned: HashSet<String> = HashSet::new();
+    let mut ticket_orgs: HashSet<i64> = HashSet::new();
     loop {
-        let t = tokio::select! {
+        let next = tokio::select! {
             t = rx.recv() => t,
             _ = cancel.cancelled() => return Err(SourceError::Cancelled),
         };
-        let Some(t) = t else { break };
+        let Some((zip, t)) = next else { break };
         if map::is_deleted(&t) {
             *run.counts
                 .entry("deleted_tickets_skipped".into())
                 .or_default() += 1;
             continue;
         }
-        if !seen.insert(t.id) {
+        let other_copy_wins = winners
+            .as_ref()
+            .is_some_and(|w| w.get(&t.id).is_some_and(|&kept| kept != zip));
+        if other_copy_wins || !seen.insert(t.id) {
             *run.counts
                 .entry("duplicate_tickets_skipped".into())
                 .or_default() += 1;
@@ -181,8 +233,52 @@ pub async fn read_export(
                 .or_default() += 1;
             continue;
         };
+        if filling && fill.failed.is_none() {
+            if t.group_id.is_some() && !groups_tried {
+                groups_tried = true;
+                match source.names(fill::Names::Groups, &cancel).await? {
+                    Ok(names) => labels.groups = names,
+                    Err(why) => notes.push(format!(
+                        "Group names unavailable ({why}); the import note names groups by id"
+                    )),
+                }
+            }
+            if t.brand_id.is_some() && !brands_tried {
+                brands_tried = true;
+                match source.names(fill::Names::Brands, &cancel).await? {
+                    Ok(names) => labels.brands = names,
+                    Err(why) => notes.push(format!(
+                        "Brand names unavailable ({why}); the import note names brands by id"
+                    )),
+                }
+            }
+        }
         let raw = match &t.comments {
             Some(c) if !c.is_empty() => c.clone(),
+            // Over 1 MB: Zendesk's export leaves the conversation out. The
+            // fill asks for it, as the API fetch does for every ticket.
+            _ if filling && fill.failed.is_none() => {
+                match source.fetch_comments(t.id, &cancel).await {
+                    Ok(Some(c)) if !c.is_empty() => {
+                        fill.conversations += 1;
+                        c
+                    }
+                    Ok(_) => {
+                        *run.counts
+                            .entry("tickets_without_comments".into())
+                            .or_default() += 1;
+                        Vec::new()
+                    }
+                    Err(SourceError::Cancelled) => return Err(SourceError::Cancelled),
+                    Err(e) => {
+                        fill.failed = Some(fill::failure(&e));
+                        *run.counts
+                            .entry("tickets_without_comments".into())
+                            .or_default() += 1;
+                        Vec::new()
+                    }
+                }
+            }
             _ => {
                 *run.counts
                     .entry("tickets_without_comments".into())
@@ -191,7 +287,9 @@ pub async fn read_export(
             }
         };
         let (mut ticket, mut stats) = source
-            .assemble(bundle, &t, created_at, None, &fields, &raw, &cancel)
+            .assemble(
+                bundle, &t, created_at, None, &fields, &labels, &raw, &cancel,
+            )
             .await?;
         if ticket.comments.is_empty() {
             if let Some(c) = description_comment(&t, created_at) {
@@ -199,6 +297,8 @@ pub async fn read_export(
                 stats.comments += 1;
             }
         }
+        people::mentioned(&ticket, &mut mentioned);
+        ticket_orgs.extend(t.organization_id);
         writer.write(&ticket)?;
         stats.tickets = 1;
         run.add(&stats);
@@ -224,6 +324,67 @@ pub async fn read_export(
             people_tally.records.max(ticket_tally.records)
         )));
     }
+
+    // The fill, people first: everyone the tickets name that no zip holds,
+    // by id. Who Zendesk doesn't return is gone there.
+    if filling && fill.failed.is_none() {
+        let mut ask: Vec<i64> = mentioned
+            .iter()
+            .filter_map(|id| id.parse::<i64>().ok())
+            .filter(|id| !users.contains_key(id))
+            .collect();
+        ask.sort_unstable();
+        fill.people_asked = ask.len() as u64;
+        let got = source.users_by_id(&ask, &cancel).await?;
+        fill.people_returned = got.returned.len() as u64;
+        fill.gone = got.gone.iter().map(i64::to_string).collect();
+        fill.failed = got.failed;
+        for u in got.returned {
+            users.insert(u.id, u);
+        }
+    }
+    // Then the organizations those people and the tickets name that no zip
+    // holds.
+    if filling && fill.failed.is_none() {
+        let mut ask: Vec<i64> = users
+            .values()
+            .filter(|u| mentioned.contains(&u.id.to_string()))
+            .filter_map(|u| u.organization_id)
+            .chain(ticket_orgs.iter().copied())
+            .filter(|id| !orgs.contains_key(id))
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        ask.sort_unstable();
+        let got = source.organizations_by_id(&ask, &cancel).await?;
+        fill.organizations = got.returned.len() as u64;
+        fill.failed = got.failed;
+        for o in got.returned {
+            orgs.insert(o.id, o);
+        }
+    }
+
+    // Now the people and organizations are as complete as they get.
+    let mut org_writer = bundle.organizations_writer()?;
+    for o in orgs.values().filter_map(map::organization) {
+        org_writer.write(&o)?;
+    }
+    org_writer.checkpoint()?;
+    let names = map::organizations(orgs.values());
+    let mut writer = bundle.people_writer(true)?;
+    for u in users.values() {
+        writer.write(&map::person(u, &names))?;
+    }
+    writer.checkpoint()?;
+    let people = users.len() as u64;
+    drop(users);
+    run.counts.insert("people".into(), people);
+    run.progress.people = people;
+    run.report(source);
+    state.people_done = true;
+    state.people_source = Some(PeopleSource::Export);
+    state.person_detail = bundle::PERSON_DETAIL;
+
     let unreadable = people_tally.unreadable + ticket_tally.unreadable;
     if unreadable > 0 {
         notes.push(format!(
@@ -236,14 +397,63 @@ pub async fn read_export(
             "{unrecognised} records of the export were of no kind this reader knows and were skipped"
         ));
     }
+    if let Some(why) = &fill.failed {
+        notes.push(format!(
+            "The API fill stopped: {why}. What it hadn't fetched is as the export left it"
+        ));
+    }
     state.counts = run.counts.clone();
     state.notes = notes;
     bundle.write_state(&state)?;
-    // People come from the zip alone, credential or not: Zendesk was never
-    // asked for someone the zip lacks.
-    let manifest = run.manifest("zendesk", &source.scope, &state.notes, state.people_source);
+    // People come from the zips, and from the fill when it ran: someone
+    // neither holds is gone at Zendesk only when the fill asked for them.
+    let mut manifest = run.manifest("zendesk", &source.scope, &state.notes, state.people_source);
+    manifest.person_detail = state.person_detail;
+    manifest.inputs = Some(inputs);
+    manifest.fill = filling.then_some(fill);
     bundle.write_manifest(&manifest)?;
     Ok(manifest)
+}
+
+/// Keeps `item` under `id` unless the copy there is as new or newer.
+fn keep_later<T>(
+    map: &mut BTreeMap<i64, T>,
+    id: i64,
+    item: T,
+    updated_at: fn(&T) -> Option<chrono::DateTime<chrono::Utc>>,
+) {
+    match map.get(&id) {
+        Some(have) if updated_at(have) >= updated_at(&item) => {}
+        _ => {
+            map.insert(id, item);
+        }
+    }
+}
+
+/// For each ticket in several zips, the zip whose copy is kept: the later
+/// `updated_at`, or the first zip on a tie.
+fn ticket_winners(paths: &[PathBuf]) -> Result<HashMap<i64, usize>, SourceError> {
+    #[derive(serde::Deserialize)]
+    struct Stamp {
+        id: i64,
+        #[serde(default)]
+        updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    }
+    let mut best: HashMap<i64, (usize, Option<chrono::DateTime<chrono::Utc>>)> = HashMap::new();
+    for (i, path) in paths.iter().enumerate() {
+        each_record(path, &[Kind::Ticket], LIMITS, |_, v| {
+            if let Ok(s) = serde_json::from_value::<Stamp>(v) {
+                match best.get(&s.id) {
+                    Some((_, at)) if *at >= s.updated_at => {}
+                    _ => {
+                        best.insert(s.id, (i, s.updated_at));
+                    }
+                }
+            }
+            true
+        })?;
+    }
+    Ok(best.into_iter().map(|(id, (zip, _))| (id, zip)).collect())
 }
 
 /// The ticket's description as its opening comment, for a ticket the
@@ -281,6 +491,15 @@ struct Tally {
     unrecognised: u64,
     /// Records of a kind the reader knows, wanted or not.
     recognised: u64,
+}
+
+impl Tally {
+    fn add(&mut self, o: &Tally) {
+        self.records += o.records;
+        self.unreadable += o.unreadable;
+        self.unrecognised += o.unrecognised;
+        self.recognised += o.recognised;
+    }
 }
 
 const BOM: &[u8] = b"\xEF\xBB\xBF";
@@ -501,24 +720,35 @@ fn read_people(
     Ok((orgs, users, tally))
 }
 
-/// Sends each ticket down `tx`; stops when the receiver has gone (the run
-/// failed or was cancelled).
-fn read_tickets(path: &Path, tx: &mpsc::Sender<api::Ticket>) -> Result<Tally, SourceError> {
+/// Sends each ticket of zip `zip` down `tx`. None when the receiver has
+/// gone (the run failed or was cancelled).
+fn read_tickets(
+    path: &Path,
+    zip: usize,
+    tx: &mpsc::Sender<(usize, api::Ticket)>,
+) -> Result<Option<Tally>, SourceError> {
     let mut bad = 0u64;
+    let mut gone = false;
     let mut tally = each_record(
         path,
         &[Kind::Ticket],
         LIMITS,
         |_, v| match serde_json::from_value::<api::Ticket>(v) {
-            Ok(t) => tx.blocking_send(t).is_ok(),
+            Ok(t) => {
+                gone = tx.blocking_send((zip, t)).is_err();
+                !gone
+            }
             Err(_) => {
                 bad += 1;
                 true
             }
         },
     )?;
+    if gone {
+        return Ok(None);
+    }
     tally.unreadable += bad;
-    Ok(tally)
+    Ok(Some(tally))
 }
 
 /// Reads one line into `buf`, at most `cap` bytes of it. None at the end;
