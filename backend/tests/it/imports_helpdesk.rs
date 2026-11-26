@@ -1030,13 +1030,29 @@ async fn accounts_from_elsewhere_are_attached_only_within_the_workspaces_reach()
     let gone = account_of(&pool, "gone@acme.test");
     let watcher = account_of(&pool, "watcher@customer.test");
     assert_eq!(by_number[&305], suspended);
-    assert_eq!(
-        seat_of(&pool, ws.workspace_id, suspended),
-        Some(("member".to_string(), true))
-    );
+    assert_eq!(seat_of(&pool, ws.workspace_id, suspended), None);
+    assert_eq!(seat_of(&pool, ws.workspace_id, gone), None);
+    // They are the workspace's people all the same (a profile kept for
+    // them), and a seat granted later is an ordinary one: an admin can make
+    // the former agent an agent again.
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        assert!(backend::repository::directory::is_person(
+            c,
+            ws.workspace_id,
+            gone
+        )?);
+        backend::repository::workspaces::add_membership(
+            c,
+            ws.workspace_id,
+            gone,
+            "agent",
+            backend::repository::workspaces::SeatWriteAuthority::Product,
+        )
+    })
+    .expect("seat the former agent");
     assert_eq!(
         seat_of(&pool, ws.workspace_id, gone),
-        Some(("member".to_string(), true))
+        Some(("agent".to_string(), false))
     );
     let watching = watchers_of(&pool, &ws, 304);
     assert!(watching.contains(&watcher), "{watching:?}");
@@ -1322,6 +1338,18 @@ async fn a_cutover_rerun_follows_the_source_on_tickets_nobody_changed_here() {
             job,
         );
         assert_eq!(n, 0, "{outbox} got {n} rows from the cutover");
+    }
+    // And no rule clock starts on the imported tickets it touched.
+    backend::services::rules::elapsed::reconcile(&pool).expect("reconcile");
+    {
+        let mut conn = pool.get().expect("conn");
+        let clocks: Count = diesel::sql_query(
+            "SELECT count(*) AS n FROM ticket_elapsed_queue q JOIN tickets t ON t.id = q.ticket_id \
+             WHERE t.submitted_via = 'import'",
+        )
+        .get_result(&mut conn)
+        .expect("clocks");
+        assert_eq!(clocks.n, 0);
     }
 
     // The same bundle again changes nothing: 102 was written by the import

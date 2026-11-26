@@ -48,11 +48,21 @@ use crate::services::imports::helpdesk::bundle::{
 };
 use crate::services::imports::helpdesk::source::{FetchProgress, SourceError};
 
-/// A line longer than this is not a record we can carry; it is skipped and
-/// counted. Zendesk keeps ticket records under about 1 MB.
-const MAX_LINE: u64 = 64 * 1024 * 1024;
-/// The most read of an entry that is one JSON document rather than NDJSON.
-const MAX_DOCUMENT: u64 = 256 * 1024 * 1024;
+/// How much the reader takes at once.
+#[derive(Debug, Clone, Copy)]
+struct Limits {
+    /// A line longer than this is not a record we can carry; it is skipped
+    /// and counted. Zendesk keeps ticket records under about 1 MB.
+    line: u64,
+    /// The most read of an entry that is one JSON document rather than
+    /// NDJSON.
+    document: u64,
+}
+
+const LIMITS: Limits = Limits {
+    line: 64 * 1024 * 1024,
+    document: 256 * 1024 * 1024,
+};
 /// Tickets written between checkpoints of tickets.jsonl.
 const CHECKPOINT_EVERY: u64 = 100;
 
@@ -275,6 +285,7 @@ const BOM: &[u8] = b"\xEF\xBB\xBF";
 fn each_record(
     path: &Path,
     want: &[Kind],
+    limits: Limits,
     mut visit: impl FnMut(Kind, Value) -> bool,
 ) -> Result<Tally, SourceError> {
     let file = std::fs::File::open(path)?;
@@ -289,10 +300,28 @@ fn each_record(
         if is_dir {
             continue;
         }
+        let readable = |t: &Tally| t.records - t.unreadable;
+        let at_start = readable(&tally);
+        let mut overlong = false;
         let mut reader = BufReader::new(archive.by_index(i).map_err(zip_error)?);
-        match read_lines(&mut reader, true, want, hint, &mut tally, &mut visit)? {
+        match read_lines(
+            &mut reader,
+            true,
+            want,
+            hint,
+            limits,
+            &mut tally,
+            &mut overlong,
+            &mut visit,
+        )? {
             Lines::Stopped => return Ok(tally),
-            Lines::Done => {}
+            Lines::Done => {
+                // An entry whose first record is too long to read, and holds
+                // nothing else, is a document too big to take, not noise.
+                if overlong && readable(&tally) == at_start {
+                    return Err(too_big(&name, limits.line));
+                }
+            }
             Lines::NotNdjson(first) => {
                 // Perhaps one JSON document over many lines: read it whole,
                 // up to the limit.
@@ -300,10 +329,10 @@ fn each_record(
                 doc.push(b'\n');
                 let read = reader
                     .by_ref()
-                    .take(MAX_DOCUMENT + 1)
+                    .take(limits.document + 1)
                     .read_to_end(&mut doc)?;
-                let too_big = read as u64 > MAX_DOCUMENT;
-                if !too_big {
+                let oversized = read as u64 > limits.document;
+                if !oversized {
                     if let Ok(v) = serde_json::from_slice::<Value>(&doc) {
                         tally.records += 1;
                         if !hand_on(v, hint, want, &mut tally, &mut visit) {
@@ -316,22 +345,34 @@ fn each_record(
                 // first line counted as such.
                 drop(reader);
                 let mut lines = BufReader::new(archive.by_index(i).map_err(zip_error)?);
-                let before = tally;
-                if let Lines::Stopped =
-                    read_lines(&mut lines, false, want, hint, &mut tally, &mut visit)?
-                {
+                if let Lines::Stopped = read_lines(
+                    &mut lines,
+                    false,
+                    want,
+                    hint,
+                    limits,
+                    &mut tally,
+                    &mut overlong,
+                    &mut visit,
+                )? {
                     return Ok(tally);
                 }
-                if too_big && tally.records == before.records {
-                    return Err(SourceError::Protocol(format!(
-                        "export entry {name} is one document over {} MB, more than this reader takes",
-                        MAX_DOCUMENT / (1024 * 1024)
-                    )));
+                // Nothing in it read line by line either: one document over
+                // the limit, which the reader refuses rather than skip.
+                if oversized && readable(&tally) == at_start {
+                    return Err(too_big(&name, limits.document));
                 }
             }
         }
     }
     Ok(tally)
+}
+
+fn too_big(entry: &str, limit: u64) -> SourceError {
+    SourceError::Protocol(format!(
+        "export entry {entry} holds a record over {} MB, more than this reader takes",
+        limit.div_ceil(1024 * 1024)
+    ))
 }
 
 /// How a line-by-line read of an entry ended.
@@ -347,19 +388,22 @@ enum Lines {
 /// Reads `reader` one line at a time. With `first_may_be_document`, a first
 /// line that doesn't parse ends the read as [`Lines::NotNdjson`]; otherwise
 /// it counts as unreadable like any other.
+#[allow(clippy::too_many_arguments)]
 fn read_lines(
     reader: &mut impl BufRead,
     first_may_be_document: bool,
     want: &[Kind],
     hint: Option<Kind>,
+    limits: Limits,
     tally: &mut Tally,
+    overlong_first: &mut bool,
     visit: &mut impl FnMut(Kind, Value) -> bool,
 ) -> Result<Lines, SourceError> {
     let mut first = true;
     let mut buf = Vec::new();
     loop {
         buf.clear();
-        let Some(complete) = read_line_capped(reader, &mut buf)? else {
+        let Some(complete) = read_line_capped(reader, &mut buf, limits.line)? else {
             return Ok(Lines::Done);
         };
         let mut line = trim_ascii(&buf);
@@ -369,6 +413,7 @@ fn read_lines(
         if !complete {
             tally.records += 1;
             tally.unreadable += 1;
+            *overlong_first |= first;
             first = false;
             continue;
         }
@@ -429,7 +474,7 @@ fn read_people(
     let mut orgs = Vec::new();
     let mut users = Vec::new();
     let mut bad = 0u64;
-    let mut tally = each_record(path, &[Kind::User, Kind::Organization], |k, v| {
+    let mut tally = each_record(path, &[Kind::User, Kind::Organization], LIMITS, |k, v| {
         match k {
             Kind::User => match serde_json::from_value(v) {
                 Ok(u) => users.push(u),
@@ -451,28 +496,35 @@ fn read_people(
 /// failed or was cancelled).
 fn read_tickets(path: &Path, tx: &mpsc::Sender<api::Ticket>) -> Result<Tally, SourceError> {
     let mut bad = 0u64;
-    let mut tally = each_record(path, &[Kind::Ticket], |_, v| {
-        match serde_json::from_value::<api::Ticket>(v) {
+    let mut tally = each_record(
+        path,
+        &[Kind::Ticket],
+        LIMITS,
+        |_, v| match serde_json::from_value::<api::Ticket>(v) {
             Ok(t) => tx.blocking_send(t).is_ok(),
             Err(_) => {
                 bad += 1;
                 true
             }
-        }
-    })?;
+        },
+    )?;
     tally.unreadable += bad;
     Ok(tally)
 }
 
-/// Reads one line into `buf`, at most [`MAX_LINE`] bytes of it. None at
-/// the end; `Some(false)` for a line too long to keep (the rest of it is
-/// read and dropped).
-fn read_line_capped(reader: &mut impl BufRead, buf: &mut Vec<u8>) -> io::Result<Option<bool>> {
-    let n = reader.by_ref().take(MAX_LINE).read_until(b'\n', buf)?;
+/// Reads one line into `buf`, at most `cap` bytes of it. None at the end;
+/// `Some(false)` for a line too long to keep (the rest of it is read and
+/// dropped).
+fn read_line_capped(
+    reader: &mut impl BufRead,
+    buf: &mut Vec<u8>,
+    cap: u64,
+) -> io::Result<Option<bool>> {
+    let n = reader.by_ref().take(cap).read_until(b'\n', buf)?;
     if n == 0 {
         return Ok(None);
     }
-    if buf.last() == Some(&b'\n') || (n as u64) < MAX_LINE {
+    if buf.last() == Some(&b'\n') || (n as u64) < cap {
         return Ok(Some(true));
     }
     let mut sink = Vec::new();
@@ -609,6 +661,63 @@ mod tests {
             Kind::Organization
         );
         assert!(records(json!({"id": 4, "name": "Acme"}), None).is_empty());
+    }
+
+    fn zip_of(dir: &Path, body: &[u8]) -> std::path::PathBuf {
+        use std::io::Write;
+        let path = dir.join("e.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).expect("zip"));
+        zip.start_file("export_1", zip::write::SimpleFileOptions::default())
+            .expect("entry");
+        zip.write_all(body).expect("body");
+        zip.finish().expect("finish");
+        path
+    }
+
+    #[test]
+    fn a_record_over_the_limits_fails_rather_than_vanish() {
+        let small = Limits {
+            line: 64,
+            document: 128,
+        };
+        let dir = tempfile::tempdir().expect("dir");
+        // One document over many lines, larger than the document limit.
+        let doc = serde_json::to_vec_pretty(&json!({"tickets": [
+            {"id": 1, "subject": "x".repeat(40)}, {"id": 2, "subject": "y".repeat(40)},
+            {"id": 3, "subject": "z".repeat(40)}
+        ]}))
+        .expect("doc");
+        let err = each_record(&zip_of(dir.path(), &doc), &[Kind::Ticket], small, |_, _| {
+            true
+        })
+        .expect_err("over the document limit");
+        assert!(matches!(err, SourceError::Protocol(_)), "{err:?}");
+        // One line longer than the line limit, and nothing else.
+        let line = format!(
+            "{}\n",
+            json!({"ticket": {"id": 1, "subject": "q".repeat(100)}})
+        );
+        let dir = tempfile::tempdir().expect("dir");
+        assert!(each_record(
+            &zip_of(dir.path(), line.as_bytes()),
+            &[Kind::Ticket],
+            small,
+            |_, _| true
+        )
+        .is_err());
+        // Within the limits, the same document reads.
+        let roomy = Limits {
+            line: 64,
+            document: 4096,
+        };
+        let dir = tempfile::tempdir().expect("dir");
+        let mut n = 0;
+        each_record(&zip_of(dir.path(), &doc), &[Kind::Ticket], roomy, |_, _| {
+            n += 1;
+            true
+        })
+        .expect("read");
+        assert_eq!(n, 3);
     }
 
     #[test]

@@ -28,7 +28,9 @@
 //!   requester seat; active source staff become agents on a self-hosted
 //!   instance with agent creation on. Anyone else (former staff, people
 //!   suspended or deleted at the source) gets an account without a seat, so
-//!   their history keeps their name and nothing signs them in.
+//!   their history keeps their name and nothing signs them in: they are the
+//!   workspace's people by a profile kept for them there, as a directory
+//!   contact is.
 //! - No email at all: the placeholder author, one per source instance and
 //!   workspace, which no one can sign in as.
 //!
@@ -233,13 +235,7 @@ pub fn placeholder(conn: &mut DbConnection, opts: &PeopleOptions<'_>) -> QueryRe
         idmap::forget(conn, scope, Entity::Person, PLACEHOLDER_PERSON)?;
     }
     let name = format!("Unknown ({})", source_title(scope.source));
-    let uuid = create_account(
-        conn,
-        scope.workspace_id,
-        &name,
-        &placeholder_email(),
-        Seat::None,
-    )?;
+    let uuid = create_account(conn, &name, &placeholder_email(), Seat::None)?;
     idmap::record(
         conn,
         scope,
@@ -450,19 +446,13 @@ fn bring(
                 Ok(withheld())
             }
         }
-        (Outcome::AgentCreated, _) => create_agent(conn, ws, p),
+        (Outcome::AgentCreated, _) => create_agent(conn, p),
         (Outcome::Requester, _) => {
-            let uuid = create_account(
-                conn,
-                ws,
-                &display_name(p),
-                &new_address(p)?,
-                Seat::Requester,
-            )?;
+            let uuid = create_account(conn, &display_name(p), &new_address(p)?, Seat::Requester)?;
             Ok(Resolved::new(uuid, false, true, outcome))
         }
         (Outcome::FormerStaff | Outcome::Inactive, _) => {
-            let uuid = create_account(conn, ws, &display_name(p), &new_address(p)?, Seat::None)?;
+            let uuid = create_account(conn, &display_name(p), &new_address(p)?, Seat::None)?;
             Ok(Resolved::new(uuid, false, false, outcome))
         }
         (Outcome::Placeholder, _) => Ok(Resolved::new(placeholder, false, false, outcome)),
@@ -497,8 +487,9 @@ fn display_name(p: &Person) -> String {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Seat {
     Requester,
-    /// None: the account is a former member from the start, one of the
-    /// workspace's people whom nothing signs in.
+    /// None: one of the workspace's people by a profile kept for them
+    /// there, with no membership, so nothing signs them in and a seat
+    /// granted later is an ordinary new one.
     None,
 }
 
@@ -521,11 +512,19 @@ fn new_user(name: &str) -> NewUser {
 /// A new passwordless account for `email`, which no account holds.
 fn create_account(
     conn: &mut DbConnection,
-    workspace_id: i32,
     name: &str,
     email: &str,
     seat: Seat,
 ) -> QueryResult<Uuid> {
+    if seat == Seat::None {
+        return Ok(user_helpers::create_contact_with_email(
+            conn,
+            new_user(name),
+            email.to_string(),
+            Some("helpdesk_import".to_string()),
+        )?
+        .uuid);
+    }
     let (user, _) = user_helpers::create_user_with_email(
         new_user(name),
         WorkspaceRole::Member,
@@ -537,13 +536,10 @@ fn create_account(
         SeatWriteAuthority::Product,
     )?
     .into_created()?;
-    if seat == Seat::None {
-        workspaces::remove_membership(conn, workspace_id, user.uuid, SeatWriteAuthority::Product)?;
-    }
     Ok(user.uuid)
 }
 
-fn create_agent(conn: &mut DbConnection, workspace_id: i32, p: &Person) -> QueryResult<Resolved> {
+fn create_agent(conn: &mut DbConnection, p: &Person) -> QueryResult<Resolved> {
     let email = new_address(p)?;
     match user_helpers::create_user_with_email(
         new_user(&display_name(p)),
@@ -560,7 +556,7 @@ fn create_agent(conn: &mut DbConnection, workspace_id: i32, p: &Person) -> Query
         }
         // Hosted refused the seat after all: an account without one.
         CreateUserWithEmailOutcome::ExternallyManaged => {
-            let uuid = create_account(conn, workspace_id, &display_name(p), &email, Seat::None)?;
+            let uuid = create_account(conn, &display_name(p), &email, Seat::None)?;
             Ok(Resolved::new(uuid, false, false, Outcome::FormerStaff))
         }
     }

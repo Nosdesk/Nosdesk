@@ -476,6 +476,67 @@ pub fn create_user_with_email(
     Ok(CreateUserWithEmailOutcome::Created(result.0, result.1))
 }
 
+/// Create an account with its primary address as one of the pinned
+/// workspace's people without a seat: a contact kept in a profile there
+/// (`user_profiles`, under `name`), as a directory sync keeps an employee
+/// with no membership. Nothing signs it in, and a seat granted later is an
+/// ordinary new membership. For a helpdesk import's former staff and people
+/// suspended at the source.
+pub fn create_contact_with_email(
+    conn: &mut DbConnection,
+    new_user: crate::models::NewUser,
+    email: String,
+    email_source: Option<String>,
+) -> Result<User, diesel::result::Error> {
+    use crate::models::{SyncAggregate, SyncOp};
+    use crate::sync::emit::{self, SyncEmit};
+    use crate::sync::groups;
+    use serde_json::json;
+
+    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+        let user: User = diesel::insert_into(crate::schema::users::table)
+            .values(&new_user)
+            .get_result(conn)?;
+        let user_email: UserEmail = diesel::insert_into(crate::schema::user_emails::table)
+            .values(crate::models::NewUserEmail {
+                user_uuid: user.uuid,
+                email,
+                email_type: "personal".to_string(),
+                is_primary: true,
+                is_verified: false,
+                source: email_source,
+            })
+            .get_result(conn)?;
+        crate::repository::user_contact::set_display_name_if_unset(
+            conn, user.uuid, &user.name, None,
+        )?;
+        // The same projection create_user_with_email sends, with no
+        // workspace role: one of the workspace's people, not a member.
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::User,
+                aggregate_id: user.uuid.to_string(),
+                op: SyncOp::Insert,
+                event_type: "user.created",
+                data: json!({
+                    "uuid": user.uuid,
+                    "name": user.name,
+                    "email": user_email.email,
+                    "platform_role": user.platform_role,
+                    "workspace_role": serde_json::Value::Null,
+                    "pronouns": user.pronouns,
+                    "avatar_url": user.avatar_url,
+                    "avatar_thumb": user.avatar_thumb,
+                }),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(user)
+    })
+}
+
 /// Source tag written to `user_emails.source` when an account is created by
 /// a public guest-ticket submission. Used to distinguish "I'm a drive-by
 /// reporter" accounts from real registered users.
