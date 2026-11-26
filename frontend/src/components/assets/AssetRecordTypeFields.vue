@@ -22,6 +22,8 @@ const props = defineProps<{
   /** The workspace currency, for a money field that pins none and has no
    *  value yet. */
   currency?: string | null
+  /** A save was tried: money fields say why their amount doesn't read. */
+  showErrors?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -102,6 +104,7 @@ function setList(key: string, raw: string) {
       :minimum="field.prop.minimum"
       :maximum="field.prop.maximum"
       eager
+      :show-errors="showErrors"
       @update:model-value="(v) => set(field.key, v)"
       @update:invalid="(v: boolean) => onMoneyInvalid(field.key, v)"
     />

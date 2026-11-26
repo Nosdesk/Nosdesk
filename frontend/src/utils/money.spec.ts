@@ -111,6 +111,14 @@ describe('readAmountInput', () => {
     expect(read('12.345', 'en-US', 2)).toEqual(refused('too_many_decimals'))
   })
 
+  it('reads three decimals after a comma in a three-decimal currency', () => {
+    expect(read('2,250', 'nl-NL', 3)).toEqual(amount('2.250'))
+    expect(read('2,250', 'fr-FR', 3)).toEqual(amount('2.250'))
+    expect(read('2,250', 'nl-NL', 2)).toEqual(refused('ambiguous'))
+    // The point alone before three digits still reads two ways in fr-FR.
+    expect(read('2.250', 'fr-FR', 3)).toEqual(refused('ambiguous'))
+  })
+
   it('refuses what is not an amount, and anything below zero', () => {
     for (const text of ['', '   ', 'abc', '12abc', '1.2.3', '--5']) {
       expect(read(text, 'en-US')).toEqual(refused('invalid'))

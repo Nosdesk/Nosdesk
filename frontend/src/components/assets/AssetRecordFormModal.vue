@@ -1111,6 +1111,7 @@ const reassurance = computed(() =>
           v-model="form.attributes"
           :type="type"
           :currency="currency ?? suggestedCurrency"
+          :show-errors="triedSubmit"
           @update:invalid="(v: boolean) => (fieldsInvalid = v)"
         />
 

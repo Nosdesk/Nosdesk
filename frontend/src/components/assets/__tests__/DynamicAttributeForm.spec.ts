@@ -101,26 +101,66 @@ describe('DynamicAttributeForm money fields', () => {
   })
 
   it('reports each amount as it reads in a form with a Save button', async () => {
-    const { inputs, updates, invalid } = render({}, { eager: true })
+    const { wrapper, inputs, updates, invalid } = render({}, { eager: true })
     await inputs[1].setValue('12')
     expect(updates()).toEqual([{ usd: { amount: '12', currency: 'USD' } }])
     await inputs[1].setValue('-')
-    // Half an amount holds the save rather than being dropped.
+    // Half an amount holds the save rather than being dropped...
     expect(invalid()).toEqual([true])
     expect(updates()).toHaveLength(1)
+    // ...but says nothing until the field is left or a save is tried.
+    expect(wrapper.text()).not.toContain('asset-attribute-money-invalid')
+    await wrapper.setProps({ showErrors: true })
+    expect(wrapper.text()).toContain('asset-attribute-money-invalid')
   })
 
-  it('shows and rewrites a value written before the field held money', async () => {
+  it('says nothing halfway through an amount, and why once the field is left', async () => {
+    const { wrapper, inputs, invalid } = render({}, { eager: true })
+    await inputs[1].setValue('1,2')
+    expect(invalid()).toEqual([true])
+    expect(wrapper.text()).not.toContain('asset-attribute-money-invalid')
+    await inputs[1].setValue('1,250')
+    expect(invalid()).toEqual([true, false])
+    await inputs[1].setValue('1,2')
+    await inputs[1].trigger('blur')
+    expect(wrapper.text()).toContain('asset-attribute-money-invalid')
+  })
+
+  it('leaves a bare amount from before the field held money until someone edits it', async () => {
     const { inputs, updates } = render({ price: '1250' })
     expect((inputs[0].element as HTMLInputElement).value).toBe('1250')
+    await inputs[0].trigger('focus')
     await inputs[0].trigger('blur')
-    expect(updates()).toEqual([{ price: { amount: '1250' } }])
+    expect(updates()).toEqual([])
+    await inputs[0].setValue('1300')
+    await inputs[0].trigger('blur')
+    expect(updates()).toEqual([{ price: { amount: '1300' } }])
   })
 
-  it('clears text that was never an amount once the field is emptied', async () => {
-    const { inputs, updates } = render({ price: 'about twelve', note: 'kept' })
-    expect((inputs[0].element as HTMLInputElement).value).toBe('')
+  it('shows text that was never an amount with its error, and never drops it on a focus and blur', async () => {
+    const { wrapper, inputs, updates, invalid } = render({ price: 'N/A', note: 'kept' })
+    expect((inputs[0].element as HTMLInputElement).value).toBe('N/A')
+    expect(wrapper.text()).toContain('asset-attribute-money-invalid')
+    expect(invalid()).toEqual([true])
+    await inputs[0].trigger('focus')
+    await inputs[0].trigger('blur')
+    expect(updates()).toEqual([])
+    // Someone decides: emptied, it goes.
+    await inputs[0].setValue('')
     await inputs[0].trigger('blur')
     expect(updates()).toEqual([{ note: 'kept' }])
+  })
+
+  it('saves once when Enter is followed by a blur before the server answers', async () => {
+    const { wrapper, inputs, updates } = render({})
+    await inputs[0].trigger('focus')
+    await inputs[0].setValue('12')
+    await inputs[0].trigger('keydown', { key: 'Enter' })
+    expect(updates()).toEqual([{ price: { amount: '12' } }])
+    // The page applies the change at once, without the currency the
+    // server will fill.
+    await wrapper.setProps({ modelValue: { price: { amount: '12' } } })
+    await inputs[0].trigger('blur')
+    expect(updates()).toHaveLength(1)
   })
 })

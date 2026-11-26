@@ -132,6 +132,8 @@ const modelSaving = ref(false);
 const modelError = ref<string | null>(null);
 /** A default spec holds an amount that doesn't read. */
 const defaultsInvalid = ref(false);
+/** A save was tried while one did. */
+const defaultsTried = ref(false);
 /** Counts each opening, so the default specs start over with it. */
 const modelRound = ref(0);
 // The currency shown in a money default with none yet: the workspace's.
@@ -150,8 +152,7 @@ const modelCanSave = computed(
   () =>
     modelModal.value.manufacturer_id !== '' &&
     modelModal.value.name.trim() !== '' &&
-    modelModal.value.kind !== '' &&
-    !defaultsInvalid.value,
+    modelModal.value.kind !== '',
 );
 
 // Default specs are authored against the user-editable slice of the
@@ -186,6 +187,7 @@ function openModelCreate() {
   };
   modelError.value = null;
   defaultsInvalid.value = false;
+  defaultsTried.value = false;
   modelRound.value++;
 }
 function openModelEdit(m: AssetModel) {
@@ -201,10 +203,16 @@ function openModelEdit(m: AssetModel) {
   };
   modelError.value = null;
   defaultsInvalid.value = false;
+  defaultsTried.value = false;
   modelRound.value++;
 }
 async function saveModel() {
   if (!modelCanSave.value) return;
+  // Held here, not by a disabled button, so the field can say why.
+  if (defaultsInvalid.value) {
+    defaultsTried.value = true;
+    return;
+  }
   modelSaving.value = true;
   modelError.value = null;
   const f = modelModal.value;
@@ -462,6 +470,7 @@ async function confirmDelete() {
             :schema="modelKindUserSchema"
             :currency="workspaceCurrency"
             eager
+            :show-errors="defaultsTried"
             @update:invalid="(v: boolean) => (defaultsInvalid = v)"
           />
         </div>

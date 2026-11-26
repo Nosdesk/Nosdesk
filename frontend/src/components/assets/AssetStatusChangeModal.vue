@@ -216,6 +216,8 @@ const recordReference = ref('');
 const recordAttributes = ref<Record<string, unknown>>({});
 /** A record field holds an amount that doesn't read. */
 const attributesInvalid = ref(false);
+/** A save was tried while a record field's amount didn't read. */
+const attributesTried = ref(false);
 /** Counts each reset, so the record fields start over with it. */
 const formRound = ref(0);
 const completeRecord = ref(true);
@@ -315,6 +317,7 @@ function resetForm() {
   recordReference.value = '';
   recordAttributes.value = {};
   attributesInvalid.value = false;
+  attributesTried.value = false;
   formRound.value++;
   completeRecord.value = true;
   completeRecordId.value = null;
@@ -408,18 +411,19 @@ function parseTicketId(): number | null {
 const needsChoice = computed(
   () => completesRecord.value && openRecords.value.length > 1 && !completing.value,
 );
-/** Save waits for the record queries, a picked record, a readable cost and
- *  readable amounts in the record's fields. */
+/** Save waits for the record queries, a picked record and a readable cost. */
 const blocked = computed(
   () =>
-    recordsLoading.value ||
-    needsChoice.value ||
-    (completesRecord.value && !!costError.value) ||
-    attributesInvalid.value,
+    recordsLoading.value || needsChoice.value || (completesRecord.value && !!costError.value),
 );
 
 async function submitTransition() {
   if (!toStatus.value || blocked.value) return;
+  // Held here, not by a disabled button, so the field can say why.
+  if (attributesInvalid.value) {
+    attributesTried.value = true;
+    return;
+  }
   submitting.value = true;
   errorMessage.value = '';
   try {
@@ -562,6 +566,7 @@ async function submitTransition() {
             :schema="orderedSchema(enteringType)"
             :currency="currency || null"
             eager
+            :show-errors="attributesTried"
             @update:invalid="(v: boolean) => (attributesInvalid = v)"
           />
         </template>

@@ -175,8 +175,13 @@ export function moneyErrorText(
   error: MoneyInputError,
   context: { currency?: string | null; minimum?: number; maximum?: number },
 ): string {
-  const bound = (n: number | undefined) =>
-    n === undefined ? '' : context.currency ? moneyText({ amount: String(n), currency: context.currency }) : String(n)
+  // A bound written to the currency's decimals: `A$1,000.50`, not `A$1,000.5`.
+  const bound = (n: number | undefined) => {
+    if (n === undefined) return ''
+    const exponent = currencyExponent(context.currency)
+    if (!context.currency || exponent === undefined) return String(n)
+    return moneyText({ amount: n.toFixed(exponent), currency: context.currency })
+  }
   switch (error) {
     case 'invalid':
       return t('asset-attribute-money-invalid')

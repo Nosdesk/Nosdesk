@@ -74,6 +74,8 @@ const props = defineProps<{
   /** Report money amounts as they read rather than on blur, for a form
    *  with a Save button. */
   eager?: boolean;
+  /** A save was tried: money fields say why their amount doesn't read. */
+  showErrors?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -231,6 +233,7 @@ function enumOptions(prop: SchemaProperty): { value: string; label: string }[] {
         :maximum="prop.maximum"
         :required="requiredSet.has(key)"
         :eager="eager"
+        :show-errors="showErrors"
         :disabled="disabled"
         @update:model-value="(v) => onMoneyUpdate(key, v)"
         @update:invalid="(v) => onMoneyInvalid(key, v)"

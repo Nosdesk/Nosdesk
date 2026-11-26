@@ -108,6 +108,13 @@ describe('money attributes', () => {
     expect(readMoneyInput('   ', { currency: 'AUD' })).toEqual({ ok: true, value: null })
     expect(readMoneyInput('forty', { currency: 'AUD' })).toEqual({ ok: false, error: 'invalid' })
     expect(readMoneyInput('1,250', { currency: 'EUR', locale: 'nl-NL' })).toEqual({ ok: false, error: 'ambiguous' })
+    // Three decimals are how a three-decimal currency is written.
+    expect(readMoneyInput('2,250', { currency: 'KWD', locale: 'nl-NL' })).toEqual({
+      ok: true,
+      value: { amount: '2.250', currency: 'KWD' },
+    })
+    // Two signs is not an amount, rather than one below zero.
+    expect(readMoneyInput('--5', { currency: 'AUD', minimum: 0 })).toEqual({ ok: false, error: 'invalid' })
   })
 
   it("refuses more decimals than the currency has", () => {
@@ -136,7 +143,14 @@ describe('money attributes', () => {
     const t = (key: string, args?: Record<string, string | number>) => `${key} ${JSON.stringify(args ?? {})}`
     expect(moneyErrorText(t, 'invalid', {})).toBe('asset-attribute-money-invalid {}')
     expect(moneyErrorText(t, 'below_minimum', { currency: 'AUD', minimum: 10 })).toBe(
-      'asset-attribute-money-below-minimum {"min":"A$10"}',
+      'asset-attribute-money-below-minimum {"min":"A$10.00"}',
+    )
+    // To the currency's decimals: never A$1,000.5.
+    expect(moneyErrorText(t, 'above_maximum', { currency: 'AUD', maximum: 1000.5 })).toBe(
+      'asset-attribute-money-above-maximum {"max":"A$1,000.50"}',
+    )
+    expect(moneyErrorText(t, 'above_maximum', { maximum: 1000.5 })).toBe(
+      'asset-attribute-money-above-maximum {"max":"1000.5"}',
     )
     expect(moneyErrorText(t, 'too_many_decimals', { currency: 'JPY' })).toBe(
       'asset-attribute-money-too-many-decimals {"code":"JPY","digits":0}',

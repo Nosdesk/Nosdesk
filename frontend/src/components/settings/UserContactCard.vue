@@ -48,6 +48,8 @@ const canSetManager = computed(() => useAuthStore().isAdmin);
 const saving = ref(false);
 /** A money field holds an amount that doesn't read. */
 const fieldsInvalid = ref(false);
+/** A save was tried while one did. */
+const fieldsTried = ref(false);
 
 const properties = computed(() => (schema.value.properties ?? {}) as Record<string, SchemaProperty>);
 
@@ -81,6 +83,7 @@ function display(value: unknown): string {
 
 async function load(): Promise<void> {
   loading.value = true;
+  fieldsTried.value = false;
   try {
     const [s, profile] = await Promise.all([getUserFieldSchema(), getUserProfileFields(props.uuid)]);
     schema.value =
@@ -113,7 +116,11 @@ async function saveManager(uuid: string): Promise<void> {
 }
 
 async function save(): Promise<void> {
-  if (fieldsInvalid.value) return;
+  // Held here, not by a disabled button, so the field can say why.
+  if (fieldsInvalid.value) {
+    fieldsTried.value = true;
+    return;
+  }
   saving.value = true;
   try {
     const saved = await setUserProfileFields(props.uuid, {
@@ -199,6 +206,7 @@ async function save(): Promise<void> {
           v-model="customFields"
           :schema="editableSchema"
           eager
+          :show-errors="fieldsTried"
           @update:invalid="(v: boolean) => (fieldsInvalid = v)"
         />
       </div>
@@ -208,7 +216,7 @@ async function save(): Promise<void> {
       </p>
 
       <div v-if="editable" class="flex justify-end pt-1">
-        <Button size="sm" :loading="saving" :disabled="fieldsInvalid" @click="save">{{ t('common-save') }}</Button>
+        <Button size="sm" :loading="saving" @click="save">{{ t('common-save') }}</Button>
       </div>
     </div>
   </SectionCard>

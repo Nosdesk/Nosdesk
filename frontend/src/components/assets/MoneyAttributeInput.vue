@@ -9,18 +9,23 @@
  * server's canonical amount (`12.50` for `12.5`) never rewrites what is
  * being typed. `eager` reports each amount as it reads, for a form with a
  * Save button, which a tap on a phone may reach without a blur. Either way
- * `update:invalid` says when the text doesn't read, so a form can hold its
- * save.
+ * `update:invalid` follows each key, so a form can hold its save, while the
+ * reason shows only on blur, Enter or `showErrors` (a save was tried), not
+ * halfway through typing `1,250`.
+ *
+ * It reports only what someone typed. A stored value that isn't an amount
+ * (`N/A` from before the field held money) shows as it is, with its error,
+ * and stays until someone changes it.
  */
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { useFluent } from 'fluent-vue'
 import {
-  isStoredMoney,
   localAmount,
   moneyAmountOf,
   moneyErrorText,
   readMoneyInput,
   zeroAmount,
+  type MoneyInput,
   type MoneyWrite,
 } from '@/utils/moneyAttribute'
 
@@ -41,6 +46,8 @@ const props = defineProps<{
   id?: string
   required?: boolean
   disabled?: boolean
+  /** A save was tried: show why the amount doesn't read, if it doesn't. */
+  showErrors?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -58,16 +65,22 @@ const sent = computed(() => props.pinned || moneyAmountOf(props.modelValue)?.cur
 /** The code shown and checked against. */
 const shown = computed(() => sent.value ?? (props.currency || null))
 
+/** The stored value as text: an amount in the reader's locale, or text
+ *  that was never one, as it is. */
 const seeded = computed(() => {
   const money = moneyAmountOf(props.modelValue)
-  return money ? localAmount(money.amount) : ''
+  if (money) return localAmount(money.amount)
+  return typeof props.modelValue === 'string' ? props.modelValue : ''
 })
 const text = ref(seeded.value)
 /** The text last reported or seeded, so an unchanged field reports nothing. */
 let reported = seeded.value
 const focused = ref(false)
-/** Why the text doesn't read, once it is said. */
-const error = ref<string | undefined>()
+/** Why the text doesn't read, kept current with each key. */
+const problem = ref<string | undefined>()
+/** The reason is shown: after a blur, Enter or a stored value. */
+const revealed = ref(true)
+const error = computed(() => (revealed.value || props.showErrors ? problem.value : undefined))
 const invalid = ref(false)
 
 watch(invalid, (next) => emit('update:invalid', next))
@@ -75,60 +88,62 @@ onBeforeUnmount(() => {
   if (invalid.value) emit('update:invalid', false)
 })
 
-watch(seeded, (next) => {
-  if (focused.value) return
-  text.value = next
-  reported = next
-  error.value = undefined
-  invalid.value = false
-})
-
-/** A value that isn't money as the server stores it (a bare amount from
- *  before the field held money, or text) is written over on leaving the
- *  field, so the next save of the whole set doesn't fail on it. */
-const needsRewrite = computed(() => props.modelValue != null && !isStoredMoney(props.modelValue))
-
-/** Read the text and report it when it reads and is new; the error, if not. */
-function read(force = false): string | undefined {
+/** Read the text, keeping `invalid` and the reason current. */
+function check(): MoneyInput {
   const result = readMoneyInput(text.value, {
     currency: sent.value,
     checkCurrency: shown.value,
     minimum: props.minimum,
     maximum: props.maximum,
   })
-  if (!result.ok) {
-    invalid.value = true
-    return moneyErrorText(fluent.$t, result.error, {
-      currency: shown.value,
-      minimum: props.minimum,
-      maximum: props.maximum,
-    })
-  }
-  invalid.value = false
-  if (text.value !== reported || force) {
-    reported = text.value
-    emit('update:modelValue', result.value)
-  }
-  return undefined
+  invalid.value = !result.ok
+  problem.value = result.ok
+    ? undefined
+    : moneyErrorText(fluent.$t, result.error, {
+        currency: shown.value,
+        minimum: props.minimum,
+        maximum: props.maximum,
+      })
+  return result
 }
 
+/** Report what was typed, when it reads and isn't what was last reported. */
+function report(result: MoneyInput) {
+  if (!result.ok || text.value === reported) return
+  reported = text.value
+  emit('update:modelValue', result.value)
+}
+
+function seed(next: string) {
+  text.value = next
+  reported = next
+  revealed.value = true
+  check()
+}
+seed(seeded.value)
+
+watch(seeded, (next) => {
+  if (!focused.value) seed(next)
+})
+
 function commit() {
-  error.value = read(needsRewrite.value)
+  revealed.value = true
+  report(check())
 }
 
 function onInput(event: Event) {
   text.value = (event.target as HTMLInputElement).value
-  if (props.eager) error.value = read()
-  else error.value = undefined
+  revealed.value = false
+  const result = check()
+  if (props.eager) report(result)
 }
 
 function onBlur() {
   focused.value = false
   // Reported with Enter and saved while focused: show the amount as the
   // server wrote it.
-  if (!needsRewrite.value && text.value === reported && seeded.value !== reported) {
-    text.value = seeded.value
-    reported = seeded.value
+  if (text.value === reported && seeded.value !== reported) {
+    seed(seeded.value)
     return
   }
   commit()
