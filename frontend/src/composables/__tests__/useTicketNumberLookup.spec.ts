@@ -39,12 +39,23 @@ describe('useTicketNumberLookup', () => {
     expect(service.getTicketById).toHaveBeenCalledTimes(1)
   })
 
-  it("gives nothing for a ticket it can't read, and doesn't ask again", async () => {
-    service.getTicketById.mockRejectedValue(new Error('not found'))
+  it("gives nothing for a ticket it can't read, and asks again only after a while", async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    service.getTicketById.mockRejectedValueOnce(new Error('offline'))
     expect(numberForTicketId(60)).toBeUndefined()
     await flushPromises()
     expect(numberForTicketId(60)).toBeUndefined()
     expect(titleForTicketId(60)).toBeUndefined()
     expect(service.getTicketById).toHaveBeenCalledTimes(1)
+
+    // A failure isn't remembered for good: the read is tried again.
+    now.mockReturnValue(1_000_000 + 61_000)
+    service.getTicketById.mockResolvedValueOnce({ id: 60, number: 15, title: 'Back online' })
+    expect(numberForTicketId(60)).toBeUndefined()
+    await flushPromises()
+    expect(numberForTicketId(60)).toBe(15)
+    expect(titleForTicketId(60)).toBe('Back online')
+    expect(service.getTicketById).toHaveBeenCalledTimes(2)
+    now.mockRestore()
   })
 })

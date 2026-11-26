@@ -177,7 +177,7 @@ const facts = computed<Fact[]>(() => {
     for (const reading of readings(props.type, r)) out.push({ key: `reading-${reading}`, text: reading })
     const ticket = props.ticket
     if (ticket?.number !== undefined) {
-      const text = ticketLabel(ticket.number, ticket.title ?? titleForTicketId(ticket.id))
+      const text = ticketLabel(ticket.number, titleForTicketId(ticket.id) ?? ticket.title)
       out.push({ key: 'ticket', text, to: ticketRoute(ticket.number), hint: text, clip: true })
     }
     if (props.movedTo) {

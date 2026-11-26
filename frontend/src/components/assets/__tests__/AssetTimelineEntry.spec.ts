@@ -296,9 +296,13 @@ describe('AssetTimelineEntry', () => {
     const link = w.findAllComponents(RouterLinkStub).find((l) => l.props('to') === '/tickets/1007')
     expect(link?.text()).toBe('#1007 Printer jams on tray 2')
 
-    // Without a title on the link, the pool's.
+    // The pool's title, which follows a rename, before the timeline's.
     ticketTitles.set(7, 'Fan noise')
-    const pooled = render({ entry: recordEntry({ ticket_id: 7 }), type: INSPECTION, ticket: { id: 7, number: 1007 } })
+    const pooled = render({
+      entry: recordEntry({ ticket_id: 7 }),
+      type: INSPECTION,
+      ticket: { id: 7, number: 1007, title: 'Printer jams on tray 2' },
+    })
     expect(pooled.findAllComponents(RouterLinkStub).find((l) => l.props('to') === '/tickets/1007')?.text()).toBe(
       '#1007 Fan noise',
     )
