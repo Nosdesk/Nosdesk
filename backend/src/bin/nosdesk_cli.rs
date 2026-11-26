@@ -204,6 +204,14 @@ struct HelpdeskImportArgs {
     #[arg(long)]
     create_agents: bool,
 
+    /// Import even though the tickets name people the bundle doesn't hold
+    /// (a tickets-only export). Their tickets and replies are credited to
+    /// the placeholder author for good, and each ticket's import note names
+    /// its requester and assignee by Zendesk id. Not needed for people a
+    /// fetch from the API found gone at Zendesk.
+    #[arg(long)]
+    allow_missing_people: bool,
+
     /// Fetch and print the plan; write nothing to the workspace.
     #[arg(long)]
     dry_run: bool,
@@ -1438,6 +1446,7 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
         },
         agent_map,
         create_agents: args.create_agents,
+        allow_missing_people: args.allow_missing_people,
         batch_size: loader::DEFAULT_BATCH,
         cancel: CancellationToken::new(),
     };
@@ -1452,10 +1461,17 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
     print!("{plan_text}");
     if args.dry_run {
         println!();
+        if let Some(why) = &plan.refused {
+            println!("A run would refuse: {why}");
+            println!();
+        }
         println!("Dry run: nothing was written.");
         return Ok(());
     }
     println!();
+    if let Some(why) = plan.refused {
+        bail!("{why} Nothing was written.");
+    }
     if !args.yes && !confirm_on_tty(&format!("Import into workspace \"{}\"?", ws.slug))? {
         eprintln!("Nothing was written.");
         return Ok(());

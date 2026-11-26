@@ -16,8 +16,8 @@ use diesel::sql_types::{BigInt, Bool, Integer, Nullable, Text, Timestamptz};
 use uuid::Uuid;
 
 use backend::services::imports::helpdesk::bundle::{
-    Attachment, Body, BodyFormat, Bundle, Comment, Manifest, Person, PersonRole, PriorityLevel,
-    StatusKind, Ticket, FORMAT_VERSION,
+    Attachment, Body, BodyFormat, Bundle, Comment, Manifest, PeopleSource, Person, PersonRole,
+    PriorityLevel, StatusKind, Ticket, FORMAT_VERSION,
 };
 use backend::services::imports::helpdesk::loader::{self, LoadOptions, NumberPolicy};
 use backend::sync::session::run_in_workspace;
@@ -193,7 +193,18 @@ fn write_bundle(dir: &std::path::Path, tickets: &[Ticket]) -> Bundle {
     write_bundle_of(dir, &people(), tickets)
 }
 
+/// A bundle as the API fetch writes it, so anyone it lacks (u-ghost) is gone
+/// at Zendesk and the run goes ahead without --allow-missing-people.
 fn write_bundle_of(dir: &std::path::Path, people: &[Person], tickets: &[Ticket]) -> Bundle {
+    write_bundle_from(dir, people, tickets, Some(PeopleSource::Api))
+}
+
+fn write_bundle_from(
+    dir: &std::path::Path,
+    people: &[Person],
+    tickets: &[Ticket],
+    people_source: Option<PeopleSource>,
+) -> Bundle {
     let b = Bundle::create(dir).expect("bundle");
     let mut w = b.people_writer(true).expect("people");
     for p in people {
@@ -213,6 +224,7 @@ fn write_bundle_of(dir: &std::path::Path, people: &[Person], tickets: &[Ticket])
         extracted_at: Utc::now(),
         counts: BTreeMap::from([("tickets".to_string(), tickets.len() as u64)]),
         notes: vec![],
+        people_source,
     })
     .expect("manifest");
     b
@@ -234,6 +246,7 @@ fn options(ws: &WorkspaceSeed, job: Uuid) -> LoadOptions {
         numbers: NumberPolicy::Auto,
         agent_map: HashMap::new(),
         create_agents: true,
+        allow_missing_people: false,
         batch_size: 1,
         cancel: Default::default(),
     }
@@ -399,7 +412,7 @@ async fn a_zendesk_bundle_lands_as_quiet_history_and_reruns_add_nothing() {
     );
     assert_eq!(thread[2].author, "Alex Agent");
 
-    // A reply whose author the export lost is credited to the placeholder.
+    // A reply by someone gone at Zendesk is credited to the placeholder.
     let open = &rows[1];
     let thread = comments_of(&pool, &ws, open.id);
     assert!(
@@ -1786,4 +1799,193 @@ async fn the_fallback_never_makes_a_second_account_for_an_address() {
     .expect("fallback");
     assert!(!made.withheld());
     assert_eq!(account_of(&pool, "free@acme.test"), made.uuid);
+}
+
+/// Rows the run `job` left: its job row and id map entries, and any
+/// placeholder author, which only a run that writes creates.
+fn traces(pool: &TestPool, job: Uuid) -> (i64, i64, i64) {
+    let mut conn = pool.get().expect("conn");
+    let mut n = |sql: &str| {
+        diesel::sql_query(sql)
+            .bind::<diesel::sql_types::Uuid, _>(job)
+            .get_result::<Count>(&mut conn)
+            .expect("count")
+            .n
+    };
+    (
+        n("SELECT count(*) AS n FROM import_jobs WHERE id = $1"),
+        n("SELECT count(*) AS n FROM import_source_ids WHERE job_id = $1"),
+        n("SELECT count(*) AS n FROM users WHERE name = 'Unknown (Zendesk)' AND $1 IS NOT NULL"),
+    )
+}
+
+async fn refused(pool: &TestPool, bundle: &Bundle, opts: &LoadOptions) -> String {
+    match loader::load(pool, storage(), bundle, opts, &|_| {}).await {
+        Err(loader::LoadFailure {
+            error: loader::LoadError::Refused(why),
+            ..
+        }) => why,
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+#[actix_web::test]
+async fn a_tickets_only_export_refuses_and_writes_nothing() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_from(dir.path(), &[], &tickets(), Some(PeopleSource::Export));
+    let job = Uuid::now_v7();
+    let opts = options(&ws, job);
+
+    // The plan still shows, with who is missing and what they touch.
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    let missing = plan.missing_people.clone().expect("missing");
+    assert_eq!(
+        (missing.people, missing.tickets, missing.replies),
+        (4, 2, 5)
+    );
+    assert_eq!(missing.label, "not in the export");
+    let why = plan.refused.clone().expect("a run would refuse");
+    assert!(why.contains("--allow-missing-people"), "{why}");
+    assert!(why.contains("users export"), "{why}");
+    let text = backend::services::imports::helpdesk::report::render_plan(&plan);
+    assert!(text.contains("not in the export (placeholder)"), "{text}");
+
+    let why = refused(&pool, &bundle, &opts).await;
+    assert!(
+        why.contains(
+            "4 people the bundle doesn't hold (not in the export), on 2 tickets and 5 replies"
+        ),
+        "{why}"
+    );
+    assert!(imported_tickets(&pool, &ws).is_empty());
+    assert_eq!(
+        traces(&pool, job),
+        (0, 0, 0),
+        "no job, id map or placeholder"
+    );
+}
+
+#[actix_web::test]
+async fn allowed_missing_people_land_on_the_placeholder_and_the_note_names_them() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_from(dir.path(), &[], &tickets(), Some(PeopleSource::Export));
+    let mut opts = options(&ws, Uuid::now_v7());
+    opts.allow_missing_people = true;
+
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    assert_eq!(plan.refused, None);
+    let report = run(&pool, &bundle, &opts).await;
+    assert_eq!(report.tickets_written, 2);
+    assert_eq!(report.comments_written, 5);
+    let missing = report.missing_people.clone().expect("missing");
+    assert_eq!(
+        (missing.people, missing.label.as_str()),
+        (4, "not in the export")
+    );
+    let text = backend::services::imports::helpdesk::report::render_report(&report);
+    assert!(text.contains("not in the export (placeholder)"), "{text}");
+
+    let rows = imported_tickets(&pool, &ws);
+    assert_eq!(rows[0].assignee_uuid, None);
+    let thread = comments_of(&pool, &ws, rows[0].id);
+    let note = &thread[0];
+    assert!(note.is_internal && note.content.contains("Imported from Zendesk #101"));
+    assert!(
+        note.content.contains(
+            "Requested there by Zendesk user u-req (not in the export); credited to the \
+             placeholder author."
+        ),
+        "{}",
+        note.content
+    );
+    assert!(
+        note.content.contains(
+            "It was assigned to Zendesk user u-agent (not in the export), so it is unassigned."
+        ),
+        "{}",
+        note.content
+    );
+    assert!(
+        thread[1..].iter().all(|c| c.author == "Unknown (Zendesk)"),
+        "{thread:?}"
+    );
+    assert!(watchers_of(&pool, &ws, 102).is_empty());
+}
+
+#[actix_web::test]
+async fn people_gone_at_zendesk_need_no_flag() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let mut list = tickets();
+    list[1].requester = Some("u-ghost".into());
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_from(dir.path(), &people(), &list, Some(PeopleSource::Api));
+    let opts = options(&ws, Uuid::now_v7());
+
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    assert_eq!(plan.refused, None);
+    let missing = plan.missing_people.clone().expect("missing");
+    assert_eq!(
+        (missing.people, missing.tickets, missing.replies),
+        (1, 1, 1)
+    );
+    assert_eq!(missing.label, "gone at Zendesk");
+
+    let report = run(&pool, &bundle, &opts).await;
+    assert_eq!(report.tickets_written, 2);
+    assert_eq!(
+        report.missing_people.map(|m| m.label),
+        Some("gone at Zendesk".to_string())
+    );
+    let thread = comments_of(&pool, &ws, ticket_id(&pool, &ws, 102));
+    assert!(
+        thread[0]
+            .content
+            .contains("Requested there by Zendesk user u-ghost (gone at Zendesk)"),
+        "{}",
+        thread[0].content
+    );
+}
+
+#[actix_web::test]
+async fn a_bundle_that_predates_the_people_source_refuses() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle(dir.path(), &tickets());
+    // As #1176 wrote it: no people_source at all.
+    std::fs::write(
+        bundle.root().join("manifest.json"),
+        format!(
+            r#"{{"format_version": {FORMAT_VERSION}, "source": "zendesk", "source_scope": "acme",
+                "extracted_at": "2026-11-26T00:00:00Z", "counts": {{"tickets": 2}}, "notes": []}}"#
+        ),
+    )
+    .expect("manifest");
+    let job = Uuid::now_v7();
+    let opts = options(&ws, job);
+
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    let missing = plan.missing_people.clone().expect("missing");
+    assert_eq!(
+        (missing.people, missing.label.as_str()),
+        (1, "not in the bundle")
+    );
+    let why = refused(&pool, &bundle, &opts).await;
+    assert!(why.contains("--refetch"), "{why}");
+    assert!(why.contains("(not in the bundle)"), "{why}");
+    assert!(imported_tickets(&pool, &ws).is_empty());
+    assert_eq!(traces(&pool, job), (0, 0, 0));
 }

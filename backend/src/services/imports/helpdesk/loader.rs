@@ -82,6 +82,10 @@ pub struct LoadOptions {
     pub agent_map: HashMap<String, String>,
     /// Create unmatched active source staff as agents (self-hosted only).
     pub create_agents: bool,
+    /// Write even though the tickets name people the bundle doesn't hold
+    /// and nothing says they are gone at the source. Their tickets and
+    /// replies go to the placeholder author for good.
+    pub allow_missing_people: bool,
     pub batch_size: usize,
     /// Stops the run between tickets and between files (the CLI cancels it
     /// on Ctrl-C), so nothing is left half written.
@@ -137,6 +141,10 @@ pub struct Plan {
     pub people: BTreeMap<&'static str, u64>,
     /// Source staff and where each lands, for the operator to check.
     pub staff: Vec<(String, String, &'static str)>,
+    /// People the tickets name that the bundle doesn't hold.
+    pub missing_people: Option<MissingPeople>,
+    /// Why a run with these options would refuse to write, when it would.
+    pub refused: Option<String>,
     pub notes: Vec<String>,
     /// A rough guess at the time to write, assuming ~50 tickets a second
     /// (not yet measured on a real account; files and long threads slow it).
@@ -173,6 +181,102 @@ pub struct LoadReport {
     /// happened instead.
     pub people_problems: Vec<String>,
     pub people: BTreeMap<&'static str, u64>,
+    /// People the tickets name that the bundle doesn't hold, credited to
+    /// the placeholder author.
+    pub missing_people: Option<MissingPeople>,
+}
+
+/// Why a bundle lacks someone its tickets name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Absence {
+    /// The bundle was read from an export that didn't carry them (a
+    /// tickets-only export carries nobody).
+    NotInExport,
+    /// The bundle was fetched from the source's API, which returned every
+    /// user it has: they were deleted and purged there (Zendesk purges
+    /// deleted end users after 30 days), or merged away.
+    GoneAtSource,
+    /// The bundle doesn't say where its people came from: it was written
+    /// before manifests recorded that. Treated like an export.
+    NotInBundle,
+}
+
+impl Absence {
+    pub fn of(source: Option<bundle::PeopleSource>) -> Self {
+        match source {
+            Some(bundle::PeopleSource::Export) => Absence::NotInExport,
+            Some(bundle::PeopleSource::Api) => Absence::GoneAtSource,
+            None => Absence::NotInBundle,
+        }
+    }
+
+    pub fn label(self, source: &str) -> String {
+        match self {
+            Absence::NotInExport => "not in the export".into(),
+            Absence::GoneAtSource => format!("gone at {}", source_title(source)),
+            Absence::NotInBundle => "not in the bundle".into(),
+        }
+    }
+
+    /// Whether writing without them needs the operator's say-so. People the
+    /// source has confirmed gone don't: almost every mature account has
+    /// some, and a flag everyone must pass would mean nothing.
+    pub fn needs_consent(self) -> bool {
+        self != Absence::GoneAtSource
+    }
+}
+
+/// People the tickets name that the bundle doesn't hold, and how much of
+/// the history is theirs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissingPeople {
+    pub people: u64,
+    /// Tickets naming at least one of them in any role, each counted once.
+    pub tickets: u64,
+    /// Replies one of them wrote.
+    pub replies: u64,
+    pub absence: Absence,
+    /// The absence in words ("not in the export"), for the plan, the
+    /// report and each affected ticket's import note.
+    pub label: String,
+}
+
+impl MissingPeople {
+    /// Why a run refuses to write, or None when it may go ahead: always
+    /// for people the source confirms gone, otherwise only when `allow`.
+    pub fn refusal(&self, allow: bool) -> Option<String> {
+        if self.people == 0 || allow || !self.absence.needs_consent() {
+            return None;
+        }
+        // The bundle is complete, so a plain rerun reuses it: every fix
+        // needs --refetch to read the source again.
+        let fix = match self.absence {
+            Absence::NotInBundle => {
+                "The bundle predates recording where its people came from. To bring them \
+                 across, run again with --refetch (reading an export, with a zip that also \
+                 holds Zendesk's users export)."
+            }
+            _ => {
+                "To bring them across, run again with --refetch and either a zip that also \
+                 holds Zendesk's users export, or a credential in place of --export-zip."
+            }
+        };
+        Some(format!(
+            "the tickets name {} the bundle doesn't hold ({}), on {} and {}. Imported now, \
+             those tickets and replies would be credited to the placeholder author for good. \
+             {fix} To import without them, pass --allow-missing-people: each affected \
+             ticket's import note then names its requester and assignee by source id.",
+            counted(self.people, "person", "people"),
+            self.label,
+            counted(self.tickets, "ticket", "tickets"),
+            counted(self.replies, "reply", "replies"),
+        ))
+    }
+}
+
+/// `n` with the noun that agrees with it.
+pub(super) fn counted(n: u64, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
 }
 
 #[derive(Debug, Clone, Default)]
@@ -417,6 +521,54 @@ fn mentioned_people(
     Ok((out, unreadable))
 }
 
+/// The people the tickets name and `persons` lacks, and the tickets and
+/// replies that are theirs (each ticket as first listed, as the plan counts
+/// it). None when nobody is missing.
+fn missing_people(
+    bundle: &Bundle,
+    manifest: &bundle::Manifest,
+    mentioned: &HashSet<String>,
+    persons: &[bundle::Person],
+) -> Result<Option<MissingPeople>, LoadError> {
+    let held: HashSet<&str> = persons.iter().map(|p| p.source_id.as_str()).collect();
+    let missing: HashSet<&str> = mentioned
+        .iter()
+        .map(String::as_str)
+        .filter(|id| !held.contains(id))
+        .collect();
+    if missing.is_empty() {
+        return Ok(None);
+    }
+    let (mut tickets, mut replies) = (0, 0);
+    let mut seen = HashSet::new();
+    let mut unreadable = 0;
+    each_ticket(bundle, &mut unreadable, |t| {
+        if !seen.insert(t.source_id.clone()) {
+            return;
+        }
+        let mut named = HashSet::new();
+        people::mentioned(&t, &mut named);
+        if named.iter().any(|id| missing.contains(id.as_str())) {
+            tickets += 1;
+        }
+        let mut written = HashSet::new();
+        replies += t
+            .comments
+            .iter()
+            .filter(|c| written.insert(c.source_id.as_str()))
+            .filter(|c| c.author.as_deref().is_some_and(|a| missing.contains(a)))
+            .count() as u64;
+    })?;
+    let absence = Absence::of(manifest.people_source);
+    Ok(Some(MissingPeople {
+        people: missing.len() as u64,
+        tickets,
+        replies,
+        absence,
+        label: absence.label(&manifest.source),
+    }))
+}
+
 /// Plan the import without writing anything.
 pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Plan, LoadError> {
     let manifest = bundle.read_manifest()?;
@@ -505,13 +657,11 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
                 ));
             }
         }
-        let missing_people = found.mentioned.len() as u64 - persons.len() as u64;
-        if missing_people > 0 {
-            plan.notes.push(format!(
-                "{missing_people} people the tickets mention aren't in the bundle; their replies \
-                 are credited to the placeholder author"
-            ));
-        }
+        plan.missing_people = missing_people(&b, &m, &found.mentioned, &persons)?;
+        plan.refused = plan
+            .missing_people
+            .as_ref()
+            .and_then(|missing| missing.refusal(o.allow_missing_people));
         plan.estimated_minutes = (plan.tickets - plan.tickets_imported_already) / (50 * 60) + 1;
         Ok(plan)
     })
@@ -570,12 +720,26 @@ pub async fn load(
     progress: &(dyn Fn(&LoadProgress) + Send + Sync),
 ) -> Result<LoadReport, LoadFailure> {
     let mut report = LoadReport::default();
-    let opened = match bundle.read_manifest() {
-        Ok(manifest) => open_job(pool, opts, &manifest).await.map(|()| manifest),
-        Err(e) => Err(e.into()),
+    // Read and checked before anything is written, the job row included: a
+    // refused run leaves no trace in the workspace.
+    let opened = match prepare(bundle) {
+        Ok(prepared) => {
+            report.missing_people = prepared.missing.clone();
+            match prepared
+                .missing
+                .as_ref()
+                .and_then(|m| m.refusal(opts.allow_missing_people))
+            {
+                Some(why) => Err(LoadError::Refused(why)),
+                None => open_job(pool, opts, &prepared.manifest)
+                    .await
+                    .map(|()| prepared),
+            }
+        }
+        Err(e) => Err(e),
     };
-    let manifest = match opened {
-        Ok(m) => m,
+    let prepared = match opened {
+        Ok(p) => p,
         Err(error) => {
             return Err(LoadFailure {
                 error,
@@ -583,16 +747,7 @@ pub async fn load(
             })
         }
     };
-    let result = write_all(
-        pool,
-        storage,
-        bundle,
-        opts,
-        progress,
-        &manifest,
-        &mut report,
-    )
-    .await;
+    let result = write_all(pool, storage, bundle, opts, progress, prepared, &mut report).await;
     let closed = close_job(pool, opts, &report, result.as_ref().err()).await;
     match result.and(closed) {
         Ok(()) => Ok(report),
@@ -601,6 +756,31 @@ pub async fn load(
             report: Box::new(report),
         }),
     }
+}
+
+/// What a run reads of the bundle before it writes anything.
+struct Prepared {
+    manifest: bundle::Manifest,
+    found: Scan,
+    /// The bundle's people the tickets mention.
+    persons: Vec<bundle::Person>,
+    /// Lines of people.jsonl that couldn't be read.
+    bad_people: u64,
+    missing: Option<MissingPeople>,
+}
+
+fn prepare(bundle: &Bundle) -> Result<Prepared, LoadError> {
+    let manifest = bundle.read_manifest()?;
+    let found = scan(bundle, |_| {})?;
+    let (persons, bad_people) = mentioned_people(bundle, &found.mentioned)?;
+    let missing = missing_people(bundle, &manifest, &found.mentioned, &persons)?;
+    Ok(Prepared {
+        manifest,
+        found,
+        persons,
+        bad_people,
+        missing,
+    })
 }
 
 /// Open the run's job row: who ran it, from which source, into which
@@ -626,6 +806,7 @@ async fn open_job(
         "numbers": format!("{:?}", opts.numbers),
         "create_agents": opts.create_agents,
         "mapped_agents": opts.agent_map.len(),
+        "allow_missing_people": opts.allow_missing_people,
     });
     db(pool, opts.actor_context(), move |conn| {
         use crate::models::{ImportJobUpdate, NewImportJob};
@@ -695,6 +876,12 @@ async fn close_job(
         "attachment_problems": report.attachment_problems.len(),
         "unreadable_lines": report.unreadable_lines,
         "people": report.people,
+        "missing_people": report.missing_people.as_ref().map(|m| serde_json::json!({
+            "people": m.people,
+            "tickets": m.tickets,
+            "replies": m.replies,
+            "label": m.label,
+        })),
     });
     let error = error.map(ToString::to_string);
     let written = i32::try_from(report.tickets_written).unwrap_or(i32::MAX);
@@ -724,13 +911,21 @@ async fn write_all(
     bundle: &Bundle,
     opts: &LoadOptions,
     progress: &(dyn Fn(&LoadProgress) + Send + Sync),
-    manifest: &bundle::Manifest,
+    prepared: Prepared,
     report: &mut LoadReport,
 ) -> Result<(), LoadError> {
+    let Prepared {
+        manifest,
+        found,
+        persons,
+        bad_people,
+        missing,
+    } = prepared;
     let source = manifest.source.clone();
     let instance = manifest.source_scope.clone();
     let scope_parts = (opts.workspace_id, source.clone(), instance.clone());
-    let found = scan(bundle, |_| {})?;
+    // How an absent person is named in a ticket's import note.
+    let absent = missing.map_or_else(|| Absence::NotInBundle.label(&source), |m| m.label);
 
     // Settle numbering once, before the first batch, and reserve the
     // numbers being kept, so a ticket opened here meanwhile takes one after
@@ -756,7 +951,6 @@ async fn write_all(
     // People first: everyone the tickets mention, in batches, each under
     // the source's lock, with the placeholder author their unattachable
     // replies go to.
-    let (persons, bad_people) = mentioned_people(bundle, &found.mentioned)?;
     report.unreadable_lines += bad_people;
     let mut prog = LoadProgress {
         people_total: persons.len() as u64,
@@ -829,6 +1023,7 @@ async fn write_all(
             keep_numbers,
             &people_map,
             placeholder,
+            &absent,
             batch.clone(),
         )
         .await?;
@@ -928,13 +1123,15 @@ async fn write_batch(
     keep_numbers: bool,
     people: &Arc<HashMap<String, Resolved>>,
     placeholder: Uuid,
+    absent: &str,
     batch: Vec<bundle::Ticket>,
 ) -> Result<BatchWritten, LoadError> {
-    let (s, i, o, people) = (
+    let (s, i, o, people, absent) = (
         source.to_string(),
         instance.to_string(),
         opts.clone(),
         Arc::clone(people),
+        absent.to_string(),
     );
     db(pool, opts.actor_context(), move |conn| {
         let scope = Scope {
@@ -970,6 +1167,7 @@ async fn write_batch(
                 people: &people,
                 placeholder,
                 states: &states,
+                absent: &absent,
             };
             // Each ticket in a savepoint: one that fails is rolled back alone,
             // with any tag it created, and the rest of the batch carries on.
@@ -1119,6 +1317,8 @@ struct TicketCtx<'a> {
     people: &'a HashMap<String, Resolved>,
     placeholder: Uuid,
     states: &'a StateMap,
+    /// Why someone the ticket names isn't among `people`, in words.
+    absent: &'a str,
 }
 
 /// A ticket imported before, during a cutover: when the source changed it
@@ -1246,6 +1446,7 @@ fn write_ticket(
         people,
         placeholder,
         states,
+        absent,
     } = *ctx;
     let who = |id: &Option<String>| id.as_ref().and_then(|i| people.get(i));
     let requester = who(&t.requester);
@@ -1358,7 +1559,7 @@ fn write_ticket(
 
     // One internal note with what Nosdesk has no column for, dated with the
     // ticket so it sits at the top of the thread.
-    let note = import_note(scope.source, t, requester, assignee);
+    let note = import_note(scope.source, t, requester, assignee, absent);
     write_comment(
         conn,
         scope,
@@ -1453,24 +1654,35 @@ fn import_note(
     t: &bundle::Ticket,
     requester: Option<&Resolved>,
     assignee: Option<&Resolved>,
+    absent: &str,
 ) -> String {
+    let title = source_title(source);
     let mut lines = vec![match t.number {
-        Some(n) => format!("Imported from {} #{n}.", source_title(source)),
-        None => format!("Imported from {}.", source_title(source)),
+        Some(n) => format!("Imported from {title} #{n}."),
+        None => format!("Imported from {title}."),
     }];
     lines.push(format!("Status there: {}.", t.status_label));
-    if let Some(r) = requester.filter(|r| r.withheld()) {
-        lines.push(format!(
+    // Someone the bundle doesn't hold is named by source id only: it is all
+    // the bundle has, and enough to look them up there.
+    match (&t.requester, requester) {
+        (Some(id), None) => lines.push(format!(
+            "Requested there by {title} user {id} ({absent}); credited to the placeholder author."
+        )),
+        (_, Some(r)) if r.withheld() => lines.push(format!(
             "Requested there by {}; credited to the placeholder author.",
             who(r)
-        ));
+        )),
+        _ => {}
     }
-    match assignee {
-        Some(a) if a.withheld() => lines.push(format!(
+    match (&t.assignee, assignee) {
+        (Some(id), None) => lines.push(format!(
+            "It was assigned to {title} user {id} ({absent}), so it is unassigned."
+        )),
+        (_, Some(a)) if a.withheld() => lines.push(format!(
             "It was assigned to {}, who has no seat here, so it is unassigned.",
             who(a)
         )),
-        Some(a) if !a.staff => lines.push(format!(
+        (_, Some(a)) if !a.staff => lines.push(format!(
             "It was assigned to {}, who has no staff seat here, so it is unassigned.",
             a.source_name
         )),
@@ -1821,5 +2033,102 @@ mod tests {
         assert!(!content.contains("<script"));
         assert!(kind.is_some());
         assert_eq!(raw.as_deref(), Some("<p>Hi</p><script>alert(1)</script>"));
+    }
+
+    fn missing(absence: Absence) -> MissingPeople {
+        MissingPeople {
+            people: 2,
+            tickets: 1,
+            replies: 3,
+            absence,
+            label: absence.label("zendesk"),
+        }
+    }
+
+    #[test]
+    fn absent_people_are_labelled_by_where_the_people_came_from() {
+        use bundle::PeopleSource;
+        assert_eq!(
+            Absence::of(Some(PeopleSource::Export)),
+            Absence::NotInExport
+        );
+        assert_eq!(Absence::of(Some(PeopleSource::Api)), Absence::GoneAtSource);
+        assert_eq!(Absence::of(None), Absence::NotInBundle);
+        assert_eq!(Absence::NotInExport.label("zendesk"), "not in the export");
+        assert_eq!(Absence::GoneAtSource.label("zendesk"), "gone at Zendesk");
+        assert_eq!(Absence::NotInBundle.label("zendesk"), "not in the bundle");
+    }
+
+    #[test]
+    fn only_people_the_source_confirms_gone_need_no_flag() {
+        let why = missing(Absence::NotInExport)
+            .refusal(false)
+            .expect("refused");
+        assert!(
+            why.contains(
+                "2 people the bundle doesn't hold (not in the export), on 1 ticket and 3 replies"
+            ),
+            "{why}"
+        );
+        assert!(why.contains("--allow-missing-people"), "{why}");
+        assert!(why.contains("users export"), "{why}");
+        assert!(why.contains("--refetch"), "{why}");
+        assert_eq!(missing(Absence::NotInExport).refusal(true), None);
+
+        let why = missing(Absence::NotInBundle)
+            .refusal(false)
+            .expect("refused");
+        assert!(why.contains("--refetch"), "{why}");
+        assert_eq!(missing(Absence::NotInBundle).refusal(true), None);
+
+        assert_eq!(missing(Absence::GoneAtSource).refusal(false), None);
+        let nobody = MissingPeople {
+            people: 0,
+            ..missing(Absence::NotInExport)
+        };
+        assert_eq!(nobody.refusal(false), None);
+    }
+
+    #[test]
+    fn the_note_names_an_absent_requester_and_assignee_by_id_only() {
+        let t = bundle::Ticket {
+            source_id: "7".into(),
+            number: Some(7),
+            subject: "s".into(),
+            status: StatusKind::Open,
+            status_label: "open".into(),
+            priority: None,
+            ticket_type: None,
+            tags: vec![],
+            requester: Some("901".into()),
+            assignee: Some("902".into()),
+            watchers: vec![],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            solved_at: None,
+            fields: BTreeMap::new(),
+            comments: vec![],
+        };
+        let note = import_note("zendesk", &t, None, None, "not in the export");
+        assert!(
+            note.contains(
+                "Requested there by Zendesk user 901 (not in the export); credited to the \
+                 placeholder author."
+            ),
+            "{note}"
+        );
+        assert!(
+            note.contains(
+                "It was assigned to Zendesk user 902 (not in the export), so it is unassigned."
+            ),
+            "{note}"
+        );
+        let nobody = bundle::Ticket {
+            requester: None,
+            assignee: None,
+            ..t
+        };
+        let note = import_note("zendesk", &nobody, None, None, "not in the export");
+        assert!(!note.contains("user"), "{note}");
     }
 }

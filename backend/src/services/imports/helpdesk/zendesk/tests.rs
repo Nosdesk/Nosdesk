@@ -514,6 +514,7 @@ async fn fetches_people_tickets_comments_and_attachments_across_pages() {
     // Manifest and progress.
     assert_eq!(manifest.source, "zendesk");
     assert_eq!(manifest.source_scope, format!("127.0.0.1:{}", s.api.port));
+    assert_eq!(manifest.people_source, Some(bundle::PeopleSource::Api));
     let c = |k: &str| manifest.counts.get(k).copied();
     assert_eq!(c("people"), Some(3));
     assert_eq!(c("tickets"), Some(3));
@@ -931,6 +932,7 @@ async fn reads_a_json_export_zip() {
 
     assert_eq!(manifest.counts.get("tickets"), Some(&2));
     assert_eq!(manifest.counts.get("comments"), Some(&3));
+    assert_eq!(manifest.people_source, Some(bundle::PeopleSource::Export));
     assert!(
         manifest
             .notes

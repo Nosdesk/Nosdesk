@@ -60,6 +60,27 @@ pub struct Manifest {
     /// ("custom field 'Region' kept as a note", "3 attachments off-host").
     #[serde(default)]
     pub notes: Vec<String>,
+    /// Where people.jsonl came from, which says what it means when a
+    /// ticket names someone the bundle doesn't hold. Added without a
+    /// format bump (the field is new, no field changed meaning): a manifest
+    /// written before it reads as None, unknown. Nothing then says the
+    /// source was asked for everyone, so the loader treats an absent person
+    /// as it does one an export lacked, and refuses, labelled "not in the
+    /// bundle".
+    #[serde(default)]
+    pub people_source: Option<PeopleSource>,
+}
+
+/// Where a bundle's people came from.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PeopleSource {
+    /// A data export, which holds whatever users it was given: none at all
+    /// for a tickets-only export. Someone absent is not in the export.
+    Export,
+    /// The source's API, asked for every user it has. Someone absent is
+    /// gone at the source (deleted and purged, or merged away).
+    Api,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -697,12 +718,33 @@ mod tests {
             extracted_at: Utc::now(),
             counts: BTreeMap::new(),
             notes: vec![],
+            people_source: Some(PeopleSource::Export),
         };
         b.write_manifest(&m).expect("write");
         assert_eq!(b.read_manifest().expect("read"), m);
         m.format_version = FORMAT_VERSION + 1;
         b.write_manifest(&m).expect("write");
         assert!(b.read_manifest().is_err());
+    }
+
+    #[test]
+    fn a_manifest_without_a_people_source_reads_as_unknown() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let b = Bundle::create(dir.path()).expect("create");
+        fs::write(
+            b.root().join(MANIFEST),
+            format!(
+                r#"{{"format_version": {FORMAT_VERSION}, "source": "zendesk",
+                    "source_scope": "acme", "extracted_at": "2026-11-26T00:00:00Z"}}"#
+            ),
+        )
+        .expect("write");
+        let mut m = b.read_manifest().expect("read");
+        assert_eq!(m.people_source, None);
+        m.people_source = Some(PeopleSource::Api);
+        b.write_manifest(&m).expect("write");
+        let raw = fs::read_to_string(b.root().join(MANIFEST)).expect("raw");
+        assert!(raw.contains(r#""people_source": "api""#), "{raw}");
     }
 
     #[cfg(unix)]

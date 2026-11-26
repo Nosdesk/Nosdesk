@@ -44,7 +44,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{api, map, Run, ZendeskSource};
 use crate::services::imports::helpdesk::bundle::{
-    Body, BodyFormat, Bundle, Comment, FetchState, Manifest,
+    Body, BodyFormat, Bundle, Comment, FetchState, Manifest, PeopleSource,
 };
 use crate::services::imports::helpdesk::source::{FetchProgress, SourceError};
 
@@ -238,7 +238,9 @@ pub async fn read_export(
     state.counts = run.counts.clone();
     state.notes = notes;
     bundle.write_state(&state)?;
-    let manifest = run.manifest("zendesk", &source.scope, &state.notes);
+    // People come from the zip alone, credential or not: Zendesk was never
+    // asked for someone the zip lacks.
+    let manifest = run.manifest("zendesk", &source.scope, &state.notes, PeopleSource::Export);
     bundle.write_manifest(&manifest)?;
     Ok(manifest)
 }

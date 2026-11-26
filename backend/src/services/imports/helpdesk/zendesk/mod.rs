@@ -796,7 +796,14 @@ impl HelpdeskSource for ZendeskSource {
             }
         }
 
-        let manifest = run.manifest(self.source(), &self.scope, &state.notes);
+        // Every user the export returns, so someone the tickets name and
+        // people.jsonl lacks is gone at Zendesk.
+        let manifest = run.manifest(
+            self.source(),
+            &self.scope,
+            &state.notes,
+            bundle::PeopleSource::Api,
+        );
         bundle.write_manifest(&manifest)?;
         Ok(manifest)
     }
@@ -936,7 +943,13 @@ impl<'a> Run<'a> {
         (self.callback)(&self.progress);
     }
 
-    fn manifest(&self, source: &str, scope: &str, saved_notes: &[String]) -> Manifest {
+    fn manifest(
+        &self,
+        source: &str,
+        scope: &str,
+        saved_notes: &[String],
+        people_source: bundle::PeopleSource,
+    ) -> Manifest {
         let counts: BTreeMap<String, u64> = MANIFEST_COUNTS
             .iter()
             .map(|k| (k.to_string(), self.counts.get(*k).copied().unwrap_or(0)))
@@ -950,6 +963,7 @@ impl<'a> Run<'a> {
             extracted_at: Utc::now(),
             counts,
             notes,
+            people_source: Some(people_source),
         }
     }
 }
