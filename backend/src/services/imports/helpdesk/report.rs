@@ -3,7 +3,7 @@
 
 use std::fmt::Write;
 
-use super::loader::{LoadReport, Plan};
+use super::loader::{counted, LoadReport, MissingPeople, Plan};
 
 pub fn render_plan(plan: &Plan) -> String {
     let mut s = String::new();
@@ -45,8 +45,9 @@ pub fn render_plan(plan: &Plan) -> String {
     }
     let _ = writeln!(s, "\nPeople the tickets mention:");
     for (outcome, n) in &plan.people {
-        let _ = writeln!(s, "  {outcome:<32} {n}");
+        let _ = writeln!(s, "  {outcome:<40} {n}");
     }
+    missing_people(&mut s, plan.missing_people.as_ref(), 40);
     if !plan.staff.is_empty() {
         let _ = writeln!(s, "\nSource staff:");
         for (who, target, outcome) in &plan.staff {
@@ -88,11 +89,12 @@ pub fn render_report(r: &LoadReport) -> String {
     }
     let _ = writeln!(s, "Replies written: {}", r.comments_written);
     let _ = writeln!(s, "Files attached: {}", r.attachments_written);
-    if !r.people.is_empty() {
+    if !r.people.is_empty() || r.missing_people.is_some() {
         let _ = writeln!(s, "People:");
         for (outcome, n) in &r.people {
             let _ = writeln!(s, "  {outcome:<40} {n}");
         }
+        missing_people(&mut s, r.missing_people.as_ref(), 40);
     }
     list(
         &mut s,
@@ -124,6 +126,22 @@ pub fn render_report(r: &LoadReport) -> String {
         );
     }
     s
+}
+
+/// The people the tickets name and the bundle lacks, as a line of the
+/// people table and what it touches beneath.
+fn missing_people(s: &mut String, missing: Option<&MissingPeople>, width: usize) {
+    let Some(m) = missing else {
+        return;
+    };
+    let outcome = format!("{} (placeholder)", m.label);
+    let _ = writeln!(s, "  {outcome:<width$} {}", m.people);
+    let _ = writeln!(
+        s,
+        "    on {} and {}; their requests and replies go to the placeholder author",
+        counted(m.tickets, "ticket", "tickets"),
+        counted(m.replies, "reply", "replies")
+    );
 }
 
 fn list(s: &mut String, title: &str, items: &[String]) {

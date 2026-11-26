@@ -339,13 +339,20 @@ impl ZendeskSource {
             }
             run.progress.people = *people;
             run.report(self);
+            // The end: the cursor Zendesk gave stays good for what changes
+            // after it.
+            if page.end_of_stream {
+                return Ok(page.after_cursor.or(cursor));
+            }
             match page.after_cursor {
-                Some(next) if !page.end_of_stream && cursor.as_deref() != Some(next.as_str()) => {
-                    cursor = Some(next)
+                Some(next) if cursor.as_deref() != Some(next.as_str()) => cursor = Some(next),
+                // No way on before the end. Stopping here would leave the
+                // users not yet fetched looking gone at Zendesk.
+                _ => {
+                    return Err(SourceError::Protocol(
+                        "the user export stopped before its end".into(),
+                    ))
                 }
-                // The end: the cursor Zendesk gave stays good for what
-                // changes after it.
-                next => return Ok(next.or(cursor)),
             }
         }
     }
@@ -770,6 +777,7 @@ impl HelpdeskSource for ZendeskSource {
         if !state.people_done {
             state.people_cursor = self.fetch_people(bundle, &mut run, &cancel).await?;
             state.people_done = true;
+            state.people_source = Some(bundle::PeopleSource::Api);
             state.counts = run.counts.clone();
             bundle.write_state(&state)?;
         }
@@ -796,7 +804,16 @@ impl HelpdeskSource for ZendeskSource {
             }
         }
 
-        let manifest = run.manifest(self.source(), &self.scope, &state.notes);
+        // From whoever wrote the people: this run when it fetched them
+        // (every user the export returns, so someone people.jsonl lacks is
+        // gone at Zendesk), or the earlier run it carried on from, which
+        // may have read an export.
+        let manifest = run.manifest(
+            self.source(),
+            &self.scope,
+            &state.notes,
+            state.people_source,
+        );
         bundle.write_manifest(&manifest)?;
         Ok(manifest)
     }
@@ -936,7 +953,13 @@ impl<'a> Run<'a> {
         (self.callback)(&self.progress);
     }
 
-    fn manifest(&self, source: &str, scope: &str, saved_notes: &[String]) -> Manifest {
+    fn manifest(
+        &self,
+        source: &str,
+        scope: &str,
+        saved_notes: &[String],
+        people_source: Option<bundle::PeopleSource>,
+    ) -> Manifest {
         let counts: BTreeMap<String, u64> = MANIFEST_COUNTS
             .iter()
             .map(|k| (k.to_string(), self.counts.get(*k).copied().unwrap_or(0)))
@@ -950,6 +973,7 @@ impl<'a> Run<'a> {
             extracted_at: Utc::now(),
             counts,
             notes,
+            people_source,
         }
     }
 }
