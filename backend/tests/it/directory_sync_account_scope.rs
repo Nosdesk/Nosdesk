@@ -10,7 +10,10 @@
 //! own rows, a directory group in B takes in no one only A holds, the
 //! portal's add-participant says nothing about the account an address
 //! reached, and `user.*` webhooks and other members' sync rows carry no
-//! platform role or dashboard layout.
+//! platform role or dashboard layout. Requester sign-in through the
+//! workspace's own provider, and its help widget, take in no one on another
+//! workspace's team and no account with a platform role; the widget takes in
+//! no staff of its own either.
 
 use actix_web::dev::Service;
 use actix_web::test as http_test;
@@ -862,6 +865,231 @@ fn requester_sso_signs_in_a_requester_from_elsewhere_but_no_staff_from_elsewhere
         sign_in(&agent_in_a.primary, "sub-agent-old"),
         Err(Refused::StaffElsewhere)
     );
+}
+
+#[test]
+fn requester_sso_never_signs_in_an_account_with_a_platform_role() {
+    use backend::repository::requester_identities::{resolve, Assertion, IdentityKey, Refused};
+    let fx = Fixture::new();
+    // An audit reviewer who is a requester in A, a platform admin with no seat
+    // anywhere, and a plain person. None is staff anywhere, so only the
+    // platform role can refuse them.
+    let reviewer = fx.account("Audit Reviewer", &[fx.a()]);
+    let operator = fx.account("Platform Admin", &[]);
+    let plain = fx.account("Plain Person", &[]);
+    for (acct, role) in [(&reviewer, "audit_reviewer"), (&operator, "platform_admin")] {
+        fx.read(|c| {
+            diesel::update(users::table.find(acct.uuid))
+                .set(users::platform_role.eq(role))
+                .execute(c)
+        });
+    }
+    // Unverified primaries, so a verification flip would show.
+    fx.read(|c| {
+        diesel::update(
+            user_emails::table.filter(user_emails::user_uuid.eq_any(vec![
+                reviewer.uuid,
+                operator.uuid,
+                plain.uuid,
+            ])),
+        )
+        .set(user_emails::is_verified.eq(false))
+        .execute(c)
+    });
+    let domains = vec!["victim.test".to_string()];
+    let provider = "oidc:https://idp.example";
+    let sign_in = |email: Option<&str>, sub: &str| {
+        let keys = [IdentityKey {
+            provider_type: provider.to_string(),
+            external_id: sub.to_string(),
+        }];
+        run_in_workspace(&fx.pool, REF, fx.b(), |c| {
+            resolve(
+                c,
+                fx.b(),
+                &domains,
+                &Assertion {
+                    keys: &keys,
+                    email,
+                    email_verified: Some(true),
+                    name: Some("Someone"),
+                    via: "test",
+                },
+            )
+        })
+        .expect("resolve")
+    };
+
+    for acct in [&reviewer, &operator] {
+        let seats = fx.seats(acct.uuid);
+        let addresses = fx.addresses(acct.uuid);
+
+        // By email at a listed domain.
+        assert_eq!(
+            sign_in(Some(&acct.primary), &format!("sub-{}", acct.uuid)),
+            Err(Refused::PlatformRole),
+            "{} by email",
+            acct.name
+        );
+        // By the account's other, unverified address at a listed domain.
+        assert_eq!(
+            sign_in(Some(&acct.secondary), &format!("sub-2nd-{}", acct.uuid)),
+            Err(Refused::PlatformRole),
+            "{} by secondary email",
+            acct.name
+        );
+        assert!(fx.identities(acct.uuid).is_empty(), "not linked");
+
+        // By a key linked to the account before the rule.
+        let old_sub = format!("sub-old-{}", acct.uuid);
+        fx.read(|c| {
+            identity_repo::create_identity(
+                NewUserAuthIdentity {
+                    user_uuid: acct.uuid,
+                    provider_type: provider.to_string(),
+                    external_id: old_sub.clone(),
+                    email: None,
+                    metadata: None,
+                    password_hash: None,
+                    workspace_id: Some(fx.b()),
+                },
+                c,
+            )
+        });
+        assert_eq!(
+            sign_in(None, &old_sub),
+            Err(Refused::PlatformRole),
+            "{} by linked key",
+            acct.name
+        );
+        assert_eq!(
+            sign_in(Some(&acct.primary), &old_sub),
+            Err(Refused::PlatformRole),
+            "{} by linked key and email",
+            acct.name
+        );
+
+        // Nothing written for the account: no further identity, no seat in B,
+        // the same addresses and verification, the same name.
+        assert_eq!(fx.identities(acct.uuid).len(), 1, "only the old link");
+        assert_eq!(fx.seats(acct.uuid), seats, "no seat in B");
+        assert_eq!(fx.addresses(acct.uuid), addresses);
+        assert_eq!(fx.name_of(acct.uuid), acct.name);
+    }
+
+    // A plain person still signs in, and again by the key it linked.
+    assert_eq!(sign_in(Some(&plain.primary), "sub-plain"), Ok(plain.uuid));
+    assert_eq!(fx.seats(plain.uuid), vec![fx.b()]);
+    assert_eq!(sign_in(None, "sub-plain"), Ok(plain.uuid));
+}
+
+#[test]
+fn the_widget_signs_in_no_staff_and_no_account_with_a_platform_role() {
+    use backend::repository::widget_visitors::{resolve, Refusal, Visitor};
+    let fx = Fixture::new();
+    // B's widget. An audit reviewer who is a requester in A, a platform admin
+    // with no seat anywhere, an agent of A who wrote to B, an agent of B, and
+    // a plain requester of A.
+    let reviewer = fx.account("Widget Reviewer", &[fx.a()]);
+    let operator = fx.account("Widget Operator", &[]);
+    let agent_in_a = fx.account("Widget Agent In A", &[fx.b()]);
+    let agent_in_b = fx.account("Widget Agent In B", &[]);
+    let requester = fx.account("Widget Requester", &[fx.a()]);
+    for (acct, role) in [(&reviewer, "audit_reviewer"), (&operator, "platform_admin")] {
+        fx.read(|c| {
+            diesel::update(users::table.find(acct.uuid))
+                .set(users::platform_role.eq(role))
+                .execute(c)
+        });
+    }
+    for (ws, acct) in [(fx.a(), &agent_in_a), (fx.b(), &agent_in_b)] {
+        run_in_workspace(&fx.pool, REF, ws, |c| {
+            add_membership(c, ws, acct.uuid, "agent", SeatWriteAuthority::ControlPlane)
+        })
+        .expect("agent seat");
+    }
+    // The site says it verified every address: the strongest claim it makes.
+    let visit = |sub: &str, email: &str| {
+        run_in_workspace(&fx.pool, REF, fx.b(), |c| {
+            resolve(
+                c,
+                fx.b(),
+                &Visitor {
+                    sub,
+                    email,
+                    name: "Visitor",
+                    email_verified: true,
+                },
+            )
+        })
+        .expect("resolve")
+    };
+
+    for (acct, email, case) in [
+        (
+            &operator,
+            &operator.secondary,
+            "a platform admin's secondary address",
+        ),
+        (
+            &reviewer,
+            &reviewer.secondary,
+            "an audit reviewer's secondary address",
+        ),
+        (
+            &reviewer,
+            &reviewer.primary,
+            "an audit reviewer's primary address",
+        ),
+        (
+            &agent_in_a,
+            &agent_in_a.secondary,
+            "another workspace's agent's secondary address",
+        ),
+        (
+            &agent_in_a,
+            &agent_in_a.primary,
+            "another workspace's agent's primary address",
+        ),
+        (
+            &agent_in_b,
+            &agent_in_b.primary,
+            "an agent here, by primary address",
+        ),
+        (
+            &agent_in_b,
+            &agent_in_b.secondary,
+            "an agent here, by secondary address",
+        ),
+    ] {
+        let seats = fx.seats(acct.uuid);
+        let addresses = fx.addresses(acct.uuid);
+        assert_eq!(
+            visit(&format!("site-{}", Uuid::new_v4()), email),
+            Err(Refusal::Staff),
+            "{case}"
+        );
+        assert!(fx.identities(acct.uuid).is_empty(), "{case}: not linked");
+        assert_eq!(fx.seats(acct.uuid), seats, "{case}: no seat");
+        assert_eq!(fx.addresses(acct.uuid), addresses, "{case}: addresses");
+    }
+
+    // A plain requester signs in by either address, and comes back by the
+    // site's id whatever the email says by then.
+    assert_eq!(
+        visit("site-requester", &requester.primary),
+        Ok(requester.uuid)
+    );
+    assert_eq!(fx.seats(requester.uuid), vec![fx.a(), fx.b()]);
+    assert_eq!(
+        visit("site-requester", "changed@elsewhere.test"),
+        Ok(requester.uuid)
+    );
+    let other = fx.account("Widget Requester Two", &[]);
+    assert_eq!(visit("site-other", &other.secondary), Ok(other.uuid));
+    // A new visitor gets a new requester.
+    let fresh = visit("site-fresh", "fresh-visitor@widget.test").expect("created");
+    assert_eq!(fx.seats(fresh), vec![fx.b()]);
 }
 
 #[test]

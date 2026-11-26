@@ -33,6 +33,7 @@ const ssoError = computed(() => {
   if (reason === 'cancelled') return ''
   if (reason === 'domain') return t('portal-sso-error-domain')
   if (reason === 'staff_elsewhere') return t('portal-sso-error-staff-elsewhere')
+  if (reason === 'platform_role') return t('portal-sso-error-platform-role')
   if (reason === 'mfa') return t('login-error-provider-mfa')
   return t('portal-sso-error')
 })

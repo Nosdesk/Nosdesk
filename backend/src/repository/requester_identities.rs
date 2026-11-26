@@ -62,6 +62,40 @@ pub enum Refused {
     /// The account holds or held a staff seat in another workspace: a team
     /// member there isn't this workspace's provider to sign in as.
     StaffElsewhere,
+    /// The account holds a platform role (platform admin, audit reviewer): no
+    /// workspace's provider speaks for it.
+    PlatformRole,
+}
+
+/// Why an account is beyond what one workspace's own sign-in can speak for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutOfReach {
+    /// A platform role (platform admin, audit reviewer), or one that can't be
+    /// read.
+    PlatformRole,
+    /// A staff seat, held now or before, in another workspace.
+    StaffElsewhere,
+}
+
+/// Whether `user` is beyond the reach of anything that vouches for people on
+/// `workspace_id`'s behalf alone: its identity provider, its Teams app, its
+/// help widget. A listed domain or a site's signing secret is the
+/// workspace's word, not proof it owns the account.
+pub fn out_of_reach(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user: Uuid,
+) -> Result<Option<OutOfReach>, diesel::result::Error> {
+    // The stored string, so an unknown value fails closed rather than reading
+    // as `user` through `PlatformRole::from_db`.
+    let role = crate::repository::users::platform_role_of(conn, &user)?;
+    if role.as_deref() != Some(crate::models::PlatformRole::User.as_str()) {
+        return Ok(Some(OutOfReach::PlatformRole));
+    }
+    if crate::repository::workspaces::staff_seat_elsewhere(conn, workspace_id, user)? {
+        return Ok(Some(OutOfReach::StaffElsewhere));
+    }
+    Ok(None)
 }
 
 // sync-audit-only: links identities, provisions the requester and seat through their own audited repository writes
@@ -111,14 +145,16 @@ pub fn resolve(
                 .uuid
         }
     };
-    // A listed domain is the admin's word, not proof they own it. Someone who
-    // is or was on another workspace's team isn't this provider's to sign in
-    // as, whether found by email or by a key linked earlier. A requester
-    // elsewhere is (they write to more than one help desk), but the provider
-    // speaks only for this workspace: their account, and its verified
-    // addresses, aren't its to change.
-    if crate::repository::workspaces::staff_seat_elsewhere(conn, workspace_id, user)? {
-        return Ok(Err(Refused::StaffElsewhere));
+    // A listed domain is the admin's word, not proof they own it. An account
+    // with a platform role, or someone who is or was on another workspace's
+    // team, isn't this provider's to sign in as, whether found by email or by
+    // a key linked earlier. A requester elsewhere is (they write to more than
+    // one help desk), but the provider speaks only for this workspace: their
+    // account, and its verified addresses, aren't its to change.
+    match out_of_reach(conn, workspace_id, user)? {
+        Some(OutOfReach::PlatformRole) => return Ok(Err(Refused::PlatformRole)),
+        Some(OutOfReach::StaffElsewhere) => return Ok(Err(Refused::StaffElsewhere)),
+        None => {}
     }
     let verify = crate::repository::workspaces::workspace_ids_with_any_seat(conn, user)?
         .iter()

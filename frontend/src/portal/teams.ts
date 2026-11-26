@@ -36,6 +36,8 @@ export type TeamsProblem =
   | 'not-set-up'
   /** The account is on another workspace's team: not this tab's to sign in. */
   | 'staff-elsewhere'
+  /** The account holds a platform role: no workspace's provider signs it in. */
+  | 'platform-role'
   | 'failed'
 
 /** The last sign-in's problem, for the status screen. */
@@ -122,6 +124,7 @@ async function exchange(token: string): Promise<TeamsProblem | null> {
     const body = await res.json().catch(() => null)
     if (body?.code === 'teams_domain') return 'not-set-up'
     if (body?.code === 'teams_staff_elsewhere') return 'staff-elsewhere'
+    if (body?.code === 'teams_platform_role') return 'platform-role'
     return 'failed'
   }
   const data = (await res.json()) as { access_token?: string }
