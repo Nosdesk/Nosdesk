@@ -44,8 +44,7 @@
   "plugins": {
     "deep-link": {
       "mobile": [
-        { "scheme": ["https"], "host": "app.nosdesk.com", "appLink": true },
-        { "scheme": ["https"], "host": "app.nosdesk.dev", "appLink": true }
+        { "scheme": ["https"], "host": "app.nosdesk.com", "appLink": true }
       ]
     }
   }
