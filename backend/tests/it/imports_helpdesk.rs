@@ -2786,7 +2786,17 @@ async fn purge_then_rerun_brings_the_person_back() {
     }
 
     // A rerun brings them back, profile and phone included, without
-    // tripping over a mapping left behind.
+    // tripping over a mapping left behind; the plan says so first.
+    let plan = loader::plan(&pool, &bundle, &options(&ws, Uuid::now_v7()))
+        .await
+        .expect("plan");
+    assert_eq!(
+        (
+            plan.people_detail.profile.organizations,
+            plan.people_detail.profile.phones
+        ),
+        (2, 2)
+    );
     let report = run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
     assert!(
         report.people_problems.is_empty(),
@@ -2829,7 +2839,13 @@ async fn changed_at_zendesk_reported_not_applied() {
     };
     let tickets = vec![raised_by("1201", "c1", &[])];
     let dir = tempfile::tempdir().expect("dir");
-    let bundle = write_bundle_with(dir.path(), &[then.clone()], &tickets, &[], |_| {});
+    let bundle = write_bundle_with(
+        dir.path(),
+        std::slice::from_ref(&then),
+        &tickets,
+        &[],
+        |_| {},
+    );
     run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
     let account = account_of(&pool, "old@customer.test");
 

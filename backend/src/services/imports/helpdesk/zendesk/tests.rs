@@ -1771,7 +1771,8 @@ async fn fill_marks_unreturned_ids_gone() {
     // 4 is returned (deleted at Zendesk), 6 returned, 5 not returned.
     let zip = export_naming(dir.path(), &[4, 5, 6]);
     let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
-    let (bundle, manifest) = read_zips(&src, &[zip.clone()], &dir.path().join("b")).await;
+    let (bundle, manifest) =
+        read_zips(&src, std::slice::from_ref(&zip), &dir.path().join("b")).await;
     let fill = manifest.fill.clone().expect("fill");
     assert_eq!(fill.people_asked, 3);
     assert_eq!(fill.people_returned, 2);
@@ -1838,7 +1839,8 @@ async fn over_1mb_ticket_gets_its_comments() {
         )],
     );
     let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
-    let (bundle, manifest) = read_zips(&src, &[zip.clone()], &dir.path().join("b")).await;
+    let (bundle, manifest) =
+        read_zips(&src, std::slice::from_ref(&zip), &dir.path().join("b")).await;
     let tickets = tickets_of(&bundle);
     let filled = tickets.iter().find(|t| t.source_id == "101").expect("101");
     let ids: Vec<&str> = filled
@@ -1924,7 +1926,7 @@ async fn group_and_brand_names_or_ids() {
 
     // With a credential: names, each list asked for once.
     let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
-    let (bundle, _) = read_zips(&src, &[zip.clone()], &dir.path().join("b")).await;
+    let (bundle, _) = read_zips(&src, std::slice::from_ref(&zip), &dir.path().join("b")).await;
     let tickets = tickets_of(&bundle);
     assert_eq!(field(&tickets[0], "Group there").as_deref(), Some("Tier 2"));
     assert_eq!(

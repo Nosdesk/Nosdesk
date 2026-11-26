@@ -331,6 +331,7 @@ fn facts(
         .filter_map(|t| Uuid::parse_str(t).ok())
         .collect();
     let live = crate::repository::directory::people_among(conn, ws, &target_uuids)?;
+    let all_mapped: HashSet<String> = targets.keys().cloned().collect();
     let mapped: HashMap<String, Uuid> = targets
         .into_iter()
         .filter_map(|(id, t)| Some((id, Uuid::parse_str(&t).ok()?)))
@@ -339,8 +340,11 @@ fn facts(
     let mapped_ids: Vec<String> = mapped.keys().cloned().collect();
     let mapped_updated =
         idmap::source_updated_at_of(conn, opts.scope, Entity::Person, &mapped_ids)?;
+    // A profile entry beside a mapping that went stale is forgotten with
+    // it, so the person's fill is still to do.
     let profiled = idmap::targets_of(conn, opts.scope, Entity::Profile, &ids)?
         .into_keys()
+        .filter(|id| !all_mapped.contains(id) || mapped.contains_key(id))
         .collect();
 
     let mut emails: Vec<String> = people.iter().filter_map(|p| p.email.clone()).collect();
@@ -687,11 +691,9 @@ pub fn apply(
         .iter()
         .flat_map(|g| g.members.iter().map(|p| p.source_id.clone()))
         .collect();
-    let mut facts = facts;
     for id in idmap::targets_of(conn, opts.scope, Entity::Person, &ids)?.keys() {
         if !facts.mapped.contains_key(id) {
             idmap::forget_person(conn, opts.scope, id)?;
-            facts.profiled.remove(id);
         }
     }
 
