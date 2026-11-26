@@ -174,25 +174,38 @@ platform :android do
     )
   end
 
-  desc "Promote the Play internal track to production"
+  desc "Release a version code already on internal to production, notes in every listing language"
   lane :promote do
-    upload_to_play_store(
-      track: "internal",
-      track_promote_to: "production",
-      version_code: ENV.fetch("BUILD_NUMBER"),
-      # An app that has never been published only accepts draft releases:
-      # promote with PLAY_RELEASE_STATUS=draft, then send it for review in the
-      # Play Console. After that, completed rolls straight out.
-      track_promote_release_status: ENV.fetch("PLAY_RELEASE_STATUS", "completed"),
-      json_key: ENV.fetch("PLAY_JSON_KEY_PATH"),
-      skip_upload_apk: true,
-      skip_upload_aab: true,
-      # The release notes: changelogs/<version code>.txt, else default.txt.
-      metadata_path: File.join(store_assets, "metadata", "android"),
-      skip_upload_metadata: true,
-      skip_upload_changelogs: false,
-      skip_upload_images: true,
-      skip_upload_screenshots: true,
+    code = ENV.fetch("PLAY_VERSION_CODE").to_i
+    notes = ENV.fetch("PLAY_RELEASE_NOTES").strip
+    dry_run = ENV["PLAY_DRY_RUN"] == "1"
+    UI.user_error!("PLAY_VERSION_CODE must be a version code") unless code.positive?
+    UI.user_error!("Release notes are empty") if notes.empty?
+    UI.user_error!("Release notes are #{notes.length} characters; Play allows 500") if notes.length > 500
+
+    require "supply"
+    client = Supply::Client.make_from_config(
+      params: { json_key: ENV.fetch("PLAY_JSON_KEY_PATH"), package_name: APP_ID, timeout: 300 },
     )
+    client.begin_edit(package_name: APP_ID)
+    internal = client.tracks("internal").first
+    source = (internal&.releases || []).find { |r| (r.version_codes || []).map(&:to_i).include?(code) }
+    UI.user_error!("Version code #{code} is not on the internal track") unless source
+
+    languages = client.listings.map(&:language)
+    release = AndroidPublisher::TrackRelease.new(
+      name: source.name,
+      version_codes: [code.to_s],
+      status: "completed",
+      release_notes: languages.map { |l| AndroidPublisher::LocalizedText.new(language: l, text: notes) },
+    )
+    UI.message("#{dry_run ? 'Would release' : 'Releasing'} #{source.name} (#{code}) to production for #{languages.join(', ')}")
+    next client.abort_current_edit if dry_run
+
+    client.update_track("production", AndroidPublisher::Track.new(track: "production", releases: [release]))
+    # commit_current_edit! reads Supply.config, which a client made outside
+    # the supply action lacks, so commit through the API directly.
+    client.send(:call_google_api) { client.send(:client).commit_edit(APP_ID, client.send(:current_edit).id) }
+    UI.success("#{source.name} (#{code}) is rolling out to production")
   end
 end
