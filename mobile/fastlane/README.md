@@ -8,7 +8,8 @@ staging and production.
 - **iOS** -> TestFlight (`fastlane ios beta`), signed with a distribution cert
   + App Store profile imported from CI secrets (no `match`).
 - **Android** -> Play internal track (`fastlane android beta`), signed with an
-  upload keystore. `fastlane android promote` moves internal -> production.
+  upload keystore. `.github/workflows/play-promote.yml` releases a version code
+  from internal to production with its release notes.
 
 Build numbers come from `github.run_number` (env `BUILD_NUMBER` /
 `NOSDESK_VERSION_CODE`) so re-uploads never collide.
@@ -24,15 +25,13 @@ export STORE_ASSETS_DIR=~/dev/nosdesk-com/apps/marketing/video/store/out/fastlan
 bundle exec fastlane ios metadata       # App Store listing, no submission
 BUILD_NUMBER=<build> bundle exec fastlane android metadata   # Play listing, no release
 BUILD_NUMBER=<testflight build> bundle exec fastlane ios release
-BUILD_NUMBER=<build> bundle exec fastlane android promote    # internal -> production
 ```
 
 Both iOS lanes need `REVIEW_FIRST_NAME`, `REVIEW_LAST_NAME`, `REVIEW_PHONE`,
 `REVIEW_EMAIL`, `REVIEW_DEMO_USER` and `REVIEW_DEMO_PASSWORD` (optional
 `REVIEW_NOTES`). `ios release` submits that TestFlight build for review and
 releases it on approval. App Privacy, age rating, Play data safety and content
-rating are set once by hand in each console. The first Play release must be
-promoted with `PLAY_RELEASE_STATUS=draft` and sent for review in the Console.
+rating are set once by hand in each console.
 
 ## One-time account setup (no pipeline removes this)
 

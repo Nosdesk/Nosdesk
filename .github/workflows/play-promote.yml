@@ -1,0 +1,57 @@
+name: Play promote
+
+# Releases a build already on the Play internal track to production, fully
+# rolled out, with the same release notes in every listing language. The
+# version code is the Mobile release run number that uploaded it.
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: Version code on the internal track
+        required: true
+        type: string
+      notes:
+        description: Release notes, 500 characters at most
+        required: true
+        type: string
+      dry_run:
+        description: Check the build and notes without releasing
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Write Play service-account key
+        env:
+          PLAY_JSON_KEY_BASE64: ${{ secrets.PLAY_JSON_KEY_BASE64 }}
+        run: |
+          echo "$PLAY_JSON_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/play-key.json"
+          echo "PLAY_JSON_KEY_PATH=$RUNNER_TEMP/play-key.json" >> "$GITHUB_ENV"
+
+      - name: Set up Ruby + fastlane
+        uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1.336.0
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: mobile
+
+      - name: Release to production
+        working-directory: mobile
+        env:
+          PLAY_VERSION_CODE: ${{ inputs.version_code }}
+          PLAY_RELEASE_NOTES: ${{ inputs.notes }}
+          PLAY_DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: bundle exec fastlane android promote
