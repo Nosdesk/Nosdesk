@@ -11,6 +11,7 @@ import type {
 import type { IconName } from '@/components/common/icons'
 import { recordTypeName } from '@/components/admin/assetRecordTypes/recordTypeForm'
 import { assetStatusTextClass, metaForAssetStatus } from '@/utils/assetStatusMeta'
+import { isMoneyProp, moneyText, moneyValueOf } from '@/utils/moneyAttribute'
 
 export type Translate = (key: string, args?: Record<string, string | number>) => string
 
@@ -110,6 +111,10 @@ export interface FieldProp {
   format?: string
   title?: string
   items?: { type?: string }
+  /** For money: the one currency the field takes. */
+  currency?: string
+  minimum?: number
+  maximum?: number
 }
 
 export function fieldProps(type: AssetRecordType | undefined): [string, FieldProp][] {
@@ -142,6 +147,12 @@ function formatNumber(value: number): string {
 export function fieldValueText(t: Translate, prop: FieldProp, value: unknown): string {
   if (value === null || value === undefined || value === '') return ''
   if (prop.type === 'boolean') return value ? t('asset-record-value-yes') : t('asset-record-value-no')
+  if (isMoneyProp(prop) || moneyValueOf(value)) {
+    // A value written before the field held money still shows.
+    const money = moneyText(value)
+    if (money) return money
+    return typeof value === 'object' ? JSON.stringify(value) : String(value)
+  }
   if (Array.isArray(value)) return value.map(String).join(', ')
   if (typeof value === 'number') return formatNumber(value)
   if (prop.format === 'date' && typeof value === 'string') return formatDay(value)

@@ -17,6 +17,7 @@ export type AttributeValueType =
   | 'user'
   | 'asset'
   | 'list'
+  | 'money'
 
 export interface AttributeColumnDef {
   field: string
@@ -47,6 +48,8 @@ function valueTypeOf(prop: Record<string, unknown>): AttributeValueType {
       return 'number'
     case 'array':
       return 'list'
+    case 'object':
+      if (prop.format === 'money') return 'money'
   }
   switch (prop.format) {
     case 'date':

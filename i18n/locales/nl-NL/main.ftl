@@ -13255,3 +13255,18 @@ tickets-email-html-full-size = Tonen op mijn tekstgrootte
 tickets-email-html-fit-width = Passend maken
 # MT: pending native review (nl-NL)
 ticket-comments-internal-toggle = Interne notitie
+# MT: pending native review (nl-NL)
+asset-attribute-money-invalid = Voer het bedrag in als getal
+# MT: pending native review (nl-NL)
+asset-attribute-money-ambiguous = Dit bedrag is op twee manieren te lezen; schrijf het zonder scheidingsteken voor duizendtallen
+# MT: pending native review (nl-NL)
+asset-attribute-money-negative = Dit bedrag kan niet negatief zijn
+# MT: pending native review (nl-NL)
+asset-attribute-money-too-many-decimals = { $digits ->
+    [0] Bedragen in { $code } hebben geen decimalen
+   *[other] Bedragen in { $code } hebben maximaal { $digits } decimalen
+}
+# MT: pending native review (nl-NL)
+asset-attribute-money-below-minimum = Voer minstens { $min } in
+# MT: pending native review (nl-NL)
+asset-attribute-money-above-maximum = Voer hoogstens { $max } in

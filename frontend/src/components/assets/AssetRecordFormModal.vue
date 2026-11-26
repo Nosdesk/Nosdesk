@@ -42,7 +42,8 @@ import { fetchEligibleUsers } from '@/services/eligibleUsers'
 import { getAssetById, getPaginatedAssetsExcluding } from '@/services/assetService'
 import { coarseStatusBucket } from '@nosdesk/core/types/workflow'
 import { getDateConfig } from '@nosdesk/core/utils/dateUtils'
-import { currencyName, readAmountInput, type AmountInputError } from '@nosdesk/core/utils/money'
+import { currencyName, readAmountInput } from '@nosdesk/core/utils/money'
+import { AMOUNT_ERROR_KEYS, localAmount } from '@/utils/moneyAttribute'
 import {
   assetRecordKeys,
   assetRecordService,
@@ -210,6 +211,10 @@ const triedSubmit = ref(false)
 const baseline = ref<Record<string, unknown> | null>(null)
 /** The cost text an edit started from. */
 const seededCost = ref('')
+/** A type field holds an amount that doesn't read. */
+const fieldsInvalid = ref(false)
+/** Counts each fill or reset, so the type's fields start over with it. */
+const formRound = ref(0)
 
 const editing = computed(() => !!props.record)
 const type = computed(() => types.value.find((x) => x.slug === form.type))
@@ -247,6 +252,8 @@ function reset(keep?: { type: string | null; day: string; vendor: string }) {
   triedSubmit.value = false
   baseline.value = null
   seededCost.value = ''
+  formRound.value++
+  fieldsInvalid.value = false
   holdTypeWatch()
   openExtras()
 }
@@ -256,16 +263,6 @@ let filling = false
 function holdTypeWatch() {
   filling = true
   void nextTick(() => (filling = false))
-}
-
-/** A stored amount (`"1250.50"`) as the reader's locale writes it, without
- *  grouping, so it reads back as it was. */
-function localAmount(amount: string): string {
-  const decimal =
-    new Intl.NumberFormat(getDateConfig().defaultLocale)
-      .formatToParts(1.5)
-      .find((p) => p.type === 'decimal')?.value ?? '.'
-  return amount.replace('.', decimal)
 }
 
 function fill(record: AssetRecord) {
@@ -296,6 +293,8 @@ function fill(record: AssetRecord) {
     replacement: record.replacement_asset_id ? String(record.replacement_asset_id) : '',
   })
   openExtras(record)
+  formRound.value++
+  fieldsInvalid.value = false
   files.value = []
   errorMessage.value = ''
   triedSubmit.value = false
@@ -543,12 +542,6 @@ const costInput = computed(() => {
   const text = form.cost.trim()
   return text ? readAmountInput(text) : null
 })
-const COST_ERRORS: Record<AmountInputError, string> = {
-  invalid: 'asset-lifecycle-record-cost-invalid',
-  ambiguous: 'asset-lifecycle-record-cost-ambiguous',
-  negative: 'asset-lifecycle-record-cost-negative',
-  too_many_decimals: 'asset-lifecycle-record-cost-invalid',
-}
 
 // --- Files ------------------------------------------------------------
 
@@ -569,7 +562,7 @@ const missing = computed(() => {
   if (needs('reference') && !form.reference.trim()) out.reference = t('asset-record-form-required')
   if (needs('cost') && !form.cost.trim()) out.cost = t('asset-record-form-required')
   else if (costInput.value && !costInput.value.ok && form.cost !== seededCost.value) {
-    out.cost = t(COST_ERRORS[costInput.value.error])
+    out.cost = t(AMOUNT_ERROR_KEYS[costInput.value.error])
   }
   if (needs('outcome') && !isOpen.value && !form.outcome) out.outcome = t('asset-record-form-required')
   if (needs('ticket') && !form.ticket) out.ticket = t('asset-record-form-required')
@@ -638,7 +631,7 @@ function changes(record: AssetRecord): UpdateAssetRecordBody {
 
 async function submit() {
   triedSubmit.value = true
-  if (Object.keys(missing.value).length > 0) return
+  if (Object.keys(missing.value).length > 0 || fieldsInvalid.value) return
   submitting.value = true
   errorMessage.value = ''
   try {
@@ -1112,7 +1105,15 @@ const reassurance = computed(() =>
         </div>
         <p v-if="shows('cost') && !currency" class="col-span-2 -mt-1.5 text-xs leading-5 text-tertiary">{{ costHint }}</p>
 
-        <AssetRecordTypeFields v-if="type" v-model="form.attributes" :type="type" />
+        <AssetRecordTypeFields
+          v-if="type"
+          :key="formRound"
+          v-model="form.attributes"
+          :type="type"
+          :currency="currency ?? suggestedCurrency"
+          :show-errors="triedSubmit"
+          @update:invalid="(v: boolean) => (fieldsInvalid = v)"
+        />
 
         <SearchableDropdown
           v-if="extra.technician"

@@ -323,6 +323,31 @@ describe('AssetRecordFormModal', () => {
     expect(records.create.mock.calls[0][1].cost).toEqual({ amount: '12.50' })
   })
 
+  it("holds the save while a money field's amount doesn't read, and sends it once it does", async () => {
+    const UPGRADE = type('upgrade', 3, { parts: { type: 'object', format: 'money' } }, ['done'])
+    records.types.mockResolvedValue({
+      types: [REPAIR, INSPECTION, UPGRADE],
+      currency: 'AUD',
+      suggested_currency: 'AUD',
+      timezone: 'Australia/Sydney',
+    })
+    const w = await open()
+    await set(w, TYPE, 'upgrade')
+    await set(w, DAY, '2025-08-21')
+    const label = w.findAll('label').find((l) => l.text() === 'asset-record-field-upgrade-parts')!
+    const parts = w.get(`[id="${label.attributes('for')}"]`)
+    // No blur: a tap on Save may not move focus on a phone.
+    await parts.setValue('abc')
+    await save(w)
+    expect(records.create).not.toHaveBeenCalled()
+    expect(w.text()).toContain('asset-attribute-money-invalid')
+
+    await parts.setValue('84.2')
+    await save(w)
+    // The workspace currency is the server's to fill.
+    expect(records.create.mock.calls[0][1].attributes).toEqual({ parts: { amount: '84.2' } })
+  })
+
   it('sends only what an edit changed', async () => {
     setDateConfig({ defaultLocale: 'fr-FR' })
     const w = await open({ record: savedRecord() })

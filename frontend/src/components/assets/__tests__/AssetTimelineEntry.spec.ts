@@ -12,7 +12,11 @@ import '@/test/mountWithProviders'
 // the gutter mark for the state an entry moved the asset into, and a
 // disposal said on its status change.
 
-vi.mock('@/composables/useTicketNumberLookup', () => ({ numberForTicketId: (id: number) => id + 1000 }))
+const ticketTitles = vi.hoisted(() => new Map<number, string>())
+vi.mock('@/composables/useTicketNumberLookup', () => ({
+  numberForTicketId: (id: number) => id + 1000,
+  titleForTicketId: (id: number) => ticketTitles.get(id),
+}))
 vi.mock('@/composables/useUsersDirectory', () => ({
   useUsersDirectory: () => ({
     getUserHandle: (uuid: string) => ({
@@ -124,7 +128,10 @@ function render(props: Record<string, unknown>) {
 }
 
 const saved = getDateConfig()
-beforeEach(() => setDateConfig({ defaultTimezone: 'UTC', defaultLocale: 'en-US' }))
+beforeEach(() => {
+  setDateConfig({ defaultTimezone: 'UTC', defaultLocale: 'en-US' })
+  ticketTitles.clear()
+})
 afterEach(() => setDateConfig(saved))
 
 describe('AssetTimelineEntry', () => {
@@ -270,6 +277,35 @@ describe('AssetTimelineEntry', () => {
     const member = render({ entry: statusEntry({}) })
     expect(member.text()).not.toContain('Dev Malhotra')
     expect(member.findComponent(RouterLinkStub).exists()).toBe(false)
+  })
+
+  it("reads the status change's ticket by number and title", () => {
+    ticketTitles.set(7, 'Printer jams on tray 2')
+    const link = render({ entry: statusEntry({}), canEdit: true }).findComponent(RouterLinkStub)
+    expect(link.props('to')).toBe('/tickets/1007')
+    expect(link.text()).toBe('#1007 Printer jams on tray 2')
+    expect(link.attributes('title')).toBe('#1007 Printer jams on tray 2')
+  })
+
+  it("reads a record's linked ticket by number and title", () => {
+    const w = render({
+      entry: recordEntry({ ticket_id: 7 }),
+      type: INSPECTION,
+      ticket: { id: 7, number: 1007, title: 'Printer jams on tray 2' },
+    })
+    const link = w.findAllComponents(RouterLinkStub).find((l) => l.props('to') === '/tickets/1007')
+    expect(link?.text()).toBe('#1007 Printer jams on tray 2')
+
+    // The pool's title, which follows a rename, before the timeline's.
+    ticketTitles.set(7, 'Fan noise')
+    const pooled = render({
+      entry: recordEntry({ ticket_id: 7 }),
+      type: INSPECTION,
+      ticket: { id: 7, number: 1007, title: 'Printer jams on tray 2' },
+    })
+    expect(pooled.findAllComponents(RouterLinkStub).find((l) => l.props('to') === '/tickets/1007')?.text()).toBe(
+      '#1007 Fan noise',
+    )
   })
 
   it('says an import created the asset', () => {

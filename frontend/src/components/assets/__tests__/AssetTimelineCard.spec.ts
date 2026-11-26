@@ -58,7 +58,10 @@ vi.mock('@/composables/useUsersDirectory', () => ({
     }),
   }),
 }))
-vi.mock('@/composables/useTicketNumberLookup', () => ({ numberForTicketId: (id: number) => id + 1000 }))
+vi.mock('@/composables/useTicketNumberLookup', () => ({
+  numberForTicketId: (id: number) => id + 1000,
+  titleForTicketId: () => undefined,
+}))
 
 import AssetTimelineCard from '../AssetTimelineCard.vue'
 

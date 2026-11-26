@@ -3,13 +3,15 @@
  * One kind-attribute value in the inventory list. Renders by the
  * attribute's schema type: a user as their avatar and name, an asset
  * reference as a link with the asset's name, dates in the active locale,
- * booleans as yes / no, arrays joined. Anything else is plain text.
+ * money in its currency, booleans as yes / no, arrays joined. Anything else
+ * is plain text.
  */
 import { computed } from 'vue'
 import { useFluent } from 'fluent-vue'
 import { RouterLink } from 'vue-router'
 import { formatDate, formatDateTime } from '@nosdesk/core/utils/dateUtils'
 import { useReference } from '@nosdesk/core/sync/composables'
+import { moneyText, moneyValueOf } from '@/utils/moneyAttribute'
 import { UserAvatarCell } from '@/components/common/cells'
 import type { AttributeValueType } from '@/utils/assetAttributeColumns'
 
@@ -38,6 +40,9 @@ const referenced = useReference<{ name?: string }>('asset', () => assetId.value)
 const text = computed<string>(() => {
   const v = props.value
   if (isEmpty.value) return ''
+  // A column takes its type from the first kind to declare the key, so
+  // money may sit in a column of any type.
+  if (moneyValueOf(v)) return moneyText(v)
   switch (props.valueType) {
     case 'boolean':
       return v === true
@@ -75,7 +80,7 @@ const text = computed<string>(() => {
   <span
     v-else
     class="text-xs text-secondary truncate"
-    :class="valueType === 'number' ? 'tabular-nums' : ''"
+    :class="valueType === 'number' || valueType === 'money' ? 'tabular-nums' : ''"
     :title="text"
   >{{ text }}</span>
 </template>

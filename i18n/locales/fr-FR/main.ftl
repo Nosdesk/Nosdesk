@@ -13264,3 +13264,18 @@ tickets-email-html-full-size = Afficher à ma taille de texte
 tickets-email-html-fit-width = Ajuster à la largeur
 # MT: pending native review (fr-FR)
 ticket-comments-internal-toggle = Note interne
+# MT: pending native review (fr-FR)
+asset-attribute-money-invalid = Saisissez le montant sous forme de nombre
+# MT: pending native review (fr-FR)
+asset-attribute-money-ambiguous = Ce montant peut se lire de deux façons ; écrivez-le sans séparateur de milliers
+# MT: pending native review (fr-FR)
+asset-attribute-money-negative = Ce montant ne peut pas être négatif
+# MT: pending native review (fr-FR)
+asset-attribute-money-too-many-decimals = { $digits ->
+    [0] Les montants en { $code } n'ont pas de décimales
+   *[other] Les montants en { $code } ont au plus { $digits } décimales
+}
+# MT: pending native review (fr-FR)
+asset-attribute-money-below-minimum = Saisissez au moins { $min }
+# MT: pending native review (fr-FR)
+asset-attribute-money-above-maximum = Saisissez au plus { $max }

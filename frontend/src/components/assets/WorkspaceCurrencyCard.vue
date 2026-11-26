@@ -12,6 +12,7 @@ import { useToastStore } from '@nosdesk/core/stores/toast'
 import { useWorkspaceQuery, useWorkspaceQueryCache } from '@/queries/workspaceQuery'
 import { extractErrorMessage } from '@/utils/errors'
 import { assetSettingsService } from '@nosdesk/core/services/assetSettingsService'
+import { assetRecordKeys } from '@nosdesk/core/services/assetRecordService'
 import { currencyName } from '@nosdesk/core/utils/money'
 
 const { $t: t } = useFluent()
@@ -57,6 +58,8 @@ async function choose(next: string): Promise<void> {
   try {
     await assetSettingsService.save({ currency: next || null })
     await queryCache.invalidateQueries({ key: KEY })
+    // Cost and money fields read the currency from the record types.
+    await queryCache.invalidateQueries({ key: [...assetRecordKeys.types] })
     toast.success(t('asset-currency-saved'))
   } catch (e) {
     currency.value = previous

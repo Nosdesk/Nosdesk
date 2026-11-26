@@ -214,6 +214,12 @@ const recordSummary = ref('');
 const recordVendor = ref('');
 const recordReference = ref('');
 const recordAttributes = ref<Record<string, unknown>>({});
+/** A record field holds an amount that doesn't read. */
+const attributesInvalid = ref(false);
+/** A save was tried while a record field's amount didn't read. */
+const attributesTried = ref(false);
+/** Counts each reset, so the record fields start over with it. */
+const formRound = ref(0);
 const completeRecord = ref(true);
 const completeRecordId = ref<number | null>(null);
 const completeOutcome = ref('');
@@ -310,6 +316,9 @@ function resetForm() {
   recordVendor.value = '';
   recordReference.value = '';
   recordAttributes.value = {};
+  attributesInvalid.value = false;
+  attributesTried.value = false;
+  formRound.value++;
   completeRecord.value = true;
   completeRecordId.value = null;
   completeOutcome.value = '';
@@ -410,6 +419,11 @@ const blocked = computed(
 
 async function submitTransition() {
   if (!toStatus.value || blocked.value) return;
+  // Held here, not by a disabled button, so the field can say why.
+  if (attributesInvalid.value) {
+    attributesTried.value = true;
+    return;
+  }
   submitting.value = true;
   errorMessage.value = '';
   try {
@@ -547,8 +561,13 @@ async function submitTransition() {
             :required="required(enteringType, 'reference')"
           />
           <DynamicAttributeForm
+            :key="formRound"
             v-model="recordAttributes"
             :schema="orderedSchema(enteringType)"
+            :currency="currency || null"
+            eager
+            :show-errors="attributesTried"
+            @update:invalid="(v: boolean) => (attributesInvalid = v)"
           />
         </template>
       </section>

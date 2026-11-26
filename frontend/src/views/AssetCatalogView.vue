@@ -28,6 +28,7 @@ import { userAttributeSchema } from '@/components/assets/assetAttributeSchema';
 
 import { useManufacturersQuery, useAssetModelsQuery } from '@/composables/useAssetCatalogQuery';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
+import { useAssetRecordTypes } from '@/composables/useAssetTimeline';
 import {
   manufacturersService,
   assetModelsService,
@@ -129,6 +130,17 @@ const blankModel = (): ModelForm => ({
 const modelModal = ref<ModelForm>(blankModel());
 const modelSaving = ref(false);
 const modelError = ref<string | null>(null);
+/** A default spec holds an amount that doesn't read. */
+const defaultsInvalid = ref(false);
+/** A save was tried while one did. */
+const defaultsTried = ref(false);
+/** Counts each opening, so the default specs start over with it. */
+const modelRound = ref(0);
+// The currency shown in a money default with none yet: the workspace's.
+const recordTypes = useAssetRecordTypes(() => modelModal.value.show);
+const workspaceCurrency = computed(
+  () => recordTypes.currency.value ?? recordTypes.suggestedCurrency.value,
+);
 
 const manufacturerOptions = computed<DropdownOption[]>(() =>
   manufacturers.value.map((m) => ({ value: String(m.id), label: m.name })),
@@ -174,6 +186,9 @@ function openModelCreate() {
     manufacturer_id: manufacturerFilter.value !== 'all' ? String(manufacturerFilter.value) : '',
   };
   modelError.value = null;
+  defaultsInvalid.value = false;
+  defaultsTried.value = false;
+  modelRound.value++;
 }
 function openModelEdit(m: AssetModel) {
   modelModal.value = {
@@ -187,9 +202,17 @@ function openModelEdit(m: AssetModel) {
     default_attributes: { ...(m.default_attributes ?? {}) },
   };
   modelError.value = null;
+  defaultsInvalid.value = false;
+  defaultsTried.value = false;
+  modelRound.value++;
 }
 async function saveModel() {
   if (!modelCanSave.value) return;
+  // Held here, not by a disabled button, so the field can say why.
+  if (defaultsInvalid.value) {
+    defaultsTried.value = true;
+    return;
+  }
   modelSaving.value = true;
   modelError.value = null;
   const f = modelModal.value;
@@ -442,8 +465,13 @@ async function confirmDelete() {
           </label>
           <p class="text-xs text-tertiary -mt-0.5">{{ $t('asset-catalog-default-specs-hint') }}</p>
           <DynamicAttributeForm
+            :key="modelRound"
             v-model="modelModal.default_attributes"
             :schema="modelKindUserSchema"
+            :currency="workspaceCurrency"
+            eager
+            :show-errors="defaultsTried"
+            @update:invalid="(v: boolean) => (defaultsInvalid = v)"
           />
         </div>
         <FormTextarea v-model="modelModal.notes" :label="$t('asset-catalog-notes')" :rows="2" :max-rows="6" />

@@ -75,6 +75,8 @@ describe('WorkspaceCurrencyCard', () => {
     await pick('AUD')
     expect(save).toHaveBeenCalledWith({ currency: 'AUD' })
     expect(invalidateQueries).toHaveBeenCalled()
+    // Cost and money fields read the currency from the record types.
+    expect(invalidateQueries).toHaveBeenCalledWith({ key: ['asset-record-types'] })
     expect(wrapper.text()).toContain('asset-currency-set-hint')
   })
 

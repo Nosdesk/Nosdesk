@@ -17,7 +17,9 @@ import { RouterLink } from 'vue-router'
 import { useFluent } from 'fluent-vue'
 import DownloadLink from '@/components/common/DownloadLink.vue'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
-import { numberForTicketId } from '@/composables/useTicketNumberLookup'
+import { numberForTicketId, titleForTicketId } from '@/composables/useTicketNumberLookup'
+import { ticketLabel } from '@/utils/ticketNumbers'
+import { isMoneyProp } from '@/utils/moneyAttribute'
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils'
 import { formatMoney } from '@nosdesk/core/utils/money'
 import { ticketRoute } from '@nosdesk/core/utils/ticketRoutes'
@@ -68,6 +70,8 @@ interface Fact {
   note?: string
   to?: string
   tone?: 'state' | 'failed'
+  /** One line, cut short with the whole value on hover. */
+  clip?: boolean
   /** Offer to make this the asset's serial. */
   serialOffer?: string
 }
@@ -140,8 +144,9 @@ const facts = computed<Fact[]>(() => {
     out.push({
       key: 'ticket',
       label: t('admin-asset-record-types-core-ticket'),
-      value: `#${number ?? r.ticket_id}`,
+      value: number !== undefined ? ticketLabel(number, titleForTicketId(r.ticket_id)) : `#${r.ticket_id}`,
       to: number !== undefined ? ticketRoute(number) : undefined,
+      clip: true,
     })
   }
   for (const [key, prop] of fieldProps(props.type)) {
@@ -151,7 +156,8 @@ const facts = computed<Fact[]>(() => {
     out.push({
       key: `field-${key}`,
       label: name,
-      value: unit ? `${value} ${unit}` : value,
+      // Money says its own currency.
+      value: unit && !isMoneyProp(prop) ? `${value} ${unit}` : value,
       serialOffer: key === 'serial_received' ? (serialOffer.value ?? undefined) : undefined,
     })
   }
@@ -222,7 +228,13 @@ const TONE = { state: 'font-medium', failed: 'text-status-error' } as const
       <template v-for="fact in facts" :key="fact.key">
         <dt>{{ fact.label }}</dt>
         <dd>
-          <RouterLink v-if="fact.to" :to="fact.to" class="underline decoration-strong underline-offset-2 hover:decoration-current">{{ fact.value }}</RouterLink>
+          <RouterLink
+            v-if="fact.to"
+            :to="fact.to"
+            :title="fact.clip ? fact.value : undefined"
+            class="underline decoration-strong underline-offset-2 hover:decoration-current"
+            :class="fact.clip ? 'block truncate' : undefined"
+          >{{ fact.value }}</RouterLink>
           <span v-else :class="fact.tone ? TONE[fact.tone] : undefined">{{ fact.value }}</span>
           <span v-if="fact.note" class="text-tertiary">, {{ fact.note }}</span>
           <button

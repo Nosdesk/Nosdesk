@@ -102,9 +102,10 @@ function separators(locale: string): { decimal: string; group: string } {
  * Text that could be read two ways is refused rather than guessed: the
  * other punctuation mark alone before three digits (`1.250` in fr-FR), or,
  * where the decimal mark is a comma, one comma before three digits
- * (`1,250` in nl-NL), as the server's own reader refuses it. Pass
- * `exponent` (the currency's decimals) to refuse more decimals here; without
- * it the server checks them.
+ * (`1,250` in nl-NL), as the server's own reader refuses it, unless
+ * `exponent` is 3, where three decimals are the norm. Pass `exponent` (the
+ * currency's decimals) to refuse more decimals here; without it the server
+ * checks them.
  */
 export function readAmountInput(
   text: string,
@@ -159,7 +160,14 @@ export function readAmountInput(
     digits = parts.join('')
   } else {
     if (whole === '' && fraction === '') return refuse('invalid')
-    if (decimal === ',' && fraction.length === 3 && /^[1-9]\d{0,2}$/.test(whole)) {
+    // In a currency with three decimals (KWD, BHD) three after the comma
+    // is how amounts are written, so the comma is the decimal mark.
+    if (
+      decimal === ',' &&
+      fraction.length === 3 &&
+      options.exponent !== 3 &&
+      /^[1-9]\d{0,2}$/.test(whole)
+    ) {
       return refuse('ambiguous')
     }
     digits = whole

@@ -29,7 +29,8 @@ import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import { assetStatusLabel } from '@/utils/assetStatusMeta'
 import { formatMoney } from '@nosdesk/core/utils/money'
 import { ticketRoute, ticketRouteById } from '@nosdesk/core/utils/ticketRoutes'
-import { numberForTicketId } from '@/composables/useTicketNumberLookup'
+import { numberForTicketId, titleForTicketId } from '@/composables/useTicketNumberLookup'
+import { ticketLabel } from '@/utils/ticketNumbers'
 import type { Asset, AssetRecordType, AssetTimelineEntry, AssetTimelineTicket } from '@nosdesk/core/types/asset'
 import {
   dayOf,
@@ -139,6 +140,8 @@ interface Fact {
   to?: string
   /** Hover text, for a link whose label is a number or a tag. */
   hint?: string
+  /** Kept to one line, cut short, with the whole text as its hint. */
+  clip?: boolean
 }
 
 /** The line under the main one: short facts, in a fixed order. */
@@ -174,7 +177,8 @@ const facts = computed<Fact[]>(() => {
     for (const reading of readings(props.type, r)) out.push({ key: `reading-${reading}`, text: reading })
     const ticket = props.ticket
     if (ticket?.number !== undefined) {
-      out.push({ key: 'ticket', text: `#${ticket.number}`, to: ticketRoute(ticket.number), hint: ticket.title })
+      const text = ticketLabel(ticket.number, titleForTicketId(ticket.id) ?? ticket.title)
+      out.push({ key: 'ticket', text, to: ticketRoute(ticket.number), hint: text, clip: true })
     }
     if (props.movedTo) {
       out.push({ key: 'moved', text: t('asset-timeline-moved-to', { status: assetStatusLabel(t, props.movedTo) }) })
@@ -208,10 +212,13 @@ const facts = computed<Fact[]>(() => {
       const ticketId = e.data.ticket_id
       if (ticketId) {
         const number = numberForTicketId(ticketId)
+        const text = number !== undefined ? ticketLabel(number, titleForTicketId(ticketId)) : `#${ticketId}`
         out.push({
           key: 'ticket',
-          text: `#${number ?? ticketId}`,
+          text,
           to: number !== undefined ? ticketRoute(number) : ticketRouteById(ticketId),
+          hint: text,
+          clip: true,
         })
       }
     }
@@ -342,7 +349,8 @@ const TONE: Record<NonNullable<Fact['tone']>, string> = {
             :to="fact.to"
             :title="fact.hint"
             class="relative z-10 underline decoration-strong underline-offset-2 hover:text-primary hover:decoration-current pointer-coarse:after:absolute pointer-coarse:after:-inset-2.5"
-          >{{ fact.text }}</RouterLink>
+            :class="fact.clip ? 'inline-flex max-w-full align-bottom' : undefined"
+          ><span v-if="fact.clip" class="truncate">{{ fact.text }}</span><template v-else>{{ fact.text }}</template></RouterLink>
           <span v-else :class="fact.tone ? TONE[fact.tone] : undefined">{{ fact.text }}</span>
         </template>
       </p>
