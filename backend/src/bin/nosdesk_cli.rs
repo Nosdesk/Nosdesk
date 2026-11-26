@@ -1406,14 +1406,24 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
             dir.display()
         );
         // Files that went missing for a reason that may have passed are
-        // tried again, without fetching anything else.
-        match source
-            .retry_missing_files(&bundle, CancellationToken::new())
-            .await
-        {
-            Ok(0) => {}
-            Ok(n) => eprintln!("  fetched {n} files that were missing"),
-            Err(e) => eprintln!("warning: couldn't try the missing files again: {e}"),
+        // tried again, without fetching anything else; not on a dry run,
+        // which changes nothing.
+        if !args.dry_run {
+            use backend::services::imports::helpdesk::zendesk::Retried;
+            match source
+                .retry_missing_files(&bundle, CancellationToken::new())
+                .await
+            {
+                Ok(Retried::Done { recovered, .. }) if recovered > 0 => {
+                    eprintln!("  fetched {recovered} files that were missing")
+                }
+                Ok(Retried::Busy) => eprintln!(
+                    "  another run is using {}, so missing files weren't tried again",
+                    dir.display()
+                ),
+                Ok(_) => {}
+                Err(e) => eprintln!("warning: couldn't try the missing files again: {e}"),
+            }
         }
     }
 

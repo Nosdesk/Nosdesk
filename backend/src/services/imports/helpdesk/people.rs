@@ -398,37 +398,18 @@ pub fn apply(
                 match first {
                     Ok(r) => r,
                     Err(e) => {
-                        let fallback = conn
-                            .transaction(|conn| {
-                                // Staff keep their name on an account without a
-                                // seat; anyone else goes to the placeholder.
-                                if !p.role.is_staff() || p.email.is_none() {
-                                    return Err(diesel::result::Error::RollbackTransaction);
-                                }
-                                let uuid = create_account(
-                                    conn,
-                                    &display_name(p),
-                                    &new_address(p)?,
-                                    Seat::None,
-                                )?;
-                                let r = Resolved::new(uuid, false, false, Outcome::FormerStaff);
-                                remember(conn, p, &r, opts)?;
-                                Ok(r)
-                            })
-                            .unwrap_or_else(|_| {
-                                Resolved::new(placeholder, false, false, Outcome::Withheld)
-                            });
+                        let instead = fallback(conn, p, opts, placeholder);
                         out.problems.push(format!(
                             "{}: {} ({e}), so {}",
                             display_name(p),
                             outcome.label(),
-                            if fallback.withheld() {
+                            if instead.withheld() {
                                 "credited to the placeholder author"
                             } else {
                                 "brought across without a seat"
                             }
                         ));
-                        fallback
+                        instead
                     }
                 }
             }
@@ -439,6 +420,40 @@ pub fn apply(
         out.resolved.insert(p.source_id.clone(), resolved);
     }
     Ok(out)
+}
+
+/// Where someone goes when bringing them across as decided failed: staff
+/// keep their name on a new account without a seat, when no account holds
+/// their address in any case (read again now, not from the batch's facts);
+/// anyone else, or an address taken, goes to the placeholder.
+pub fn fallback(
+    conn: &mut DbConnection,
+    p: &Person,
+    opts: &PeopleOptions<'_>,
+    placeholder: Uuid,
+) -> Resolved {
+    let withheld = || Resolved::new(placeholder, false, false, Outcome::Withheld);
+    if !p.role.is_staff() {
+        return withheld();
+    }
+    let Some(email) = p.email.as_deref().map(str::to_lowercase) else {
+        return withheld();
+    };
+    conn.transaction(|conn| {
+        let held = user_helpers::address_holders(
+            conn,
+            opts.scope.workspace_id,
+            std::slice::from_ref(&email),
+        )?;
+        if !held.is_empty() {
+            return Err(diesel::result::Error::RollbackTransaction);
+        }
+        let uuid = create_account(conn, &display_name(p), &email, Seat::None)?;
+        let r = Resolved::new(uuid, false, false, Outcome::FormerStaff);
+        remember(conn, p, &r, opts)?;
+        Ok(r)
+    })
+    .unwrap_or_else(|_| withheld())
 }
 
 /// Record `r` on the id map, unless it stands for the placeholder.

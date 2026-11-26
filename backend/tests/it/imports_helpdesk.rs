@@ -140,6 +140,7 @@ fn tickets() -> Vec<Ticket> {
         missing_reason: None,
         source_url: None,
         retry: false,
+        retries: 0,
     });
     solved.comments[2].attachments.push(Attachment {
         source_id: "a2".into(),
@@ -150,6 +151,7 @@ fn tickets() -> Vec<Ticket> {
         missing_reason: Some("off-host link refused".into()),
         source_url: None,
         retry: false,
+        retries: 0,
     });
     let open = Ticket {
         source_id: "102".into(),
@@ -1085,6 +1087,7 @@ async fn files_come_only_from_the_bundle_and_are_checked_as_uploads_are() {
             missing_reason: None,
             source_url: None,
             retry: false,
+            retries: 0,
         });
     }
     let bundle = write_bundle(dir.path(), &list);
@@ -1307,6 +1310,7 @@ async fn a_cutover_rerun_follows_the_source_on_tickets_nobody_changed_here() {
     let mut list = tickets();
     list.push(raised_by("103", "u-req", &[]));
     list.push(raised_by("104", "u-req", &[]));
+    list.push(raised_by("105", "u-req", &[]));
     let dir = tempfile::tempdir().expect("dir");
     run(
         &pool,
@@ -1322,9 +1326,26 @@ async fn a_cutover_rerun_follows_the_source_on_tickets_nobody_changed_here() {
     let first_agent = assignee_of(&pool, &ws, 102).expect("assigned");
 
     // Before the cutover, someone here replies on 103 (which moves its
-    // updated_at) and adds a watcher to 104 (which only the activity log
-    // shows).
-    let (t103, t104) = (ticket_id(&pool, &ws, 103), ticket_id(&pool, &ws, 104));
+    // updated_at), adds a watcher to 104 (which only the activity log
+    // shows), and drags 105 into place on a board (which isn't an edit).
+    let (t103, t104, t105) = (
+        ticket_id(&pool, &ws, 103),
+        ticket_id(&pool, &ws, 104),
+        ticket_id(&pool, &ws, 105),
+    );
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        backend::repository::tickets::update_ticket_partial(
+            c,
+            t105,
+            backend::models::TicketUpdate {
+                rank: Some(Some("a0".to_string())),
+                ..Default::default()
+            },
+            None,
+        )
+        .map_err(diesel::result::Error::from)
+    })
+    .expect("reorder");
     run_in_workspace(&pool, REF, ws.workspace_id, |c| {
         backend::repository::comments::create_comment(
             c,
@@ -1363,7 +1384,12 @@ async fn a_cutover_rerun_follows_the_source_on_tickets_nobody_changed_here() {
     let dir2 = tempfile::tempdir().expect("dir");
     let bundle2 = write_bundle_of(dir2.path(), &cast, &fresher);
     let report = run(&pool, &bundle2, &options(&ws, job)).await;
-    assert_eq!(report.tickets_updated, 2, "{report:?}");
+    assert_eq!(report.tickets_updated, 3, "{report:?}");
+    assert_eq!(
+        standing(&pool, &ws, 105).category,
+        "done",
+        "a reorder here doesn't hold the cutover back"
+    );
     let reopened = standing(&pool, &ws, 101);
     assert_eq!(reopened.category, "active");
     assert_eq!(reopened.closed_at, None, "a reopen clears the closing");
@@ -1414,9 +1440,9 @@ async fn a_cutover_rerun_follows_the_source_on_tickets_nobody_changed_here() {
         assert_eq!(clocks.n, 0);
     }
 
-    // The same bundle again changes nothing: 101 and 102 were written by the
-    // import last and are no newer at the source; 103 and 104 are still
-    // changed here.
+    // The same bundle again changes nothing: 101, 102 and 105 were written
+    // by the import last and are no newer at the source; 103 and 104 are
+    // still changed here.
     let again = run(&pool, &bundle2, &options(&ws, Uuid::now_v7())).await;
     assert_eq!(again.tickets_updated, 0);
     assert_eq!(again.tickets_changed_here.len(), 2);
@@ -1651,4 +1677,113 @@ async fn one_person_who_cant_be_seated_doesnt_stop_the_run() {
         thread.iter().any(|c| c.author == "Alex Agent"),
         "{thread:?}"
     );
+}
+
+#[actix_web::test]
+async fn an_edit_that_lands_while_the_cutover_runs_is_not_overwritten() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(6);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let dir = tempfile::tempdir().expect("dir");
+    run(
+        &pool,
+        &write_bundle(dir.path(), &tickets()),
+        &options(&ws, Uuid::now_v7()),
+    )
+    .await;
+    let t102 = ticket_id(&pool, &ws, 102);
+
+    // Someone here starts an edit of 102 and holds it uncommitted while the
+    // cutover reads its batch (seeing 102 untouched), then commits.
+    let (started, edit_started) = std::sync::mpsc::channel();
+    let editor = {
+        let pool = pool.clone();
+        let ws_id = ws.workspace_id;
+        std::thread::spawn(move || {
+            run_in_workspace(&pool, REF, ws_id, |c| {
+                diesel::sql_query("UPDATE tickets SET title = 'Renamed here' WHERE id = $1")
+                    .bind::<Integer, _>(t102)
+                    .execute(c)?;
+                started.send(()).expect("signal");
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                Ok(())
+            })
+            .expect("edit")
+        })
+    };
+    edit_started.recv().expect("edit started");
+
+    let mut fresher = tickets();
+    fresher[1].status = StatusKind::Solved;
+    fresher[1].status_label = "solved".into();
+    fresher[1].solved_at = Some(at(8, 12));
+    fresher[1].updated_at = at(8, 12);
+    let dir2 = tempfile::tempdir().expect("dir");
+    let report = run(
+        &pool,
+        &write_bundle(dir2.path(), &fresher),
+        &options(&ws, Uuid::now_v7()),
+    )
+    .await;
+    editor.join().expect("editor");
+
+    // The write waited for the edit and then saw it: 102 is left as the
+    // edit left it, and reported.
+    assert_eq!(report.tickets_updated, 0, "{report:?}");
+    assert_eq!(standing(&pool, &ws, 102).category, "active");
+    assert!(
+        report
+            .tickets_changed_here
+            .iter()
+            .any(|n| n.contains("Zendesk #102")),
+        "{:?}",
+        report.tickets_changed_here
+    );
+}
+
+#[actix_web::test]
+async fn the_fallback_never_makes_a_second_account_for_an_address() {
+    use backend::repository::import_source_ids::Scope;
+    use backend::services::imports::helpdesk::people::{self, PeopleOptions};
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    // An account holds the address in another case.
+    let holder = account(&pool, "Holder", None, "Dup@Acme.test", &[], None);
+    let map = HashMap::new();
+    let opts = PeopleOptions {
+        scope: Scope {
+            workspace_id: ws.workspace_id,
+            source: "zendesk",
+            instance: "acme",
+        },
+        job_id: Uuid::now_v7(),
+        agent_map: &map,
+        create_agents: false,
+    };
+    let placeholder = Uuid::now_v7();
+    let staff = person("9", "dup@acme.test", PersonRole::Agent, true);
+    let instead = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        Ok(people::fallback(c, &staff, &opts, placeholder))
+    })
+    .expect("fallback");
+    assert!(instead.withheld(), "{instead:?}");
+    assert_eq!(account_of(&pool, "dup@acme.test"), holder);
+    let holders: Count = diesel::sql_query(
+        "SELECT count(*) AS n FROM user_emails WHERE lower(email) = 'dup@acme.test'",
+    )
+    .get_result(&mut pool.get().expect("conn"))
+    .expect("count");
+    assert_eq!(holders.n, 1, "no second account for the address");
+
+    // With the address free, staff keep their name on an unseated account.
+    let free = person("10", "free@acme.test", PersonRole::Agent, true);
+    let made = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        Ok(people::fallback(c, &free, &opts, placeholder))
+    })
+    .expect("fallback");
+    assert!(!made.withheld());
+    assert_eq!(account_of(&pool, "free@acme.test"), made.uuid);
 }

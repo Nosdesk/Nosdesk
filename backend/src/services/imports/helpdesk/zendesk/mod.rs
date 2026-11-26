@@ -457,6 +457,7 @@ impl ZendeskSource {
             missing_reason: None,
             source_url: None,
             retry: false,
+            retries: 0,
         };
         match link {
             Some(u) => {
@@ -512,16 +513,20 @@ impl ZendeskSource {
 
     /// Tries again every attachment the bundle lacks for a reason that may
     /// have passed, rewriting tickets.jsonl one line at a time (a line it
-    /// can't read is kept as it was). Returns the files that came through
-    /// and the file's new length, or None when nothing was retryable.
+    /// can't read is kept as it was), under the bundle's lock so two runs
+    /// never rewrite it at once. A file that fails
+    /// [`bundle::MAX_FILE_RETRIES`] runs in a row is left missing.
     async fn retry_missing(
         &self,
         bundle: &Bundle,
         cancel: &CancellationToken,
-    ) -> Result<Option<(u64, u64)>, SourceError> {
+    ) -> Result<Retried, SourceError> {
         if !bundle.has_retryable_files()? {
-            return Ok(None);
+            return Ok(Retried::Nothing);
         }
+        let Some(_lock) = bundle.try_lock()? else {
+            return Ok(Retried::Busy);
+        };
         let mut rewrite = bundle.tickets_rewrite()?;
         let mut recovered = 0u64;
         for line in bundle.ticket_lines()? {
@@ -536,13 +541,24 @@ impl ZendeskSource {
             let mut changed = false;
             for c in &mut t.comments {
                 for a in &mut c.attachments {
-                    let Some(link) = a.source_url.clone().filter(|_| !a.stored && a.retry) else {
+                    if !a.retryable() {
                         continue;
-                    };
+                    }
+                    let link = a.source_url.clone().unwrap_or_default();
                     self.download_into(bundle, a, &link, cancel).await?;
                     changed = true;
                     if a.stored {
                         recovered += 1;
+                    } else {
+                        a.retries += 1;
+                        if a.retries >= bundle::MAX_FILE_RETRIES {
+                            a.retry = false;
+                            let reason = a.missing_reason.take().unwrap_or_default();
+                            a.missing_reason = Some(format!(
+                                "{reason} (still missing after {} more tries)",
+                                bundle::MAX_FILE_RETRIES
+                            ));
+                        }
                     }
                 }
             }
@@ -552,22 +568,30 @@ impl ZendeskSource {
                 rewrite.write_line(&line)?;
             }
         }
-        Ok(Some((recovered, rewrite.finish()?)))
+        Ok(Retried::Done {
+            recovered,
+            tickets_len: rewrite.finish()?,
+        })
     }
 
     /// For a bundle whose fetch finished: try again the attachments it lacks
     /// for a reason that may have passed, without fetching anything else,
-    /// and correct its counts. Returns the files that came through.
+    /// and correct its counts.
     pub async fn retry_missing_files(
         &self,
         bundle: &Bundle,
         cancel: CancellationToken,
-    ) -> Result<u64, SourceError> {
-        let Some((recovered, len)) = self.retry_missing(bundle, &cancel).await? else {
-            return Ok(0);
+    ) -> Result<Retried, SourceError> {
+        let retried = self.retry_missing(bundle, &cancel).await?;
+        let Retried::Done {
+            recovered,
+            tickets_len,
+        } = retried
+        else {
+            return Ok(retried);
         };
         let mut state = bundle.read_state()?;
-        state.tickets_len = len;
+        state.tickets_len = tickets_len;
         let missing = state
             .counts
             .entry("attachments_missing".into())
@@ -582,7 +606,7 @@ impl ZendeskSource {
             *missing = missing.saturating_sub(recovered);
             bundle.write_manifest(&manifest)?;
         }
-        Ok(recovered)
+        Ok(retried)
     }
 
     async fn fetch_tickets(
@@ -759,8 +783,12 @@ impl HelpdeskSource for ZendeskSource {
         state.counts = run.counts.clone();
         bundle.write_state(&state)?;
         if resumed {
-            if let Some((recovered, len)) = self.retry_missing(bundle, &cancel).await? {
-                state.tickets_len = len;
+            if let Retried::Done {
+                recovered,
+                tickets_len,
+            } = self.retry_missing(bundle, &cancel).await?
+            {
+                state.tickets_len = tickets_len;
                 let missing = run.counts.entry("attachments_missing".into()).or_default();
                 *missing = missing.saturating_sub(recovered);
                 state.counts = run.counts.clone();
@@ -814,6 +842,17 @@ fn written_ticket_ids(bundle: &Bundle, len: u64) -> Result<HashSet<String>, Sour
         ids.insert(id.source_id);
     }
     Ok(ids)
+}
+
+/// What trying the missing files again came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Retried {
+    /// No file was missing for a reason that may have passed.
+    Nothing,
+    /// Another run holds the bundle; nothing was tried.
+    Busy,
+    /// The files that came through, and tickets.jsonl's new length.
+    Done { recovered: u64, tickets_len: u64 },
 }
 
 enum TicketOutcome {

@@ -154,12 +154,14 @@ pub struct ImportedTicket {
 /// `updated_at` no later than the map's `written_at`, and nothing in its
 /// activity since then but import writes. The activity log catches what
 /// leaves `updated_at` alone: a tag, watcher, file or link change, a merge
-/// into it, a reorder.
+/// into it. A reorder isn't an edit (the tickets trigger leaves `updated_at`
+/// alone for one too), so a board drag doesn't hold a ticket back.
 const UNTOUCHED: &str = "(t.updated_at <= m.written_at AND NOT EXISTS ( \
      SELECT 1 FROM sync_actions s \
      WHERE s.workspace_id = m.workspace_id \
        AND s.groups @> ARRAY['ticket:' || t.id::text] \
        AND s.occurred_at > m.written_at \
+       AND s.event_type <> 'ticket.rank_changed' \
        AND (s.actor_ref IS NULL OR s.actor_ref NOT LIKE 'import:%')))";
 
 // sync-audit-only: read-only (the tickets a source brought, as they stand here)

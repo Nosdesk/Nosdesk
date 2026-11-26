@@ -35,6 +35,12 @@ pub const STATE: &str = "state.json";
 pub const PEOPLE: &str = "people.jsonl";
 pub const TICKETS: &str = "tickets.jsonl";
 pub const FILES: &str = "files";
+pub const LOCK: &str = ".lock";
+
+/// The bundle's lock, held until dropped (closing the file releases it).
+pub struct BundleLock {
+    _file: File,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Manifest {
@@ -168,6 +174,20 @@ pub struct Attachment {
     /// connection, a short read), so a resumed fetch tries it again.
     #[serde(default)]
     pub retry: bool,
+    /// Later runs that tried it again and failed. After
+    /// [`MAX_FILE_RETRIES`] it is left missing.
+    #[serde(default)]
+    pub retries: u32,
+}
+
+/// Later runs that try a missing file again before it is left missing.
+pub const MAX_FILE_RETRIES: u32 = 3;
+
+impl Attachment {
+    /// Missing, with a link, for a reason that may pass, and not given up on.
+    pub fn retryable(&self) -> bool {
+        !self.stored && self.retry && self.source_url.is_some() && self.retries < MAX_FILE_RETRIES
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -380,11 +400,10 @@ impl Bundle {
     /// with a link to try again. Reads one ticket at a time.
     pub fn has_retryable_files(&self) -> io::Result<bool> {
         for t in self.tickets()?.filter_map(Result::ok) {
-            let retryable = t.comments.iter().any(|c| {
-                c.attachments
-                    .iter()
-                    .any(|a| !a.stored && a.retry && a.source_url.is_some())
-            });
+            let retryable = t
+                .comments
+                .iter()
+                .any(|c| c.attachments.iter().any(Attachment::retryable));
             if retryable {
                 return Ok(true);
             }
@@ -392,11 +411,34 @@ impl Bundle {
         Ok(false)
     }
 
+    /// The bundle's lock, without waiting: None while another run holds it.
+    /// Held for as long as the returned guard lives; a run that rewrites
+    /// the bundle's files takes it first, so two runs never interleave.
+    pub fn try_lock(&self) -> io::Result<Option<BundleLock>> {
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(self.root.join(LOCK))?;
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(fs::TryLockError::WouldBlock) => return Ok(None),
+            Err(fs::TryLockError::Error(e)) => return Err(e),
+        }
+        Ok(Some(BundleLock { _file: file }))
+    }
+
     /// A replacement for tickets.jsonl, written beside it and swapped in
     /// whole by [`TicketsRewrite::finish`].
     pub fn tickets_rewrite(&self) -> io::Result<TicketsRewrite> {
         let path = self.root.join(TICKETS);
-        let tmp = path.with_extension("jsonl.tmp");
+        // A name of its own, so nothing else writing beside it shares the
+        // file.
+        let tmp = path.with_extension(format!(
+            "jsonl.{}-{}.tmp",
+            std::process::id(),
+            uuid::Uuid::now_v7().simple()
+        ));
         Ok(TicketsRewrite {
             out: JsonlWriter::open(&tmp, true, 0)?,
             tmp,

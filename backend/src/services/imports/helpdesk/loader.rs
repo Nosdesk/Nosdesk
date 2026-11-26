@@ -1020,11 +1020,19 @@ async fn write_batch(
                     (Some(done), _) => {
                         // A copy listed again in this bundle only adds
                         // replies; its fields were written moments ago.
-                        let (updated, changed_here) = if written_now.contains(&t.source_id) {
-                            (false, false)
+                        let up = if written_now.contains(&t.source_id) {
+                            UpToDate::Already
                         } else {
                             bring_up_to_date(conn, &ctx, done, t)?
                         };
+                        // Deleted here between the batch read and now.
+                        if up == UpToDate::Gone {
+                            return Ok(Outcome::Note(format!(
+                                "{label}: deleted here since it was imported, so not brought back"
+                            )));
+                        }
+                        let (updated, changed_here) =
+                            (up == UpToDate::Updated, up == UpToDate::ChangedHere);
                         let comments = append_new_comments(
                             conn,
                             scope,
@@ -1117,26 +1125,25 @@ struct TicketCtx<'a> {
 /// since the import last wrote it and nobody has changed it here, its
 /// status, assignee and closing follow the source (the closing kept as
 /// given, per the closing trigger's rule for a statement that sets it).
-/// Returns (updated, changed here so left alone).
 fn bring_up_to_date(
     conn: &mut DbConnection,
     ctx: &TicketCtx<'_>,
     done: &idmap::ImportedTicket,
     t: &bundle::Ticket,
-) -> Result<(bool, bool), LoadError> {
+) -> Result<UpToDate, LoadError> {
     let source_at = naive(t.updated_at);
     if done.source_updated_at.is_some_and(|at| source_at <= at) {
-        return Ok((false, false));
+        return Ok(UpToDate::Already);
     }
     if !done.untouched {
-        return Ok((false, true));
+        return Ok(UpToDate::ChangedHere);
     }
     // The batch read was without a lock: ask again holding the row, so a
     // change someone made since is seen, and none can land before ours.
     match idmap::lock_imported_ticket(conn, ctx.scope, &t.source_id)? {
         Some((_, true)) => {}
-        Some((_, false)) => return Ok((false, true)),
-        None => return Ok((false, false)),
+        Some((_, false)) => return Ok(UpToDate::ChangedHere),
+        None => return Ok(UpToDate::Gone),
     }
     let current = crate::repository::tickets::get_ticket_by_id(conn, done.ticket_id)?;
     let (state_id, _) = ctx.states.state(t.status);
@@ -1171,7 +1178,25 @@ fn bring_up_to_date(
         None
     };
     idmap::touch_ticket(conn, ctx.scope, &t.source_id, source_at, written_at)?;
-    Ok((changed, false))
+    Ok(if changed {
+        UpToDate::Updated
+    } else {
+        UpToDate::Already
+    })
+}
+
+/// Where a ticket imported before stands after [`bring_up_to_date`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpToDate {
+    /// Its status, assignee or closing were brought up to date.
+    Updated,
+    /// Nothing to bring: the source hasn't changed it, or it already
+    /// matches.
+    Already,
+    /// Changed here since the import wrote it: left alone.
+    ChangedHere,
+    /// Deleted here since the batch read it.
+    Gone,
 }
 
 #[derive(Clone)]

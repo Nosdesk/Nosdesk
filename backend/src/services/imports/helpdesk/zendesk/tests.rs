@@ -1262,11 +1262,30 @@ async fn a_finished_bundle_fetches_its_missing_files_again_without_refetching() 
         .requests("/api/v2/incremental/tickets/cursor.json")
         .len();
 
-    let recovered = src
+    // While another run holds the bundle, nothing is tried or rewritten.
+    let before = std::fs::read(bundle.root().join("tickets.jsonl")).expect("tickets");
+    {
+        let _held = bundle.try_lock().expect("lock").expect("free");
+        assert_eq!(
+            src.retry_missing_files(&bundle, CancellationToken::new())
+                .await
+                .expect("retry"),
+            Retried::Busy
+        );
+        assert_eq!(
+            std::fs::read(bundle.root().join("tickets.jsonl")).expect("tickets"),
+            before
+        );
+    }
+
+    let retried = src
         .retry_missing_files(&bundle, CancellationToken::new())
         .await
         .expect("retry");
-    assert_eq!(recovered, 1);
+    assert!(
+        matches!(retried, Retried::Done { recovered: 1, .. }),
+        "{retried:?}"
+    );
     assert!(attachment_5001(&bundle).stored);
     assert_eq!(
         std::fs::read(bundle.file_path("5001")).expect("5001"),
@@ -1294,7 +1313,7 @@ async fn a_finished_bundle_fetches_its_missing_files_again_without_refetching() 
         src.retry_missing_files(&bundle, CancellationToken::new())
             .await
             .expect("retry"),
-        0
+        Retried::Nothing
     );
     assert_eq!(s.api.requests("/attachments/5001").len(), before);
 }
@@ -1321,4 +1340,47 @@ async fn a_resumed_fetch_tries_the_missing_files_again() {
     assert!(attachment_5001(&bundle).stored);
     assert_eq!(manifest.counts["attachments_missing"], 2);
     assert_eq!(ticket_ids(&bundle), vec!["101", "102", "103"]);
+}
+
+#[tokio::test]
+async fn a_file_that_keeps_failing_is_given_up_after_three_more_runs() {
+    let s = setup().await;
+    s.twists.break_5001.store(1000, Ordering::SeqCst);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bundle = Bundle::create(dir.path()).expect("bundle");
+    let mut src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    src.fetch(&bundle, &no_progress, CancellationToken::new())
+        .await
+        .expect("fetch");
+    for run in 1..=bundle::MAX_FILE_RETRIES {
+        let retried = src
+            .retry_missing_files(&bundle, CancellationToken::new())
+            .await
+            .expect("retry");
+        assert_eq!(
+            retried,
+            Retried::Done {
+                recovered: 0,
+                tickets_len: std::fs::metadata(bundle.root().join("tickets.jsonl"))
+                    .expect("meta")
+                    .len()
+            },
+            "run {run}"
+        );
+    }
+    let gave_up = attachment_5001(&bundle);
+    assert!(!gave_up.stored && !gave_up.retry, "{gave_up:?}");
+    assert!(gave_up
+        .missing_reason
+        .as_deref()
+        .unwrap_or("")
+        .contains("still missing"));
+    let requests = s.api.requests("/attachments/5001").len();
+    assert_eq!(
+        src.retry_missing_files(&bundle, CancellationToken::new())
+            .await
+            .expect("retry"),
+        Retried::Nothing
+    );
+    assert_eq!(s.api.requests("/attachments/5001").len(), requests);
 }
