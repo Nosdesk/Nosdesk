@@ -161,6 +161,13 @@ pub async fn exchange_session(
                 "teams_staff_elsewhere",
             );
         }
+        Ok(Err(crate::repository::requester_identities::Refused::PlatformRole)) => {
+            tracing::info!("teams: token refused (an account with a platform role)");
+            return crate::errors::unauthorized_with_code(
+                "This account can't sign in to this help portal from Teams",
+                "teams_platform_role",
+            );
+        }
         Err(e) => {
             tracing::error!(error = ?e, "teams: resolving the person failed");
             return crate::errors::internal("Couldn't sign you in");

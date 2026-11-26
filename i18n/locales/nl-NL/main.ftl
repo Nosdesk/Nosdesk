@@ -9813,6 +9813,12 @@ portal-sso-error-staff-elsewhere = Dit account hoort bij een supportteam elders 
 teams-tab-staff-elsewhere-title = Meld u op een andere manier aan
 # MT: pending native review (nl-NL)
 teams-tab-staff-elsewhere-body = Uw account hoort bij een supportteam elders in Nosdesk en kan zich daarom niet vanuit Teams aanmelden bij dit hulpportaal. Open het portaal in uw browser.
+# MT: pending native review (nl-NL)
+portal-sso-error-platform-role = Dit account kan zich niet op deze manier aanmelden bij het hulpportaal. Meld je aan zoals je gewend bent.
+# MT: pending native review (nl-NL)
+teams-tab-platform-role-title = Meld u op een andere manier aan
+# MT: pending native review (nl-NL)
+teams-tab-platform-role-body = Dit account kan zich niet vanuit Teams aanmelden bij dit hulpportaal. Meld u aan zoals u gewend bent.
 teams-tab-failed-title = We konden u niet aanmelden
 teams-tab-failed-body = Probeer het zo opnieuw.
 teams-tab-retry = Opnieuw proberen

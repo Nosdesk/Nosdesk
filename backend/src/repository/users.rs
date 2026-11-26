@@ -557,6 +557,17 @@ pub fn get_user_by_uuid(uuid: &Uuid, conn: &mut DbConnection) -> Result<User, Er
     users::table.find(uuid).first::<User>(conn)
 }
 
+/// The raw `users.platform_role` of `uuid`, or `None` when no such row is
+/// readable. Kept as the stored string so a caller can fail closed on a value
+/// [`PlatformRole::from_db`] would read as `User`.
+pub fn platform_role_of(conn: &mut DbConnection, uuid: &Uuid) -> Result<Option<String>, Error> {
+    users::table
+        .find(uuid)
+        .select(users::platform_role)
+        .first::<String>(conn)
+        .optional()
+}
+
 /// Fetch a user row only if the account is active (i.e. `deleted_at
 /// IS NULL`). The active-only variant of [`get_user_by_uuid`].
 ///
