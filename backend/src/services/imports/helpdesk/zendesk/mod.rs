@@ -511,37 +511,78 @@ impl ZendeskSource {
     }
 
     /// Tries again every attachment the bundle lacks for a reason that may
-    /// have passed, rewriting tickets.jsonl once if any came through.
+    /// have passed, rewriting tickets.jsonl one line at a time (a line it
+    /// can't read is kept as it was). Returns the files that came through
+    /// and the file's new length, or None when nothing was retryable.
     async fn retry_missing(
         &self,
         bundle: &Bundle,
-        state: &mut FetchState,
-        run: &mut Run<'_>,
         cancel: &CancellationToken,
-    ) -> Result<(), SourceError> {
-        let mut tickets = bundle.tickets()?.collect::<Result<Vec<_>, _>>()?;
+    ) -> Result<Option<(u64, u64)>, SourceError> {
+        if !bundle.has_retryable_files()? {
+            return Ok(None);
+        }
+        let mut rewrite = bundle.tickets_rewrite()?;
         let mut recovered = 0u64;
-        for t in &mut tickets {
+        for line in bundle.ticket_lines()? {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+            let Ok(mut t) = serde_json::from_str::<bundle::Ticket>(&line) else {
+                rewrite.write_line(&line)?;
+                continue;
+            };
+            let mut changed = false;
             for c in &mut t.comments {
                 for a in &mut c.attachments {
                     let Some(link) = a.source_url.clone().filter(|_| !a.stored && a.retry) else {
                         continue;
                     };
                     self.download_into(bundle, a, &link, cancel).await?;
+                    changed = true;
                     if a.stored {
                         recovered += 1;
                     }
                 }
             }
+            if changed {
+                rewrite.write(&t)?;
+            } else {
+                rewrite.write_line(&line)?;
+            }
         }
-        if recovered > 0 {
-            state.tickets_len = bundle.rewrite_tickets(&tickets)?;
-            let missing = run.counts.entry("attachments_missing".into()).or_default();
+        Ok(Some((recovered, rewrite.finish()?)))
+    }
+
+    /// For a bundle whose fetch finished: try again the attachments it lacks
+    /// for a reason that may have passed, without fetching anything else,
+    /// and correct its counts. Returns the files that came through.
+    pub async fn retry_missing_files(
+        &self,
+        bundle: &Bundle,
+        cancel: CancellationToken,
+    ) -> Result<u64, SourceError> {
+        let Some((recovered, len)) = self.retry_missing(bundle, &cancel).await? else {
+            return Ok(0);
+        };
+        let mut state = bundle.read_state()?;
+        state.tickets_len = len;
+        let missing = state
+            .counts
+            .entry("attachments_missing".into())
+            .or_default();
+        *missing = missing.saturating_sub(recovered);
+        bundle.write_state(&state)?;
+        if let Ok(mut manifest) = bundle.read_manifest() {
+            let missing = manifest
+                .counts
+                .entry("attachments_missing".into())
+                .or_default();
             *missing = missing.saturating_sub(recovered);
-            state.counts = run.counts.clone();
-            bundle.write_state(state)?;
+            bundle.write_manifest(&manifest)?;
         }
-        Ok(())
+        Ok(recovered)
     }
 
     async fn fetch_tickets(
@@ -718,8 +759,13 @@ impl HelpdeskSource for ZendeskSource {
         state.counts = run.counts.clone();
         bundle.write_state(&state)?;
         if resumed {
-            self.retry_missing(bundle, &mut state, &mut run, &cancel)
-                .await?;
+            if let Some((recovered, len)) = self.retry_missing(bundle, &cancel).await? {
+                state.tickets_len = len;
+                let missing = run.counts.entry("attachments_missing".into()).or_default();
+                *missing = missing.saturating_sub(recovered);
+                state.counts = run.counts.clone();
+                bundle.write_state(&state)?;
+            }
         }
 
         let manifest = run.manifest(self.source(), &self.scope, &state.notes);

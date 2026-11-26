@@ -256,7 +256,7 @@ fn description_comment(
         public: true,
         body: Body {
             format: BodyFormat::Plain,
-            value: text.clone(),
+            value: map::text(text),
         },
         created_at,
         attachments: vec![],
@@ -276,6 +276,8 @@ struct Tally {
     unreadable: u64,
     /// JSON records of no kind the reader knows.
     unrecognised: u64,
+    /// Records of a kind the reader knows, wanted or not.
+    recognised: u64,
 }
 
 const BOM: &[u8] = b"\xEF\xBB\xBF";
@@ -300,7 +302,10 @@ fn each_record(
         if is_dir {
             continue;
         }
-        let readable = |t: &Tally| t.records - t.unreadable;
+        // A line that parses as JSON isn't a record: a pretty-printed
+        // document read line by line yields scalars (`2`, `"vip"`). Only a
+        // record of a known kind counts as something read.
+        let readable = |t: &Tally| t.recognised;
         let at_start = readable(&tally);
         let mut overlong = false;
         let mut reader = BufReader::new(archive.by_index(i).map_err(zip_error)?);
@@ -460,6 +465,7 @@ fn hand_on(
     if found.is_empty() {
         tally.unrecognised += 1;
     }
+    tally.recognised += found.len() as u64;
     for (k, record) in found {
         if want.contains(&k) && !visit(k, record) {
             return false;
@@ -706,6 +712,20 @@ mod tests {
         )
         .is_err());
         // Within the limits, the same document reads.
+        // A pretty-printed document whose lines include bare scalars, read
+        // line by line, still yields no record: it is refused too.
+        let scalars = serde_json::to_vec_pretty(&json!({"tickets": [
+            {"id": 1, "tags": ["vip", "x".repeat(60)]}, {"id": 2, "ids": [1, 2, 3]}
+        ]}))
+        .expect("doc");
+        let dir = tempfile::tempdir().expect("dir");
+        assert!(each_record(
+            &zip_of(dir.path(), &scalars),
+            &[Kind::Ticket],
+            small,
+            |_, _| true
+        )
+        .is_err());
         let roomy = Limits {
             line: 64,
             document: 4096,

@@ -293,12 +293,21 @@ impl Bundle {
     /// /etc/passwd` in a bundle from elsewhere) is not followed.
     pub fn open_file(&self, attachment_source_id: &str) -> io::Result<(File, u64)> {
         let path = self.files_dir()?.join(safe_file_name(attachment_source_id));
+        // Checked before opening: opening a FIFO would wait for a writer.
+        if !fs::symlink_metadata(&path)?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "not a regular file in the bundle",
+            ));
+        }
         let mut options = OpenOptions::new();
         options.read(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
-            options.custom_flags(libc::O_NOFOLLOW);
+            // Not followed if it became a link since, and never waiting if
+            // it became a FIFO: the check after opening refuses either.
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
         }
         let file = options.open(&path)?;
         let meta = file.metadata()?;
@@ -361,18 +370,66 @@ impl Bundle {
         JsonlReader::open(&self.root.join(TICKETS))
     }
 
-    /// Replaces tickets.jsonl with `tickets`, all at once, and returns the
-    /// new file's length: the checkpoint a resumed fetch truncates back to.
-    pub fn rewrite_tickets(&self, tickets: &[Ticket]) -> io::Result<u64> {
+    /// tickets.jsonl as raw lines, for a rewrite that passes through what it
+    /// doesn't change (or can't read) untouched.
+    pub fn ticket_lines(&self) -> io::Result<io::Lines<BufReader<File>>> {
+        Ok(BufReader::new(File::open(self.root.join(TICKETS))?).lines())
+    }
+
+    /// Whether any attachment is missing for a reason that may have passed,
+    /// with a link to try again. Reads one ticket at a time.
+    pub fn has_retryable_files(&self) -> io::Result<bool> {
+        for t in self.tickets()?.filter_map(Result::ok) {
+            let retryable = t.comments.iter().any(|c| {
+                c.attachments
+                    .iter()
+                    .any(|a| !a.stored && a.retry && a.source_url.is_some())
+            });
+            if retryable {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// A replacement for tickets.jsonl, written beside it and swapped in
+    /// whole by [`TicketsRewrite::finish`].
+    pub fn tickets_rewrite(&self) -> io::Result<TicketsRewrite> {
         let path = self.root.join(TICKETS);
         let tmp = path.with_extension("jsonl.tmp");
-        let mut w = JsonlWriter::open(&tmp, true, 0)?;
-        for t in tickets {
-            w.write(t)?;
-        }
-        let len = w.checkpoint()?;
-        drop(w);
-        fs::rename(tmp, path)?;
+        Ok(TicketsRewrite {
+            out: JsonlWriter::open(&tmp, true, 0)?,
+            tmp,
+            path,
+        })
+    }
+}
+
+pub struct TicketsRewrite {
+    out: JsonlWriter,
+    tmp: PathBuf,
+    path: PathBuf,
+}
+
+impl TicketsRewrite {
+    pub fn write(&mut self, ticket: &Ticket) -> io::Result<()> {
+        self.out.write(ticket)
+    }
+
+    /// A line kept as it was.
+    pub fn write_line(&mut self, line: &str) -> io::Result<()> {
+        self.out.out.write_all(line.as_bytes())?;
+        self.out.out.write_all(b"\n")?;
+        self.out.len += line.len() as u64 + 1;
+        Ok(())
+    }
+
+    /// Swaps the new file in and returns its length: the checkpoint a
+    /// resumed fetch truncates back to.
+    pub fn finish(mut self) -> io::Result<u64> {
+        let len = self.out.checkpoint()?;
+        drop(self.out);
+        fs::rename(&self.tmp, &self.path)?;
         Ok(len)
     }
 }
@@ -618,6 +675,14 @@ mod tests {
         fs::write(&secret, b"operator's environment").expect("secret");
         std::os::unix::fs::symlink(&secret, b.file_path("123")).expect("link");
         assert!(b.open_file("123").is_err(), "a link is not followed");
+        // A FIFO is refused at once, not waited on.
+        let fifo = b.file_path("126");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo");
+        assert!(made.success());
+        assert!(b.open_file("126").is_err());
         fs::write(b.file_path("124"), b"bytes").expect("file");
         assert_eq!(b.open_file("124").expect("file").1, 5);
         // A files/ that is itself a link is refused too.

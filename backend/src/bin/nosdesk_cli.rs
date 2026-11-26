@@ -1405,6 +1405,16 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
             "Using the complete copy in {} (--refetch fetches again).",
             dir.display()
         );
+        // Files that went missing for a reason that may have passed are
+        // tried again, without fetching anything else.
+        match source
+            .retry_missing_files(&bundle, CancellationToken::new())
+            .await
+        {
+            Ok(0) => {}
+            Ok(n) => eprintln!("  fetched {n} files that were missing"),
+            Err(e) => eprintln!("warning: couldn't try the missing files again: {e}"),
+        }
     }
 
     let opts = LoadOptions {

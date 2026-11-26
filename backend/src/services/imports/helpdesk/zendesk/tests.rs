@@ -162,8 +162,8 @@ struct Twists {
     deny_ticket_103: AtomicBool,
     deny_everything: AtomicBool,
     users_calls: AtomicU32,
-    /// The first download of 5001 breaks off after two bytes.
-    break_5001_once: AtomicBool,
+    /// Downloads of 5001 that break off after two bytes, before one doesn't.
+    break_5001: AtomicU32,
     /// User 4 is created while the tickets are fetched; ticket 103 names
     /// them.
     late_user: AtomicBool,
@@ -291,16 +291,36 @@ fn account(api_base: &str, files_base: &str, twists: &Twists, req: &Req) -> Resp
                 "meta": {"has_more": false}
             }))
         }
-        "/attachments/5001" if twists.break_5001_once.swap(false, Ordering::SeqCst) => Resp {
-            status: 200,
-            headers: vec![],
-            body: b"he".to_vec(),
-            declared_len: Some(5),
-        },
+        "/attachments/5001"
+            if twists
+                .break_5001
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok() =>
+        {
+            Resp {
+                status: 200,
+                headers: vec![],
+                body: b"he".to_vec(),
+                declared_len: Some(5),
+            }
+        }
         "/attachments/5001" => Resp {
             status: 200,
             headers: vec![],
             body: b"hello".to_vec(),
+            declared_len: None,
+        },
+        // Redirects: one off the account (refused), one on it (followed).
+        "/attachments/5010" => Resp {
+            status: 302,
+            headers: vec![("Location", format!("{files_base}/files/5002"))],
+            body: vec![],
+            declared_len: None,
+        },
+        "/attachments/5011" => Resp {
+            status: 302,
+            headers: vec![("Location", "/attachments/5001".to_string())],
+            body: vec![],
             declared_len: None,
         },
         // A private attachment: only a signed request gets it.
@@ -733,7 +753,7 @@ async fn a_private_attachment_host_is_refused_without_the_allowlist() {
 #[tokio::test]
 async fn a_download_that_breaks_off_is_tried_again_and_late_users_are_fetched() {
     let s = setup().await;
-    s.twists.break_5001_once.store(true, Ordering::SeqCst);
+    s.twists.break_5001.store(1, Ordering::SeqCst);
     s.twists.late_user.store(true, Ordering::SeqCst);
     let dir = tempfile::tempdir().expect("tempdir");
     let bundle = Bundle::create(dir.path()).expect("bundle");
@@ -1094,6 +1114,16 @@ async fn the_export_reader_takes_odd_files_without_losing_or_inventing_records()
             ("export_2", document),
             ("export_3", unknown),
             ("export_4", bad_first),
+            (
+                "export_5",
+                format!(
+                    "{}\n",
+                    json!({"ticket": {"id": 405, "subject": "Too big", "status": "open",
+                        "requester_id": 3, "created_at": "2023-05-05T09:00:00Z",
+                        "description": "Line one\u{0} and two"}})
+                )
+                .into_bytes(),
+            ),
         ],
     );
     let (bundle, manifest) = read_zip(&s.api.base(), &zip, &dir.path().join("b"))
@@ -1107,8 +1137,12 @@ async fn the_export_reader_takes_odd_files_without_losing_or_inventing_records()
     let ids: Vec<&str> = tickets.iter().map(|t| t.source_id.as_str()).collect();
     assert_eq!(
         ids,
-        vec!["401", "402", "404"],
+        vec!["401", "402", "404", "405"],
         "a bad first line costs only itself"
+    );
+    assert_eq!(
+        tickets[3].comments[0].body.value, "Line one and two",
+        "a description standing in for the conversation loses its NULs too"
     );
     assert!(
         tickets[0].comments.iter().all(|c| !c.public),
@@ -1144,4 +1178,147 @@ async fn the_export_reader_takes_odd_files_without_losing_or_inventing_records()
         .await
         .expect_err("refused");
     assert!(matches!(err, SourceError::Protocol(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn a_redirect_off_the_account_is_refused_and_one_on_it_followed() {
+    let s = setup().await;
+    let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    let dir = tempfile::tempdir().expect("tempdir");
+    let off = src
+        .http
+        .download(
+            &format!("{}/attachments/5010", s.api.base()),
+            &dir.path().join("a"),
+            1024,
+            None,
+            None,
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("not cancelled")
+        .expect_err("refused");
+    assert!(off.reason.contains("off the Zendesk account"), "{off:?}");
+    assert!(
+        s.files.requests("/files/5002").is_empty(),
+        "the redirect's target is never requested"
+    );
+    let on = src
+        .http
+        .download(
+            &format!("{}/attachments/5011", s.api.base()),
+            &dir.path().join("b"),
+            1024,
+            Some(5),
+            None,
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("not cancelled")
+        .expect("followed");
+    assert_eq!(on, 5);
+}
+
+fn attachment_5001(bundle: &Bundle) -> bundle::Attachment {
+    bundle
+        .tickets()
+        .expect("tickets")
+        .map(|t| t.expect("ticket"))
+        .find(|t| t.source_id == "101")
+        .expect("101")
+        .comments[0]
+        .attachments[0]
+        .clone()
+}
+
+#[tokio::test]
+async fn a_finished_bundle_fetches_its_missing_files_again_without_refetching() {
+    let s = setup().await;
+    // Every try at 5001 breaks off during the fetch.
+    s.twists.break_5001.store(3, Ordering::SeqCst);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bundle = Bundle::create(dir.path()).expect("bundle");
+    let mut src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    src.fetch(&bundle, &no_progress, CancellationToken::new())
+        .await
+        .expect("fetch");
+    let missing = attachment_5001(&bundle);
+    assert!(!missing.stored && missing.retry, "{missing:?}");
+    assert_eq!(
+        bundle.read_manifest().expect("manifest").counts["attachments_missing"],
+        3
+    );
+    // A line nothing can read doesn't stop the retry, and is kept.
+    {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(bundle.root().join("tickets.jsonl"))
+            .expect("tickets");
+        writeln!(f, "{{not a ticket").expect("line");
+    }
+    let tickets_calls = s
+        .api
+        .requests("/api/v2/incremental/tickets/cursor.json")
+        .len();
+
+    let recovered = src
+        .retry_missing_files(&bundle, CancellationToken::new())
+        .await
+        .expect("retry");
+    assert_eq!(recovered, 1);
+    assert!(attachment_5001(&bundle).stored);
+    assert_eq!(
+        std::fs::read(bundle.file_path("5001")).expect("5001"),
+        b"hello"
+    );
+    assert_eq!(
+        bundle.read_manifest().expect("manifest").counts["attachments_missing"],
+        2
+    );
+    let raw = std::fs::read_to_string(bundle.root().join("tickets.jsonl")).expect("raw");
+    assert!(
+        raw.ends_with("{not a ticket\n"),
+        "the unreadable line is kept"
+    );
+    assert_eq!(
+        s.api
+            .requests("/api/v2/incremental/tickets/cursor.json")
+            .len(),
+        tickets_calls,
+        "nothing else was fetched"
+    );
+    // Nothing left to try: no request at all.
+    let before = s.api.requests("/attachments/5001").len();
+    assert_eq!(
+        src.retry_missing_files(&bundle, CancellationToken::new())
+            .await
+            .expect("retry"),
+        0
+    );
+    assert_eq!(s.api.requests("/attachments/5001").len(), before);
+}
+
+#[tokio::test]
+async fn a_resumed_fetch_tries_the_missing_files_again() {
+    let s = setup().await;
+    s.twists.break_5001.store(3, Ordering::SeqCst);
+    s.twists.deny_ticket_103.store(true, Ordering::SeqCst);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bundle = Bundle::create(dir.path()).expect("bundle");
+    let mut src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    src.fetch(&bundle, &no_progress, CancellationToken::new())
+        .await
+        .expect_err("stopped at 103");
+    assert!(!attachment_5001(&bundle).stored);
+
+    s.twists.deny_ticket_103.store(false, Ordering::SeqCst);
+    let mut src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    let manifest = src
+        .fetch(&bundle, &no_progress, CancellationToken::new())
+        .await
+        .expect("resumed");
+    assert!(attachment_5001(&bundle).stored);
+    assert_eq!(manifest.counts["attachments_missing"], 2);
+    assert_eq!(ticket_ids(&bundle), vec!["101", "102", "103"]);
 }
