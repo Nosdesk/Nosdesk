@@ -35,13 +35,23 @@ pub fn get_rule_with_details(
         .find(rule_id)
         .first::<AssignmentRule>(conn)?;
 
-    // Get target user if set
-    let target_user = if let Some(user_uuid) = rule.target_user_uuid {
-        crate::repository::get_user_by_uuid(&user_uuid, conn)
-            .ok()
-            .map(UserInfoWithAvatar::from)
-    } else {
-        None
+    // The target user, only while they hold a seat here: a rule stored before
+    // targets were checked may name anyone's account, and one that ran has
+    // made them an assignee, which the workspace's people would count.
+    let target_user = match rule.target_user_uuid {
+        Some(user_uuid)
+            if crate::repository::user_helpers::workspace_role_in(
+                conn,
+                rule.workspace_id,
+                user_uuid,
+            )
+            .is_some() =>
+        {
+            crate::repository::get_user_by_uuid(&user_uuid, conn)
+                .optional()?
+                .map(UserInfoWithAvatar::from)
+        }
+        _ => None,
     };
 
     // Get target group if set
@@ -68,6 +78,20 @@ pub fn get_rule_with_details(
         category,
         state,
     })
+}
+
+/// Whether `user` can be a rule's target in `workspace_id`: an agent, admin
+/// or owner with an active seat there, on an account that can be assigned
+/// tickets. A platform role without a seat isn't enough, as it is for a
+/// ticket's assignee: a rule runs unattended and names one account for good.
+pub fn is_eligible_target(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user: uuid::Uuid,
+) -> QueryResult<bool> {
+    let staff_here = crate::repository::user_helpers::workspace_role_in(conn, workspace_id, user)
+        .is_some_and(|role| role.is_staff());
+    Ok(staff_here && crate::repository::assignees::is_assignable(conn, workspace_id, user)?)
 }
 
 /// Get all rules with details
