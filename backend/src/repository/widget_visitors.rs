@@ -5,12 +5,15 @@
 //! arrives:
 //! - no account has the email: a requester is created (email left unverified,
 //!   since a site's word isn't proof someone owns an inbox);
-//! - an account has the email: it's joined only when the site says it
-//!   verified the address (`email_verified`), and never if that account is
-//!   already joined to a different `sub` here;
-//! - staff are never signed in through a widget. A site's signing secret is
-//!   weaker custody than an identity provider, so it doesn't reach them (unlike
-//!   requester SSO, where the provider vouches for the address).
+//! - an account has the email, as its primary address or any other: it's
+//!   joined only when the site says it verified the address
+//!   (`email_verified`), and never if that account is already joined to a
+//!   different `sub` here;
+//! - staff are never signed in through a widget: not this workspace's, not
+//!   anyone who is or was on another workspace's team, and no account with a
+//!   platform role. A site's signing secret is weaker custody than an identity
+//!   provider, so it doesn't reach them (unlike requester SSO, where the
+//!   provider vouches for the address for this workspace's own staff).
 
 use diesel::prelude::*;
 use serde_json::json;
@@ -38,6 +41,8 @@ pub enum Refusal {
     Unverified,
     /// The address's account is joined to another `sub` here.
     BoundElsewhere,
+    /// More than one account holds the address (in different cases).
+    Ambiguous,
 }
 
 impl Refusal {
@@ -46,19 +51,18 @@ impl Refusal {
             Refusal::Staff => "staff account",
             Refusal::Unverified => "existing account, email not verified by the site",
             Refusal::BoundElsewhere => "email bound to another sub",
+            Refusal::Ambiguous => "email held by more than one account",
         }
     }
 }
 
+/// Staff in the widget's sense: an account with any platform role, or staff
+/// in another workspace (see [`out_of_reach`]), or staff here.
+///
+/// [`out_of_reach`]: crate::repository::requester_identities::out_of_reach
 fn is_staff(conn: &mut DbConnection, workspace_id: i32, user: Uuid) -> QueryResult<bool> {
-    use crate::schema::{users, workspace_members};
-    let platform_admin: bool = users::table
-        .find(user)
-        .select(users::platform_role.eq("platform_admin"))
-        .first(conn)
-        .optional()?
-        .unwrap_or(false);
-    if platform_admin {
+    use crate::schema::workspace_members;
+    if crate::repository::requester_identities::out_of_reach(conn, workspace_id, user)?.is_some() {
         return Ok(true);
     }
     diesel::select(diesel::dsl::exists(
@@ -91,16 +95,36 @@ pub fn resolve(
         return Ok(Ok(user));
     }
 
-    let existing = match crate::repository::user_helpers::get_user_by_email(visitor.email, conn) {
-        Ok(u) => Some(u),
-        Err(diesel::result::Error::NotFound) => None,
-        Err(e) => return Err(e),
-    };
-    let user = match existing {
-        Some(user) => {
-            if is_staff(conn, workspace_id, user.uuid)? {
+    // Every account holding the address, as its primary or any other: a
+    // secondary address names its account as surely as a primary one.
+    let mut holders: Vec<Uuid> = crate::repository::user_emails::holders_of(conn, visitor.email)?
+        .into_iter()
+        .map(|row| row.user_uuid)
+        .collect();
+    holders.sort_unstable();
+    holders.dedup();
+    for holder in &holders {
+        if is_staff(conn, workspace_id, *holder)? {
+            return Ok(Err(Refusal::Staff));
+        }
+    }
+    let user = match holders.as_slice() {
+        [] => {
+            let user = crate::repository::user_helpers::find_or_provision_requester(
+                visitor.email,
+                visitor.name,
+                conn,
+                None,
+            )?
+            .uuid;
+            // Provisioning reuses an account it finds; that one is held to the
+            // same rule.
+            if is_staff(conn, workspace_id, user)? {
                 return Ok(Err(Refusal::Staff));
             }
+            user
+        }
+        [user] => {
             if !visitor.email_verified {
                 return Ok(Err(Refusal::Unverified));
             }
@@ -108,24 +132,19 @@ pub fn resolve(
                 uai::table
                     .filter(uai::workspace_id.eq(workspace_id))
                     .filter(uai::provider_type.eq(PROVIDER))
-                    .filter(uai::user_uuid.eq(user.uuid)),
+                    .filter(uai::user_uuid.eq(*user)),
             ))
             .get_result(conn)?;
             if bound_elsewhere {
                 return Ok(Err(Refusal::BoundElsewhere));
             }
-            user
+            *user
         }
-        None => crate::repository::user_helpers::find_or_provision_requester(
-            visitor.email,
-            visitor.name,
-            conn,
-            None,
-        )?,
+        _ => return Ok(Err(Refusal::Ambiguous)),
     };
     identities::create_identity(
         crate::models::NewUserAuthIdentity {
-            user_uuid: user.uuid,
+            user_uuid: user,
             provider_type: PROVIDER.to_string(),
             external_id: visitor.sub.to_string(),
             email: Some(visitor.email.to_string()),
@@ -140,11 +159,11 @@ pub fn resolve(
     crate::repository::workspaces::add_membership(
         conn,
         workspace_id,
-        user.uuid,
+        user,
         "member",
         crate::repository::workspaces::SeatWriteAuthority::Product,
     )?;
-    Ok(Ok(user.uuid))
+    Ok(Ok(user))
 }
 
 #[cfg(test)]
