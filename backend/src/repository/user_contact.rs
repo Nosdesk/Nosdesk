@@ -239,6 +239,152 @@ pub fn set_display_name_if_unset(
     Ok(())
 }
 
+/// Where someone's profile in the active workspace stands, for an import
+/// that fills what is empty and leaves what isn't.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ContactStanding {
+    /// Their organization here, when one is set.
+    pub organization: Option<String>,
+    /// A directory sync owns the profile, so an import writes nothing to it.
+    pub directory_synced: bool,
+    /// They have a phone here already.
+    pub has_phone: bool,
+}
+
+/// [`ContactStanding`] for each of `user_uuids` in the active workspace.
+/// Everyone is in the answer; someone with no profile or phone here has the
+/// default.
+pub fn contact_standing(
+    conn: &mut DbConnection,
+    user_uuids: &[Uuid],
+) -> QueryResult<std::collections::HashMap<Uuid, ContactStanding>> {
+    let mut out: std::collections::HashMap<Uuid, ContactStanding> = user_uuids
+        .iter()
+        .map(|u| (*u, ContactStanding::default()))
+        .collect();
+    if user_uuids.is_empty() {
+        return Ok(out);
+    }
+    let profiles: Vec<(Uuid, Option<String>, bool)> = user_profiles::table
+        .filter(user_profiles::workspace_id.eq(pinned_workspace()))
+        .filter(user_profiles::user_uuid.eq_any(user_uuids))
+        .select((
+            user_profiles::user_uuid,
+            user_profiles::organization,
+            user_profiles::directory_synced,
+        ))
+        .load(conn)?;
+    for (uuid, organization, synced) in profiles {
+        let s = out.entry(uuid).or_default();
+        s.organization = organization.filter(|o| !o.trim().is_empty());
+        s.directory_synced = synced;
+    }
+    let phones: Vec<Uuid> = user_phone_numbers::table
+        .filter(user_phone_numbers::workspace_id.eq(pinned_workspace()))
+        .filter(user_phone_numbers::user_uuid.eq_any(user_uuids))
+        .select(user_phone_numbers::user_uuid)
+        .distinct()
+        .load(conn)?;
+    for uuid in phones {
+        out.entry(uuid).or_default().has_phone = true;
+    }
+    Ok(out)
+}
+
+/// What [`fill_organization_if_unset`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrganizationFill {
+    Filled,
+    /// They have an organization here already: kept.
+    AlreadySet,
+    /// A directory sync owns the profile: nothing written.
+    DirectorySynced,
+}
+
+// sync-audit-only: user profile is per-(user,workspace) contact data (audited); contact fields fold into the user sync payload in a later phase
+/// Give someone an organization in the active workspace unless they have
+/// one, or a directory sync owns their profile (it writes the organization
+/// on every run). For an import that fills what is empty: a value someone
+/// cleared or set here is theirs.
+pub fn fill_organization_if_unset(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    organization: &str,
+) -> QueryResult<OrganizationFill> {
+    let current = contact_standing(conn, &[user_uuid])?
+        .remove(&user_uuid)
+        .unwrap_or_default();
+    if current.directory_synced {
+        return Ok(OrganizationFill::DirectorySynced);
+    }
+    if current.organization.is_some() {
+        return Ok(OrganizationFill::AlreadySet);
+    }
+    diesel::insert_into(user_profiles::table)
+        .values(NewUserProfile {
+            user_uuid,
+            job_title: None,
+            organization: None,
+            department: None,
+            custom_fields: serde_json::json!({}),
+            directory_synced: false,
+            created_by: None,
+            display_name: None,
+            avatar_url: None,
+        })
+        .on_conflict((user_profiles::workspace_id, user_profiles::user_uuid))
+        .do_nothing()
+        .execute(conn)?;
+    let written = diesel::update(
+        user_profiles::table
+            .filter(user_profiles::workspace_id.eq(pinned_workspace()))
+            .filter(user_profiles::user_uuid.eq(user_uuid))
+            .filter(user_profiles::directory_synced.eq(false))
+            .filter(
+                user_profiles::organization
+                    .is_null()
+                    .or(user_profiles::organization.eq("")),
+            ),
+    )
+    .set(user_profiles::organization.eq(organization))
+    .execute(conn)?;
+    Ok(if written > 0 {
+        OrganizationFill::Filled
+    } else {
+        OrganizationFill::AlreadySet
+    })
+}
+
+// sync-audit-only: user phone is per-(user,workspace) contact data (audited); folds into the user sync payload in a later phase
+/// Give someone a phone in the active workspace when they have none and no
+/// directory sync owns their profile: a manual `other` row, their primary,
+/// editable here like one typed in. The row's id, or None when nothing was
+/// written.
+pub fn add_phone_if_none(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    phone: &str,
+) -> QueryResult<Option<i32>> {
+    let current = contact_standing(conn, &[user_uuid])?
+        .remove(&user_uuid)
+        .unwrap_or_default();
+    if current.directory_synced || current.has_phone {
+        return Ok(None);
+    }
+    let row: UserPhoneNumber = diesel::insert_into(user_phone_numbers::table)
+        .values(NewUserPhoneNumber {
+            user_uuid,
+            phone: phone.to_string(),
+            phone_type: "other".to_string(),
+            is_primary: true,
+            source: None,
+            label: None,
+            created_by: None,
+        })
+        .get_result(conn)?;
+    Ok(Some(row.id))
+}
+
 // sync-audit-only: user profile is per-(user,workspace) contact data (audited); contact fields fold into the user sync payload in a later phase
 /// Set someone's display name in the active workspace from its directory,
 /// creating their profile row if they have none. For a directory sync whose
