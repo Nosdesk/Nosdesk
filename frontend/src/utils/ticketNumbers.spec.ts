@@ -13,7 +13,7 @@ vi.mock('@nosdesk/core/services/instanceConfig', () => ({
 vi.mock('@/services/activeWorkspace', () => ({ activeWorkspaceSlug: () => routing.slug }))
 vi.mock('@nosdesk/core/services/ticketService', () => ({ default: {} }))
 
-const { ticketIdFromUrl } = await import('./ticketNumbers')
+const { ticketIdFromUrl, ticketLabel, ticketReferenceForId } = await import('./ticketNumbers')
 
 describe('ticketIdFromUrl', () => {
   const { origin, host } = window.location
@@ -43,5 +43,29 @@ describe('ticketIdFromUrl', () => {
     routing.mode = 'host'
     expect(ticketIdFromUrl(`${origin}/tickets/7`)).toBe(40)
     expect(ticketIdFromUrl(`${origin}/acme/tickets/7`)).toBeNull()
+  })
+})
+
+describe('ticketLabel', () => {
+  it('reads as a number and a title, or the number alone', () => {
+    expect(ticketLabel(123, 'Printer jams on tray 2')).toBe('#123 Printer jams on tray 2')
+    expect(ticketLabel(123, '  Printer jams  ')).toBe('#123 Printer jams')
+    expect(ticketLabel(123, '')).toBe('#123')
+    expect(ticketLabel(123, null)).toBe('#123')
+    expect(ticketLabel(123)).toBe('#123')
+  })
+})
+
+describe('ticketReferenceForId', () => {
+  beforeEach(() => pool.reset())
+
+  it("answers from the pool with the ticket's number and title", async () => {
+    pool.upsert('ticket', 40, { id: 40, number: 7, title: 'Printer jams on tray 2' })
+    expect(await ticketReferenceForId(40)).toEqual({ number: 7, title: 'Printer jams on tray 2' })
+  })
+
+  it("is undefined for a ticket it can't read", async () => {
+    // The mocked service has no getTicketById, so the read fails.
+    expect(await ticketReferenceForId(41)).toBeUndefined()
   })
 })

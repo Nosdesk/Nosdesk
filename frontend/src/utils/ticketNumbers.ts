@@ -27,6 +27,15 @@ export {
 export { ticketRoute, ticketRouteById } from '@nosdesk/core/utils/ticketRoutes'
 
 /**
+ * A ticket as a reference reads: `#123 Printer jams on tray 2`, or `#123`
+ * while its title is unknown.
+ */
+export function ticketLabel(number: number, title?: string | null): string {
+  const name = title?.trim()
+  return name ? `#${number} ${name}` : `#${number}`
+}
+
+/**
  * The number to show for a row that may lack one (a list cached before
  * tickets had numbers): its own, else the pooled ticket's, else on an older
  * server its id. `undefined` until one is known, rather than a wrong number.
@@ -47,6 +56,25 @@ export async function ticketNumberForId(id: number): Promise<number | undefined>
   if (pooled !== undefined) return pooled
   try {
     return ticketNumber(await ticketService.getTicketById(id))
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The number and title of the ticket with this id: from the pool when it
+ * holds the ticket, otherwise from the server. `undefined` when it can't be
+ * read.
+ */
+export async function ticketReferenceForId(
+  id: number,
+): Promise<{ number: number; title: string | null } | undefined> {
+  const quoted = (ticket: NumberedTicket) => (serverHasTicketNumbers() ? ticketNumber(ticket) : id)
+  const pooled = pool.get<NumberedTicket & { title?: string | null }>('ticket', id)
+  if (pooled) return { number: quoted(pooled), title: pooled.title ?? null }
+  try {
+    const ticket = await ticketService.getTicketById(id)
+    return { number: quoted(ticket), title: ticket.title ?? null }
   } catch {
     return undefined
   }
