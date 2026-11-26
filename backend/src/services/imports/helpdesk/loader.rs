@@ -199,12 +199,19 @@ pub enum Absence {
     /// The bundle doesn't say where its people came from: it was written
     /// before manifests recorded that. Treated like an export.
     NotInBundle,
+    /// The bundle was fetched from the API, but some of its people lines
+    /// can't be read, so someone absent may be on one of them: not
+    /// confirmed gone.
+    Unreadable,
 }
 
 impl Absence {
-    pub fn of(source: Option<bundle::PeopleSource>) -> Self {
+    /// `people_unreadable` is whether any line of people.jsonl couldn't be
+    /// read.
+    pub fn of(source: Option<bundle::PeopleSource>, people_unreadable: bool) -> Self {
         match source {
             Some(bundle::PeopleSource::Export) => Absence::NotInExport,
+            Some(bundle::PeopleSource::Api) if people_unreadable => Absence::Unreadable,
             Some(bundle::PeopleSource::Api) => Absence::GoneAtSource,
             None => Absence::NotInBundle,
         }
@@ -215,6 +222,7 @@ impl Absence {
             Absence::NotInExport => "not in the export".into(),
             Absence::GoneAtSource => format!("gone at {}", source_title(source)),
             Absence::NotInBundle => "not in the bundle".into(),
+            Absence::Unreadable => "unreadable in the bundle".into(),
         }
     }
 
@@ -255,6 +263,11 @@ impl MissingPeople {
                 "The bundle predates recording where its people came from. To bring them \
                  across, run again with --refetch (reading an export, with a zip that also \
                  holds Zendesk's users export)."
+            }
+            Absence::Unreadable => {
+                "Some lines of the bundle's people.jsonl can't be read, so they aren't \
+                 confirmed gone at the source. To bring them across, run again with \
+                 --refetch."
             }
             _ => {
                 "To bring them across, run again with --refetch and either a zip that also \
@@ -523,12 +536,15 @@ fn mentioned_people(
 
 /// The people the tickets name and `persons` lacks, and the tickets and
 /// replies that are theirs (each ticket as first listed, as the plan counts
-/// it). None when nobody is missing.
+/// it). None when nobody is missing. `people_unreadable` is the number of
+/// lines of people.jsonl that couldn't be read, any of which may be one of
+/// them.
 fn missing_people(
     bundle: &Bundle,
     manifest: &bundle::Manifest,
     mentioned: &HashSet<String>,
     persons: &[bundle::Person],
+    people_unreadable: u64,
 ) -> Result<Option<MissingPeople>, LoadError> {
     let held: HashSet<&str> = persons.iter().map(|p| p.source_id.as_str()).collect();
     let missing: HashSet<&str> = mentioned
@@ -559,7 +575,7 @@ fn missing_people(
             .filter(|c| c.author.as_deref().is_some_and(|a| missing.contains(a)))
             .count() as u64;
     })?;
-    let absence = Absence::of(manifest.people_source);
+    let absence = Absence::of(manifest.people_source, people_unreadable > 0);
     Ok(Some(MissingPeople {
         people: missing.len() as u64,
         tickets,
@@ -657,7 +673,7 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
                 ));
             }
         }
-        plan.missing_people = missing_people(&b, &m, &found.mentioned, &persons)?;
+        plan.missing_people = missing_people(&b, &m, &found.mentioned, &persons, bad_people)?;
         plan.refused = plan
             .missing_people
             .as_ref()
@@ -773,7 +789,7 @@ fn prepare(bundle: &Bundle) -> Result<Prepared, LoadError> {
     let manifest = bundle.read_manifest()?;
     let found = scan(bundle, |_| {})?;
     let (persons, bad_people) = mentioned_people(bundle, &found.mentioned)?;
-    let missing = missing_people(bundle, &manifest, &found.mentioned, &persons)?;
+    let missing = missing_people(bundle, &manifest, &found.mentioned, &persons, bad_people)?;
     Ok(Prepared {
         manifest,
         found,
@@ -2049,14 +2065,30 @@ mod tests {
     fn absent_people_are_labelled_by_where_the_people_came_from() {
         use bundle::PeopleSource;
         assert_eq!(
-            Absence::of(Some(PeopleSource::Export)),
+            Absence::of(Some(PeopleSource::Export), false),
             Absence::NotInExport
         );
-        assert_eq!(Absence::of(Some(PeopleSource::Api)), Absence::GoneAtSource);
-        assert_eq!(Absence::of(None), Absence::NotInBundle);
+        assert_eq!(
+            Absence::of(Some(PeopleSource::Api), false),
+            Absence::GoneAtSource
+        );
+        assert_eq!(Absence::of(None, false), Absence::NotInBundle);
+        // An unreadable people line may be the absent person: not gone.
+        assert_eq!(
+            Absence::of(Some(PeopleSource::Api), true),
+            Absence::Unreadable
+        );
+        assert_eq!(
+            Absence::of(Some(PeopleSource::Export), true),
+            Absence::NotInExport
+        );
         assert_eq!(Absence::NotInExport.label("zendesk"), "not in the export");
         assert_eq!(Absence::GoneAtSource.label("zendesk"), "gone at Zendesk");
         assert_eq!(Absence::NotInBundle.label("zendesk"), "not in the bundle");
+        assert_eq!(
+            Absence::Unreadable.label("zendesk"),
+            "unreadable in the bundle"
+        );
     }
 
     #[test]
@@ -2080,6 +2112,13 @@ mod tests {
             .expect("refused");
         assert!(why.contains("--refetch"), "{why}");
         assert_eq!(missing(Absence::NotInBundle).refusal(true), None);
+
+        let why = missing(Absence::Unreadable)
+            .refusal(false)
+            .expect("refused");
+        assert!(why.contains("(unreadable in the bundle)"), "{why}");
+        assert!(why.contains("--refetch"), "{why}");
+        assert_eq!(missing(Absence::Unreadable).refusal(true), None);
 
         assert_eq!(missing(Absence::GoneAtSource).refusal(false), None);
         let nobody = MissingPeople {

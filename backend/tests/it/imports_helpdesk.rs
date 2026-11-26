@@ -1958,6 +1958,51 @@ async fn people_gone_at_zendesk_need_no_flag() {
 }
 
 #[actix_web::test]
+async fn an_unreadable_people_line_means_absent_people_are_not_confirmed_gone() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let dir = tempfile::tempdir().expect("dir");
+    // An API bundle whose people.jsonl has a line that isn't a person: it
+    // may have been u-ghost, so u-ghost isn't confirmed gone at Zendesk.
+    let bundle = write_bundle(dir.path(), &tickets());
+    {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(bundle.root().join("people.jsonl"))
+            .expect("people");
+        writeln!(f, "{{\"source_id\": \"u-ghost\", \"name\": ").expect("line");
+    }
+    let job = Uuid::now_v7();
+    let mut opts = options(&ws, job);
+
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    let missing = plan.missing_people.clone().expect("missing");
+    assert_eq!(
+        (missing.people, missing.label.as_str()),
+        (1, "unreadable in the bundle")
+    );
+    assert!(plan.refused.is_some());
+    let why = refused(&pool, &bundle, &opts).await;
+    assert!(why.contains("(unreadable in the bundle)"), "{why}");
+    assert!(why.contains("--refetch"), "{why}");
+    assert!(imported_tickets(&pool, &ws).is_empty());
+    assert_eq!(traces(&pool, job), (0, 0, 0));
+
+    // With the flag it lands, and the report says why they're missing.
+    opts.allow_missing_people = true;
+    let report = run(&pool, &bundle, &opts).await;
+    assert_eq!(report.tickets_written, 2);
+    assert_eq!(report.unreadable_lines, 1);
+    assert_eq!(
+        report.missing_people.map(|m| m.label),
+        Some("unreadable in the bundle".to_string())
+    );
+}
+
+#[actix_web::test]
 async fn a_bundle_that_predates_the_people_source_refuses() {
     let db = TestDb::new();
     let pool = db.pool_with_size(4);
