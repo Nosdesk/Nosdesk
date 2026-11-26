@@ -122,6 +122,7 @@ mod imports_docs_confluence;
 mod imports_docs_flow;
 mod imports_docs_remove;
 mod imports_files;
+mod imports_helpdesk;
 mod imports_history;
 mod imports_key_only;
 mod imports_map_memory;

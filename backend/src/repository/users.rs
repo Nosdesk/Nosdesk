@@ -917,6 +917,10 @@ pub fn purge_user(
         )
         .execute(conn)?;
 
+        // 2n. A helpdesk import's mappings to the account go, so a rerun
+        // brings the person across again instead of finding nothing.
+        crate::repository::import_source_ids::forget_account(conn, *user_uuid)?;
+
         // 2m. Device loans: return any active loan, restoring the asset's
         // status. The user delete below then sets the borrower NULL (ON DELETE
         // SET NULL), so the ledger outlives the account.

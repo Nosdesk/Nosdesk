@@ -990,6 +990,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    import_source_ids (workspace_id, source, source_scope, entity, source_id) {
+        workspace_id -> Int4,
+        #[max_length = 32]
+        source -> Varchar,
+        source_scope -> Text,
+        #[max_length = 16]
+        entity -> Varchar,
+        source_id -> Text,
+        target_id -> Text,
+        job_id -> Uuid,
+        source_updated_at -> Nullable<Timestamptz>,
+        written_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     import_value_answers (id) {
         id -> Uuid,
         workspace_id -> Int4,
@@ -2663,6 +2679,7 @@ diesel::joinable!(group_includes -> workspaces (workspace_id));
 diesel::joinable!(groups -> users (created_by));
 diesel::joinable!(groups -> workspaces (workspace_id));
 diesel::joinable!(import_jobs -> workspaces (workspace_id));
+diesel::joinable!(import_source_ids -> workspaces (workspace_id));
 diesel::joinable!(import_value_answers -> users (answered_by));
 diesel::joinable!(import_value_answers -> workspaces (workspace_id));
 diesel::joinable!(inbound_addresses -> workspaces (workspace_id));
@@ -2821,6 +2838,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     groups,
     idempotency_keys,
     import_jobs,
+    import_source_ids,
     import_value_answers,
     inbound_addresses,
     inbound_dead_letters,

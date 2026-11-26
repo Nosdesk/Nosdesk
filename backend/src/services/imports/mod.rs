@@ -18,6 +18,7 @@ pub mod catalog;
 pub mod csv_parser;
 pub mod documentation;
 pub mod files;
+pub mod helpdesk;
 pub mod history;
 pub mod mapping;
 pub mod next_sheet;

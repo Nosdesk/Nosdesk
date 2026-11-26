@@ -113,6 +113,109 @@ enum Commands {
     /// compiled into the server, which verifies NOSDESK_LICENSE_KEY.
     #[command(subcommand)]
     License(LicenseCommand),
+
+    /// Bring another helpdesk's tickets, conversations, people and files
+    /// into a workspace. Needs DATABASE_URL and the storage env, as the
+    /// server does.
+    #[command(subcommand)]
+    Import(ImportCommand),
+}
+
+#[derive(Subcommand)]
+enum ImportCommand {
+    /// Import from another helpdesk. Fetches into a bundle directory
+    /// (resumable), prints what the import will do, asks, then writes in
+    /// batches. Imported history notifies nobody and fires no rules or
+    /// webhooks. Safe to run again: it resumes, and picks up new replies.
+    Helpdesk(HelpdeskImportArgs),
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+enum HelpdeskSourceArg {
+    Zendesk,
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+enum NumbersArg {
+    /// Keep the source's numbers when the workspace has none of its own.
+    Auto,
+    /// Keep them, or refuse.
+    Keep,
+    /// Number after the workspace's existing tickets.
+    After,
+}
+
+#[derive(clap::Args, Debug)]
+struct HelpdeskImportArgs {
+    #[arg(value_enum)]
+    source: HelpdeskSourceArg,
+
+    /// The workspace to import into: its id or slug.
+    #[arg(long)]
+    workspace: String,
+
+    /// Email of the workspace owner or admin the import runs as. Imported
+    /// rows are recorded as written by them.
+    #[arg(long = "as", value_name = "EMAIL")]
+    run_as: String,
+
+    /// The Zendesk subdomain (`acme` for acme.zendesk.com).
+    #[arg(long)]
+    subdomain: String,
+
+    /// Environment variable holding a Zendesk OAuth access token.
+    #[arg(long, value_name = "VAR", conflicts_with = "api_token_env")]
+    oauth_token_env: Option<String>,
+
+    /// Environment variable holding a legacy Zendesk API token (with
+    /// --email). Zendesk revokes these on 2027-04-30.
+    #[arg(long, value_name = "VAR", requires = "email")]
+    api_token_env: Option<String>,
+
+    /// The Zendesk admin email the API token belongs to.
+    #[arg(long)]
+    email: Option<String>,
+
+    /// Read a Zendesk JSON data export instead of the API. A credential is
+    /// optional; without one, custom field titles and sign-in-only files
+    /// can't be fetched.
+    #[arg(long, value_name = "ZIP")]
+    export_zip: Option<PathBuf>,
+
+    /// Where the fetched copy is kept. Reused (and a fetch resumed) when it
+    /// exists. Defaults to ./helpdesk-import-<source>-<subdomain>.
+    #[arg(long, value_name = "DIR")]
+    bundle: Option<PathBuf>,
+
+    /// Fetch again from the start even if the bundle is complete, to pick
+    /// up activity since the last fetch.
+    #[arg(long)]
+    refetch: bool,
+
+    #[arg(long, value_enum, default_value = "auto")]
+    numbers: NumbersArg,
+
+    /// Map a source agent to a member here: `zendesk-email=nosdesk-email`.
+    /// Repeatable. On Cloud, unmapped agents become former staff.
+    #[arg(long = "map-agent", value_name = "FROM=TO")]
+    map_agent: Vec<String>,
+
+    /// Create unmatched, active source agents as agents (self-hosted only).
+    #[arg(long)]
+    create_agents: bool,
+
+    /// Fetch and print the plan; write nothing to the workspace.
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Don't ask before writing.
+    #[arg(long)]
+    yes: bool,
+
+    /// Point at a Zendesk stand-in (a local mock). Its host must be in
+    /// NOSDESK_OUTBOUND_ALLOWED_HOSTS.
+    #[arg(long, hide = true)]
+    base_url: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -470,6 +573,7 @@ fn main() -> ExitCode {
         Commands::Workspace(cmd) => run_workspace(cmd),
         Commands::SetupToken => run_setup_token(),
         Commands::License(cmd) => run_license(cmd),
+        Commands::Import(ImportCommand::Helpdesk(args)) => run_helpdesk_import(args),
     };
 
     match result {
@@ -1127,6 +1231,307 @@ fn db_restore(
             }
         }
     }
+    Ok(())
+}
+
+// ---------------------------------------------------------------
+// Helpdesk import
+// ---------------------------------------------------------------
+
+fn run_helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("build runtime")?;
+    runtime.block_on(helpdesk_import(args))
+}
+
+/// `FROM=TO` pairs, lower-cased.
+fn parse_agent_map(pairs: &[String]) -> Result<std::collections::HashMap<String, String>> {
+    pairs
+        .iter()
+        .map(|p| {
+            let (from, to) = p
+                .split_once('=')
+                .ok_or_else(|| anyhow!("--map-agent takes FROM=TO, got {p:?}"))?;
+            let (from, to) = (from.trim().to_lowercase(), to.trim().to_lowercase());
+            if from.is_empty() || to.is_empty() {
+                bail!("--map-agent takes FROM=TO, got {p:?}");
+            }
+            Ok((from, to))
+        })
+        .collect()
+}
+
+/// The owner or admin of `workspace_id` whose email is `email`: the import
+/// runs as them.
+async fn resolve_import_actor(
+    pool: &db::Pool,
+    workspace_id: i32,
+    email: &str,
+) -> Result<uuid::Uuid> {
+    use backend::repository::user_helpers::PrimaryEmailHolder;
+    let email = email.trim().to_lowercase();
+    let (pool, key) = (pool.clone(), email.clone());
+    let holders = tokio::task::spawn_blocking(move || {
+        backend::sync::session::run_in_workspace(&pool, "cli:import_helpdesk", workspace_id, |c| {
+            user_helpers::primary_email_holders(c, workspace_id, &[key])
+        })
+    })
+    .await
+    .context("worker")?
+    .map_err(|e| anyhow!("{e}"))?;
+    match holders.get(&email) {
+        Some(PrimaryEmailHolder::Member { user, role }) if role == "owner" || role == "admin" => {
+            Ok(user.uuid)
+        }
+        Some(PrimaryEmailHolder::Member { role, .. }) => {
+            bail!("{email} is a {role} of this workspace; the import must run as an owner or admin")
+        }
+        _ => bail!("{email} isn't a member of this workspace"),
+    }
+}
+
+async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
+    use backend::services::imports::helpdesk::bundle::{self, Bundle, FetchState};
+    use backend::services::imports::helpdesk::loader::{self, LoadOptions, NumberPolicy};
+    use backend::services::imports::helpdesk::report;
+    use backend::services::imports::helpdesk::source::{FetchProgress, HelpdeskSource};
+    use backend::services::imports::helpdesk::zendesk::{self, ZendeskAuth, ZendeskSource};
+    use std::io::IsTerminal;
+    use tokio_util::sync::CancellationToken;
+
+    let HelpdeskSourceArg::Zendesk = args.source;
+    if !args.dry_run && !args.yes && !std::io::stdin().is_terminal() {
+        bail!("no terminal to confirm on: pass --yes, or --dry-run to preview");
+    }
+
+    let pool = db::establish_connection_pool();
+    let storage = backend::utils::storage::process_storage();
+    let ws = transfer::resolve_workspace(&pool, &args.workspace).await?;
+    let actor = resolve_import_actor(&pool, ws.id, &args.run_as).await?;
+    let agent_map = parse_agent_map(&args.map_agent)?;
+
+    let env = |var: &str| {
+        std::env::var(var).map_err(|_| anyhow!("environment variable {var} is not set"))
+    };
+    let auth = match (&args.oauth_token_env, &args.api_token_env) {
+        (Some(var), _) => Some(ZendeskAuth::Bearer(env(var)?)),
+        (None, Some(var)) => Some(ZendeskAuth::Basic {
+            email: args.email.clone().unwrap_or_default(),
+            token: env(var)?,
+        }),
+        (None, None) => None,
+    };
+    if auth.is_none() && args.export_zip.is_none() {
+        bail!("give --oauth-token-env, --api-token-env with --email, or --export-zip");
+    }
+    let mut source = match (&args.base_url, auth) {
+        (Some(url), Some(a)) => ZendeskSource::with_base_url(url, a)?,
+        (Some(url), None) => ZendeskSource::for_export_with_base_url(url)?,
+        (None, Some(a)) => ZendeskSource::new(&args.subdomain, a)?,
+        (None, None) => ZendeskSource::for_export(&args.subdomain)?,
+    };
+
+    let dir = args.bundle.clone().unwrap_or_else(|| {
+        PathBuf::from(format!(
+            "helpdesk-import-zendesk-{}",
+            args.subdomain.trim().to_lowercase()
+        ))
+    });
+    // A copy of a customer's helpdesk: created readable by its owner only.
+    let bundle = Bundle::create(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    let complete = bundle.read_manifest().is_ok();
+
+    if !complete || args.refetch {
+        if args.refetch && complete {
+            bundle.write_state(&FetchState::default())?;
+            fs::remove_file(dir.join(bundle::MANIFEST)).ok();
+        }
+        let cancel = CancellationToken::new();
+        {
+            let cancel = cancel.clone();
+            tokio::spawn(async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    eprintln!("\nStopping after the current page; run the same command to resume.");
+                    cancel.cancel();
+                }
+            });
+        }
+        let progress = |p: &FetchProgress| {
+            eprint!(
+                "\r  {} people, {} tickets, {} replies, {} files{}",
+                p.people,
+                p.tickets,
+                p.comments,
+                p.attachments,
+                if p.throttled > 0 {
+                    format!(" (waited on Zendesk {}x)", p.throttled)
+                } else {
+                    String::new()
+                }
+            );
+        };
+        eprintln!("Fetching into {} ...", dir.display());
+        let fetched = match &args.export_zip {
+            Some(zip) => zendesk::read_export(&source, zip, &bundle, &progress, cancel).await,
+            None => source.fetch(&bundle, &progress, cancel).await,
+        };
+        let manifest = match fetched {
+            Ok(m) => m,
+            Err(backend::services::imports::helpdesk::source::SourceError::Unauthorized(why)) => {
+                eprintln!();
+                bail!(
+                    "Zendesk refused the credential ({why}). OAuth tokens expire (30 minutes by \
+                     default): give a fresh one and run the same command; the fetch resumes \
+                     where it stopped"
+                );
+            }
+            Err(backend::services::imports::helpdesk::source::SourceError::Cancelled) => {
+                eprintln!();
+                bail!("stopped; run the same command to resume the fetch");
+            }
+            Err(e) => {
+                eprintln!();
+                return Err(anyhow!("{e}. Run the same command to resume the fetch"));
+            }
+        };
+        eprintln!();
+        for note in &manifest.notes {
+            eprintln!("  note: {note}");
+        }
+    } else {
+        eprintln!(
+            "Using the complete copy in {} (--refetch fetches again).",
+            dir.display()
+        );
+        // Files that went missing for a reason that may have passed are
+        // tried again, without fetching anything else; not on a dry run,
+        // which changes nothing.
+        if !args.dry_run {
+            use backend::services::imports::helpdesk::zendesk::Retried;
+            match source
+                .retry_missing_files(&bundle, CancellationToken::new())
+                .await
+            {
+                Ok(Retried::Done { recovered, .. }) if recovered > 0 => {
+                    eprintln!("  fetched {recovered} files that were missing")
+                }
+                Ok(Retried::Busy) => eprintln!(
+                    "  another run is using {}, so missing files weren't tried again",
+                    dir.display()
+                ),
+                Ok(_) => {}
+                Err(e) => eprintln!("warning: couldn't try the missing files again: {e}"),
+            }
+        }
+    }
+
+    let opts = LoadOptions {
+        job_id: uuid::Uuid::now_v7(),
+        workspace_id: ws.id,
+        actor,
+        numbers: match args.numbers {
+            NumbersArg::Auto => NumberPolicy::Auto,
+            NumbersArg::Keep => NumberPolicy::Keep,
+            NumbersArg::After => NumberPolicy::AfterExisting,
+        },
+        agent_map,
+        create_agents: args.create_agents,
+        batch_size: loader::DEFAULT_BATCH,
+        cancel: CancellationToken::new(),
+    };
+    println!();
+    println!(
+        "Into workspace {} \"{}\" ({}), as {}",
+        ws.id, ws.slug, ws.name, args.run_as
+    );
+    println!();
+    let plan = loader::plan(&pool, &bundle, &opts).await?;
+    let plan_text = report::render_plan(&plan);
+    print!("{plan_text}");
+    if args.dry_run {
+        println!();
+        println!("Dry run: nothing was written.");
+        return Ok(());
+    }
+    println!();
+    if !args.yes && !confirm_on_tty(&format!("Import into workspace \"{}\"?", ws.slug))? {
+        eprintln!("Nothing was written.");
+        return Ok(());
+    }
+
+    let started = std::time::Instant::now();
+    {
+        // Stop between tickets and files, so nothing is left half written.
+        let cancel = opts.cancel.clone();
+        tokio::spawn(async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                eprintln!("\nStopping after the current ticket; run the same command to carry on.");
+                cancel.cancel();
+            }
+        });
+    }
+    let result = loader::load(&pool, storage, &bundle, &opts, &|p| {
+        eprint!(
+            "\r  {}/{} people, {}/{} tickets, {} replies, {} files",
+            p.people_done,
+            p.people_total,
+            p.tickets_done,
+            p.tickets_total,
+            p.comments_written,
+            p.attachments_written
+        );
+    })
+    .await;
+    eprintln!();
+
+    // Whatever landed should be searchable, even after a failure: ask the
+    // server (which holds the index) to rebuild this workspace's.
+    {
+        let (pool, ws_id) = (pool.clone(), ws.id);
+        let asked = tokio::task::spawn_blocking(move || {
+            backend::sync::session::run_in_workspace(&pool, "cli:import_helpdesk", ws_id, |c| {
+                backend::repository::search_reindex::request(c, ws_id)
+            })
+        })
+        .await;
+        if !matches!(asked, Ok(Ok(_))) {
+            eprintln!("warning: couldn't ask the server to reindex search; imported tickets appear in search after its next reindex");
+        }
+    }
+
+    // The report is written whether the run finished or not.
+    let (rep, failure) = match result {
+        Ok(rep) => (rep, None),
+        Err(f) => (*f.report, Some(f.error)),
+    };
+    let mut text = report::render_report(&rep);
+    if let Some(e) = &failure {
+        text.push_str(&format!("\nThe run stopped: {e}\n"));
+    }
+    print!("{text}");
+    let path = dir.join(format!("report-{}.txt", opts.job_id));
+    fs::write(
+        &path,
+        format!("Import run {}\n\n{plan_text}\n{text}", opts.job_id),
+    )
+    .with_context(|| format!("writing {}", path.display()))?;
+    if let Some(e) = failure {
+        return Err(anyhow!("{e}. Report: {}", path.display()));
+    }
+    println!();
+    println!(
+        "Import run {} finished in {}s. Report: {}",
+        opts.job_id,
+        started.elapsed().as_secs(),
+        path.display()
+    );
+    println!("To bring across replies added since, run it again with --refetch.");
+    println!(
+        "{} holds a copy of the customer's helpdesk. Delete it once the customer has signed off.",
+        dir.display()
+    );
     Ok(())
 }
 

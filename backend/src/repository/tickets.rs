@@ -488,6 +488,82 @@ pub fn create_ticket_with_annotation(
     })
 }
 
+// sync-audit-only: moves the pinned workspace's ticket number sequence; writes no row
+/// Move the pinned workspace's ticket numbers past `through`, so a ticket
+/// opened here from now on can't take a number up to it: a helpdesk import
+/// keeping the source's numbers reserves them before its first ticket.
+pub fn reserve_numbers(conn: &mut DbConnection, through: i32) -> QueryResult<()> {
+    diesel::sql_query("SELECT public.reserve_ticket_numbers($1)")
+        .bind::<diesel::sql_types::Integer, _>(through)
+        .execute(conn)
+        .map(|_| ())
+}
+
+/// Whether `workspace_id` already has a ticket numbered `number`.
+pub fn number_taken(conn: &mut DbConnection, workspace_id: i32, number: i32) -> QueryResult<bool> {
+    diesel::select(diesel::dsl::exists(
+        tickets::table
+            .filter(tickets::workspace_id.eq(workspace_id))
+            .filter(tickets::number.eq(number)),
+    ))
+    .get_result(conn)
+}
+
+/// Write a ticket a helpdesk import brings across: history, not a request.
+///
+/// Unlike [`create_ticket_with_annotation`] it keeps the source's dates,
+/// number and closing, and it starts nothing: no SLA targets (the row says
+/// `sla_override = 'none'`), no approval round. It sends one
+/// `ticket.created` so every client's pool and the activity feed see the
+/// ticket, with `created_via` naming the source and `imported: true`. Run
+/// it under an `import:<job>` actor reference and the notification, rule and
+/// webhook outboxes skip that event.
+///
+/// The requester (who is also its creator) is one of the workspace's people,
+/// and the assignee (who is also its closer) can work tickets here, as for
+/// every other import; either refusal reads as [`ensure_requester`]'s and
+/// [`crate::repository::assignees::ensure_assignable`]'s do.
+pub fn import_ticket(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    row: NewImportedTicket,
+    source: &str,
+) -> QueryResult<Ticket> {
+    conn.transaction(|conn| {
+        for person in [row.requester_uuid, row.created_by].into_iter().flatten() {
+            ensure_requester(conn, workspace_id, person)?;
+        }
+        for staff in [row.assignee_uuid, row.closed_by].into_iter().flatten() {
+            crate::repository::assignees::ensure_assignable(conn, workspace_id, staff)?;
+        }
+        let ticket: Ticket = diesel::insert_into(tickets::table)
+            .values(&row)
+            .get_result(conn)?;
+        let groups = groups::for_ticket(conn, &ticket)?;
+        let created_via = json!({
+            "source": format!("import:{source}"),
+            "from_email": serde_json::Value::Null,
+            "from_name": serde_json::Value::Null,
+            "subject": serde_json::Value::Null,
+            "imported": true,
+        });
+        let data = ticket_created_data(conn, &ticket, created_via)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Ticket,
+                aggregate_id: ticket.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "ticket.created",
+                data,
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(ticket)
+    })
+}
+
 /// Look up a ticket by its opaque guest-lookup token. Used by the public
 /// `/api/public/tickets/{token}` status endpoint.
 pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult<Ticket> {

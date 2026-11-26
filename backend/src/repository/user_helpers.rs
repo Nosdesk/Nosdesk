@@ -257,6 +257,103 @@ pub fn primary_email_holders(
     Ok(out)
 }
 
+/// An account holding an address, as [`address_holders`] reports it.
+#[derive(Debug, Clone)]
+pub struct AddressHolder {
+    pub uuid: Uuid,
+    /// The address is the account's primary one.
+    pub primary: bool,
+    /// The address can stand for the account: its primary one, or a
+    /// secondary one it verified. An unverified secondary address is
+    /// anyone's claim (a member can add any address to their own account),
+    /// so it never does; it still blocks the address for a new account.
+    pub trusted: bool,
+    /// Their role in the workspace when they hold an active seat there.
+    pub active_role: Option<String>,
+    /// One of the workspace's people (`repository::directory`): an active
+    /// or former member, or someone its records name.
+    pub person: bool,
+}
+
+// sync-audit-only: read-only (resolves an import's people to accounts)
+/// For each of `emails`, keyed lower-case, the account holding it as any of
+/// its addresses, compared case-insensitively, with where that account
+/// stands in `workspace_id` and whether the address can stand for it
+/// ([`AddressHolder::trusted`]). Addresses no account holds are
+/// absent. When case variants of one address belong to different accounts,
+/// the workspace's own person wins, then the primary holder, then the
+/// oldest account, so the answer never depends on row order.
+pub fn address_holders(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    emails: &[String],
+) -> QueryResult<std::collections::HashMap<String, AddressHolder>> {
+    use crate::schema::{user_emails, users, workspace_members};
+    use std::collections::{HashMap, HashSet};
+
+    if emails.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let keys: Vec<String> = emails.iter().map(|e| e.to_lowercase()).collect();
+    let rows: Vec<(String, Uuid, bool, bool, chrono::DateTime<chrono::Utc>)> = user_emails::table
+        .inner_join(users::table.on(users::uuid.eq(user_emails::user_uuid)))
+        .filter(
+            diesel::dsl::sql::<diesel::sql_types::Text>("lower(user_emails.email)").eq_any(&keys),
+        )
+        .select((
+            user_emails::email,
+            user_emails::user_uuid,
+            user_emails::is_primary,
+            user_emails::is_verified,
+            users::created_at,
+        ))
+        .load(conn)?;
+    let uuids: Vec<Uuid> = rows
+        .iter()
+        .map(|r| r.1)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let people = crate::repository::directory::people_among(conn, workspace_id, &uuids)?;
+    let roles: HashMap<Uuid, String> = workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .filter(workspace_members::user_uuid.eq_any(&uuids))
+        .filter(workspace_members::removed_at.is_null())
+        .select((workspace_members::user_uuid, workspace_members::role))
+        .load::<(Uuid, String)>(conn)?
+        .into_iter()
+        .collect();
+
+    let mut best: HashMap<String, (AddressHolder, chrono::DateTime<chrono::Utc>)> = HashMap::new();
+    for (email, uuid, primary, verified, created) in rows {
+        let holder = AddressHolder {
+            uuid,
+            primary,
+            trusted: primary || verified,
+            active_role: roles.get(&uuid).cloned(),
+            person: people.contains(&uuid),
+        };
+        let rank = |h: &AddressHolder, at: &chrono::DateTime<chrono::Utc>| {
+            (
+                std::cmp::Reverse(h.trusted),
+                std::cmp::Reverse(h.active_role.is_some()),
+                std::cmp::Reverse(h.person),
+                std::cmp::Reverse(h.primary),
+                *at,
+                h.uuid,
+            )
+        };
+        let key = email.to_lowercase();
+        match best.get(&key) {
+            Some((current, at)) if rank(current, at) <= rank(&holder, &created) => {}
+            _ => {
+                best.insert(key, (holder, created));
+            }
+        }
+    }
+    Ok(best.into_iter().map(|(k, (h, _))| (k, h)).collect())
+}
+
 /// Outcome of [`create_user_with_email`].
 pub enum CreateUserWithEmailOutcome {
     Created(User, UserEmail),
@@ -386,6 +483,67 @@ pub fn create_user_with_email(
     }
 
     Ok(CreateUserWithEmailOutcome::Created(result.0, result.1))
+}
+
+/// Create an account with its primary address as one of the pinned
+/// workspace's people without a seat: a contact kept in a profile there
+/// (`user_profiles`, under `name`), as a directory sync keeps an employee
+/// with no membership. Nothing signs it in, and a seat granted later is an
+/// ordinary new membership. For a helpdesk import's former staff and people
+/// suspended at the source.
+pub fn create_contact_with_email(
+    conn: &mut DbConnection,
+    new_user: crate::models::NewUser,
+    email: String,
+    email_source: Option<String>,
+) -> Result<User, diesel::result::Error> {
+    use crate::models::{SyncAggregate, SyncOp};
+    use crate::sync::emit::{self, SyncEmit};
+    use crate::sync::groups;
+    use serde_json::json;
+
+    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+        let user: User = diesel::insert_into(crate::schema::users::table)
+            .values(&new_user)
+            .get_result(conn)?;
+        let user_email: UserEmail = diesel::insert_into(crate::schema::user_emails::table)
+            .values(crate::models::NewUserEmail {
+                user_uuid: user.uuid,
+                email,
+                email_type: "personal".to_string(),
+                is_primary: true,
+                is_verified: false,
+                source: email_source,
+            })
+            .get_result(conn)?;
+        crate::repository::user_contact::set_display_name_if_unset(
+            conn, user.uuid, &user.name, None,
+        )?;
+        // The same projection create_user_with_email sends, with no
+        // workspace role: one of the workspace's people, not a member.
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::User,
+                aggregate_id: user.uuid.to_string(),
+                op: SyncOp::Insert,
+                event_type: "user.created",
+                data: json!({
+                    "uuid": user.uuid,
+                    "name": user.name,
+                    "email": user_email.email,
+                    "platform_role": user.platform_role,
+                    "workspace_role": serde_json::Value::Null,
+                    "pronouns": user.pronouns,
+                    "avatar_url": user.avatar_url,
+                    "avatar_thumb": user.avatar_thumb,
+                }),
+                groups: groups::workspace(),
+                causation_id: None,
+            },
+        )?;
+        Ok(user)
+    })
 }
 
 /// Source tag written to `user_emails.source` when an account is created by

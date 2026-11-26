@@ -394,6 +394,89 @@ pub fn create_comment_with_annotation(
     Ok(comment)
 }
 
+/// Write a reply a helpdesk import brings across: history, with the date the
+/// source recorded.
+///
+/// It does none of what a new reply does to its ticket: no `updated_at` bump,
+/// no reopen, no first-response stamp, no ticket references (an old "#123"
+/// means the source's ticket 123, which may not be ours). The loader sets the
+/// ticket's dates itself. It sends one `comment.created`, shaped like a live
+/// reply's so the ticket view renders it from the pool, with `created_via`
+/// naming the source and `imported: true`. Run it under an `import:<job>`
+/// actor reference and the outboxes skip it.
+///
+/// Like any reply, it can't go on a ticket merged into another one, and its
+/// author is one of the ticket's workspace's people.
+pub fn import_comment(
+    conn: &mut DbConnection,
+    row: NewImportedComment,
+    source: &str,
+) -> QueryResult<Comment> {
+    conn.transaction(|conn| {
+        let parent: Ticket = tickets::table.find(row.ticket_id).first(conn)?;
+        if crate::repository::ticket_merge::is_merge_source(conn, parent.id)? {
+            return Err(crate::repository::tickets::TicketWriteError::Merged.into());
+        }
+        crate::repository::tickets::ensure_requester(conn, parent.workspace_id, row.user_uuid)?;
+        let comment: Comment = diesel::insert_into(comments::table)
+            .values(&row)
+            .get_result(conn)?;
+        let groups = groups::for_ticket(conn, &parent)?;
+        emit::record(
+            conn,
+            SyncEmit {
+                aggregate: SyncAggregate::Comment,
+                aggregate_id: comment.id.to_string(),
+                op: SyncOp::Insert,
+                event_type: "comment.created",
+                data: json!({
+                    "id": comment.id,
+                    "ticket_id": comment.ticket_id,
+                    "user_uuid": comment.user_uuid,
+                    "is_internal": comment.is_internal,
+                    "content_format": comment.content_format,
+                    "render_kind": comment.render_kind,
+                    "content": comment.content,
+                    "new_content": comment.new_content,
+                    "quoted_content": comment.quoted_content,
+                    "created_at": comment.created_at,
+                    "created_via": {
+                        "source": format!("import:{source}"),
+                        "from_email": serde_json::Value::Null,
+                        "from_name": serde_json::Value::Null,
+                        "imported": true,
+                    },
+                    "ticket_title": parent.title,
+                    "ticket_requester_uuid": parent.requester_uuid,
+                    "ticket_assignee_uuid": parent.assignee_uuid,
+                }),
+                groups,
+                causation_id: None,
+            },
+        )?;
+        Ok(comment)
+    })
+}
+
+/// The ticket each of `comment_ids` is on, for those that are replies in
+/// `workspace_id`.
+pub fn tickets_of(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    comment_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, i32>> {
+    if comment_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    Ok(comments::table
+        .filter(comments::workspace_id.eq(workspace_id))
+        .filter(comments::id.eq_any(comment_ids))
+        .select((comments::id, comments::ticket_id))
+        .load::<(i32, i32)>(conn)?
+        .into_iter()
+        .collect())
+}
+
 /// Record the tickets a new comment references through `ticket_link`
 /// nodes and emit one `ticket_reference.added` per reference, grouped on
 /// the referenced ticket so its activity feed and the notification deriver

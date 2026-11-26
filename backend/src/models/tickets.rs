@@ -381,11 +381,47 @@ pub const CSV_IMPORT: &str = "csv_import";
 /// email channel connected (a backlog the admin asked for).
 pub const EMAIL_BACKLOG: &str = "email_backlog";
 
+/// `submitted_via` of a ticket a helpdesk import brought across from another
+/// system (Zendesk, ...). The source is on the id map and the creation event.
+pub const HELPDESK_IMPORT: &str = "import";
+
 /// Whether a ticket that came in `submitted_via` this way is imported
 /// history ([`Ticket::is_imported`]). For readers that have the value but
 /// not the ticket, such as an event's data.
 pub fn is_imported_via(submitted_via: Option<&str>) -> bool {
-    matches!(submitted_via, Some(CSV_IMPORT | EMAIL_BACKLOG))
+    matches!(
+        submitted_via,
+        Some(CSV_IMPORT | EMAIL_BACKLOG | HELPDESK_IMPORT)
+    )
+}
+
+/// Insert payload for a ticket a helpdesk import writes: history, so it
+/// carries the dates, number and closing the source recorded, which
+/// [`NewTicket`] leaves to the database. Only
+/// `repository::tickets::import_ticket` writes it.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = crate::schema::tickets)]
+pub struct NewImportedTicket {
+    pub title: String,
+    pub workflow_state_id: i32,
+    pub priority: TicketPriority,
+    pub requester_uuid: Option<Uuid>,
+    pub assignee_uuid: Option<Uuid>,
+    pub category_id: Option<i32>,
+    pub submitted_via: Option<String>,
+    pub created_by: Option<Uuid>,
+    /// The source's number, when the workspace has room for it. None takes
+    /// the next number, as any new ticket does.
+    pub number: Option<i32>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    /// Kept as given by the closing trigger. None for an open ticket.
+    pub closed_at: Option<NaiveDateTime>,
+    pub closed_by: Option<Uuid>,
+    pub first_response_at: Option<NaiveDateTime>,
+    /// `none`: an old ticket measured from its original creation would
+    /// breach the moment it landed. Agents switch SLA on per ticket.
+    pub sla_override: String,
 }
 
 impl Ticket {
