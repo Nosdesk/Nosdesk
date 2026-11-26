@@ -1047,8 +1047,9 @@ mod tests {
                 conn,
                 ticket.id,
                 crate::models::TicketUpdate {
+                    // The database stamps closed_at: the host clock can run
+                    // behind it, and tickets_dates_valid would refuse that.
                     workflow_state_id: Some(done.id),
-                    closed_at: Some(Some(chrono::Utc::now().naive_utc())),
                     ..Default::default()
                 },
                 None,
