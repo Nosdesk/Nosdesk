@@ -28,6 +28,7 @@ import { userAttributeSchema } from '@/components/assets/assetAttributeSchema';
 
 import { useManufacturersQuery, useAssetModelsQuery } from '@/composables/useAssetCatalogQuery';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
+import { useAssetRecordTypes } from '@/composables/useAssetTimeline';
 import {
   manufacturersService,
   assetModelsService,
@@ -46,6 +47,11 @@ const queryCache = useQueryCache();
 const { manufacturers } = useManufacturersQuery();
 const { models } = useAssetModelsQuery();
 const { kinds } = useAssetKindsQuery();
+// The currency a money default is entered in: the one the server would fill.
+const recordTypes = useAssetRecordTypes(true);
+const workspaceCurrency = computed(
+  () => recordTypes.currency.value ?? recordTypes.suggestedCurrency.value,
+);
 
 const manufacturerName = (id: number) => manufacturers.value.find((m) => m.id === id)?.name ?? '';
 const kindLabel = (slug: string) => kinds.value.find((k) => k.slug === slug)?.label ?? slug;
@@ -444,6 +450,7 @@ async function confirmDelete() {
           <DynamicAttributeForm
             v-model="modelModal.default_attributes"
             :schema="modelKindUserSchema"
+            :currency="workspaceCurrency"
           />
         </div>
         <FormTextarea v-model="modelModal.notes" :label="$t('asset-catalog-notes')" :rows="2" :max-rows="6" />

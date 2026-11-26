@@ -549,6 +549,7 @@ async function submitTransition() {
           <DynamicAttributeForm
             v-model="recordAttributes"
             :schema="orderedSchema(enteringType)"
+            :currency="currency || null"
           />
         </template>
       </section>

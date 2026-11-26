@@ -11,12 +11,17 @@ import Checkbox from '@/components/common/Checkbox.vue'
 import DatePicker from '@/components/common/DatePicker.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import FormNumber from '@/components/common/FormNumber.vue'
+import MoneyAttributeInput from '@/components/assets/MoneyAttributeInput.vue'
+import { isMoneyProp, moneyCurrency } from '@/utils/moneyAttribute'
 import type { AssetRecordType } from '@nosdesk/core/types/asset'
 import { fieldProps, fieldTitle } from './assetTimeline'
 
 const props = defineProps<{
   type: AssetRecordType
   modelValue: Record<string, unknown>
+  /** The workspace currency, for a money field that pins none and has no
+   *  value yet. */
+  currency?: string | null
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: Record<string, unknown>] }>()
@@ -76,6 +81,13 @@ function setList(key: string, raw: string) {
       :label="field.title"
       block
       @update:model-value="(v: string) => set(field.key, v)"
+    />
+    <MoneyAttributeInput
+      v-else-if="isMoneyProp(field.prop)"
+      :model-value="modelValue[field.key]"
+      :label="field.title"
+      :currency="moneyCurrency(field.prop, modelValue[field.key], currency)"
+      @update:model-value="(v) => set(field.key, v)"
     />
     <FormNumber
       v-else-if="field.prop.type === 'number' || field.prop.type === 'integer'"

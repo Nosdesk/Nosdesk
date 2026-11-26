@@ -41,7 +41,7 @@ import { type AssetKind } from '@nosdesk/core/services/assetKindsService';
 import { useAssetKindsQuery } from '@/composables/useAssetKindsQuery';
 import { useAssetLocationsQuery } from '@/composables/useAssetLocationsQuery';
 import { useSyncActions } from '@/composables/useSyncActions';
-import { useAssetTimelineInvalidate } from '@/composables/useAssetTimeline';
+import { useAssetRecordTypes, useAssetTimelineInvalidate } from '@/composables/useAssetTimeline';
 import { useAssetDetail } from '@/composables/useAssetDetail';
 import { useAuthStore } from '@/stores/auth';
 import type { Asset } from '@nosdesk/core/types/asset';
@@ -615,6 +615,12 @@ watch(() => route.params.id, () => {
 const auth = useAuthStore();
 const invalidateTimeline = useAssetTimelineInvalidate();
 const canChangeLifecycle = computed(() => auth.isTechnician);
+// The currency a money attribute is first entered in: the one the server
+// would fill. Staff only, as the endpoint is.
+const recordTypes = useAssetRecordTypes(() => auth.isTechnician);
+const workspaceCurrency = computed(
+  () => recordTypes.currency.value ?? recordTypes.suggestedCurrency.value,
+);
 
 // A status transition from the state header doesn't flow back through
 // the own-change sync filter, so reflect it optimistically (the status
@@ -967,6 +973,7 @@ useSyncActions(
                   <DynamicAttributeForm
                     :schema="singleAttrSchema(key)"
                     :model-value="device?.attributes ?? {}"
+                    :currency="workspaceCurrency"
                     @update:model-value="commitAttribute"
                   />
                 </div>
