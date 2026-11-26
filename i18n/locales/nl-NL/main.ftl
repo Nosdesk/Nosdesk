@@ -6658,6 +6658,8 @@ ticket-comments-send-failed-not-kept =
     }
 ticket-comments-badge-forwarded = Doorgestuurd
 ticket-comments-badge-forwarded-title = Een agent heeft deze e-mail naar de helpdesk doorgestuurd
+# Helpdesk import, auteur bij de bron (machine, pending native review)
+ticket-comments-imported-as = als { $name } bij { $source }
 ticket-comments-action-download = Downloaden
 ticket-comments-action-delete-comment = Reactie verwijderen
 ticket-comments-action-delete-voice = Spraakbericht verwijderen

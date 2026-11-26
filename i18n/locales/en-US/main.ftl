@@ -5891,6 +5891,7 @@ ticket-comments-send-failed-not-kept =
     }
 ticket-comments-badge-forwarded = Forwarded
 ticket-comments-badge-forwarded-title = An agent forwarded this email into the helpdesk
+ticket-comments-imported-as = as { $name } at { $source }
 ticket-comments-action-download = Download
 ticket-comments-action-delete-comment = Delete comment
 ticket-comments-action-delete-voice = Delete voice message

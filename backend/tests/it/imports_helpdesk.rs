@@ -3123,3 +3123,122 @@ async fn the_plan_reads_as_the_operator_sees_it() {
         .expect("light");
     assert_eq!(light.2, "former staff, no seat");
 }
+
+#[actix_web::test]
+async fn the_portal_shows_the_source_name_on_placeholder_replies_never_the_address() {
+    use actix_web::dev::Service;
+    use actix_web::{test as http_test, web, App, HttpMessage};
+    use backend::extractors::WorkspaceContext;
+    use backend::handlers::portal::{PortalContext, PortalScope};
+    use backend::middleware::RequestContext;
+    use backend::sync::actor::ActorContext;
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let seeded = crate::common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let (ws, b) = (seeded.a, seeded.b);
+    // An address held by staff of another workspace: beyond reach, so its
+    // replies go to the placeholder with the address kept on them.
+    account(
+        &pool,
+        "Else",
+        None,
+        "else@customer.test",
+        &[],
+        Some((b.workspace_id, "agent")),
+    );
+    let cast = vec![
+        person("r1", "rae@customer.test", PersonRole::Requester, true),
+        Person {
+            name: "Dee Deleted".into(),
+            deleted: true,
+            active: false,
+            ..person("d1", "dee@customer.test", PersonRole::Requester, false)
+        },
+        Person {
+            name: "Else At Zendesk".into(),
+            ..person("w1", "else@customer.test", PersonRole::Requester, true)
+        },
+    ];
+    let mut t = raised_by("1601", "r1", &[]);
+    t.comments.push(comment(
+        "c1601b",
+        Some("d1"),
+        true,
+        "<p>From Dee</p>",
+        at(1, 11),
+    ));
+    t.comments.push(comment(
+        "c1601c",
+        Some("w1"),
+        true,
+        "<p>From Else</p>",
+        at(1, 12),
+    ));
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &cast, &[t], &[], |_| {});
+    run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    let meta = reply_metadata(&pool, &ws, 1601);
+    assert_eq!(
+        meta[2]["author_email"], "else@customer.test",
+        "kept for agents"
+    );
+
+    let rae = account_of(&pool, "rae@customer.test");
+    let id = ticket_id(&pool, &ws, 1601);
+    let workspace = WorkspaceContext {
+        workspace_id: ws.workspace_id,
+        workspace_uuid: ws.workspace_uuid,
+        slug: ws.slug.clone(),
+        name: "A".to_string(),
+        organisation_id: None,
+        custom_domain: None,
+    };
+    let portal = PortalContext {
+        user_uuid: rae,
+        workspace_id: ws.workspace_id,
+        workspace_uuid: ws.workspace_uuid,
+        scope: PortalScope::Full,
+    };
+    let corr = Uuid::now_v7();
+    let actor = ActorContext::user(rae, Some(corr)).with_workspace(ws.workspace_id);
+    let app = http_test::init_service(
+        App::new()
+            .app_data(web::Data::new(pool.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(workspace.clone());
+                req.extensions_mut().insert(portal.clone());
+                req.extensions_mut()
+                    .insert(RequestContext::new(corr, actor.clone()));
+                srv.call(req)
+            })
+            .route(
+                "/api/portal/tickets/{id}",
+                web::get().to(backend::handlers::portal::get_my_ticket),
+            ),
+    )
+    .await;
+    let resp = http_test::call_service(
+        &app,
+        http_test::TestRequest::get()
+            .uri(&format!("/api/portal/tickets/{id}"))
+            .to_request(),
+    )
+    .await;
+    assert!(resp.status().is_success(), "{}", resp.status());
+    let body: serde_json::Value = http_test::read_body_json(resp).await;
+    let text = body.to_string();
+    assert!(!text.contains("else@customer.test"), "{text}");
+    assert!(!text.contains("dee@customer.test"), "{text}");
+    let authors: Vec<String> = body["comments"]
+        .as_array()
+        .expect("comments")
+        .iter()
+        .map(|c| c["author"]["name"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(
+        authors,
+        vec!["Source r1", "Dee Deleted", "Else At Zendesk"],
+        "{body}"
+    );
+}

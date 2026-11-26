@@ -1288,6 +1288,17 @@ pub struct CustomerAttachment {
     pub mime_type: Option<String>,
 }
 
+/// The name an imported reply's author had at the source, from what the
+/// import kept on it.
+fn imported_author_name(metadata: Option<&serde_json::Value>) -> Option<String> {
+    let name = metadata?
+        .get("import")?
+        .get("author_name")?
+        .as_str()?
+        .trim();
+    (!name.is_empty()).then(|| name.chars().take(255).collect())
+}
+
 /// The ticket's public thread, oldest first, with authors (workspace persona
 /// names, so an agent alias shows) and attachments.
 fn customer_thread(
@@ -1305,13 +1316,22 @@ fn customer_thread(
     authors.dedup();
     let users = crate::repository::users::get_user_map_by_uuids_with_persona(&authors, conn)?;
     let roles = crate::repository::user_helpers::workspace_roles_batch(&authors, conn);
+    // A reply an import credited to its placeholder author shows who wrote
+    // it at the source, by name only, never their address.
+    let placeholders = crate::repository::import_source_ids::placeholders_among(conn, &authors)?;
     Ok(comments
         .into_iter()
         .map(|c| {
             let user = users.get(&c.user_uuid);
+            let source_name = placeholders
+                .contains(&c.user_uuid)
+                .then(|| imported_author_name(c.channel_metadata.as_ref()))
+                .flatten();
             CustomerComment {
                 author: CustomerAuthor {
-                    name: user.map(|u| u.name.clone()).unwrap_or_default(),
+                    name: source_name
+                        .or_else(|| user.map(|u| u.name.clone()))
+                        .unwrap_or_default(),
                     avatar_url: user.and_then(|u| u.avatar_thumb.clone().or(u.avatar_url.clone())),
                     is_staff: roles.get(&c.user_uuid).is_some_and(|r| r.is_staff()),
                     is_you: c.user_uuid == viewer,

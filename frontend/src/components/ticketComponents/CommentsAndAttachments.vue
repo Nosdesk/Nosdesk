@@ -16,6 +16,7 @@ import { referencedTicketIds } from "@/components/editor/ticketLinkPlugin";
 import * as pool from "@nosdesk/core/sync/pool";
 import type { SyncTicket } from "@/sync/stores/tickets";
 import { ticketNumber } from "@/utils/ticketNumbers";
+import { importedAuthor } from "@/utils/importedAuthor";
 import { numberForTicketId } from "@/composables/useTicketNumberLookup";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer.vue";
 import CommentContent from "@/components/ticketComponents/CommentContent.vue";
@@ -1081,6 +1082,10 @@ const handlePastedFiles = async (files: File[]) => {
                                         {{ comment.user?.name || comment.user_uuid }}
                                     </span>
                                     <span
+                                        v-if="importedAuthor(comment)"
+                                        class="text-xs text-tertiary [overflow-wrap:anywhere]"
+                                    >{{ $t('ticket-comments-imported-as', importedAuthor(comment)!) }}</span>
+                                    <span
                                         v-if="comment.is_internal"
                                         class="inline-flex items-center gap-1 self-center px-1 py-0.5 rounded text-2xs font-medium bg-status-warning-muted text-status-warning whitespace-nowrap"
                                     >
@@ -1207,6 +1212,10 @@ const handlePastedFiles = async (files: File[]) => {
                                             <span class="text-sm text-primary font-medium truncate leading-tight">
                                                 {{ comment.user?.name || comment.user_uuid }}
                                             </span>
+                                            <span
+                                                v-if="importedAuthor(comment)"
+                                                class="text-xs text-tertiary truncate leading-tight"
+                                            >{{ $t('ticket-comments-imported-as', importedAuthor(comment)!) }}</span>
                                             <span
                                                 v-if="comment.is_internal"
                                                 class="inline-flex items-center gap-1 px-1 py-0.5 rounded text-2xs font-medium bg-status-warning-muted text-status-warning flex-shrink-0"

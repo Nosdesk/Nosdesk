@@ -6668,6 +6668,8 @@ ticket-comments-send-failed-not-kept =
     }
 ticket-comments-badge-forwarded = Transféré
 ticket-comments-badge-forwarded-title = Un agent a transféré cet e-mail dans le helpdesk
+# Répondu à la source, import d'un helpdesk (machine, à relire par un locuteur natif)
+ticket-comments-imported-as = en tant que { $name } sur { $source }
 ticket-comments-action-download = Télécharger
 ticket-comments-action-delete-comment = Supprimer le commentaire
 ticket-comments-action-delete-voice = Supprimer le message vocal
