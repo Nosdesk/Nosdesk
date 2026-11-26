@@ -1,10 +1,12 @@
 //! Writes a bundle into a workspace: planned first (a dry run that writes
 //! nothing), then in batches of tickets, each batch one transaction.
 //!
-//! Every write runs as the importing person with the actor reference
+//! Every write is the import's own: a system actor with the reference
 //! `import:<job>`, which the notification, rule and webhook outbox triggers
-//! skip: imported history notifies nobody, fires no rule and calls no
-//! webhook. Clients, search and the activity feed still see it.
+//! skip, so imported history notifies nobody, fires no rule and calls no
+//! webhook. Clients, search and the activity feed still see it. The run's
+//! `import_jobs` row (type `helpdesk`) records who ran it, into which
+//! workspace, from which source, and how it ended.
 //!
 //! Safe to run again. The id map records every ticket, reply and file as it
 //! lands, in the same transaction, so:
@@ -35,6 +37,9 @@ use crate::sync::actor::ActorContext;
 use crate::sync::session::with_actor_context;
 use crate::utils::storage::{Storage, WorkspaceScopedStorage};
 
+/// `import_jobs.job_type` of a helpdesk import's run.
+pub const JOB_TYPE: &str = "helpdesk";
+
 /// Tickets per transaction. Large enough to amortise the transaction, small
 /// enough that a failure loses little and locks are short.
 pub const DEFAULT_BATCH: usize = 200;
@@ -59,8 +64,9 @@ pub enum NumberPolicy {
 pub struct LoadOptions {
     pub job_id: Uuid,
     pub workspace_id: i32,
-    /// The person running the import. Imported rows are written as theirs,
-    /// under `import:<job_id>`.
+    /// The owner or admin running the import: the job's creator, and the
+    /// author of each ticket's import note. The rows themselves are written
+    /// by the import (a system actor under `import:<job_id>`), not as theirs.
     pub actor: Uuid,
     pub numbers: NumberPolicy,
     /// Source staff email → Nosdesk member email, lower-cased.
@@ -72,9 +78,7 @@ pub struct LoadOptions {
 
 impl LoadOptions {
     fn actor_context(&self) -> ActorContext {
-        let mut actor = ActorContext::user(self.actor, None).with_workspace(self.workspace_id);
-        actor.reference = Some(format!("import:{}", self.job_id));
-        actor
+        ActorContext::system(format!("import:{}", self.job_id)).with_workspace(self.workspace_id)
     }
 }
 
@@ -429,9 +433,142 @@ pub async fn load(
     progress: &(dyn Fn(&LoadProgress) + Send + Sync),
 ) -> Result<LoadReport, LoadError> {
     let manifest = bundle.read_manifest()?;
+    open_job(pool, opts, &manifest).await?;
+    let mut report = LoadReport::default();
+    let result = write_all(
+        pool,
+        storage,
+        bundle,
+        opts,
+        progress,
+        &manifest,
+        &mut report,
+    )
+    .await;
+    close_job(pool, opts, &report, result.as_ref().err()).await?;
+    result.map(|()| report)
+}
+
+/// Open the run's job row: who ran it, from which source, into which
+/// workspace. `records_committed` is set from the start, so the job sweep
+/// never takes a running import for an abandoned upload.
+async fn open_job(
+    pool: &Pool,
+    opts: &LoadOptions,
+    manifest: &bundle::Manifest,
+) -> Result<(), LoadError> {
+    let (job, actor) = (opts.job_id, opts.actor);
+    let filename = truncate(
+        &format!(
+            "{} ({})",
+            source_title(&manifest.source),
+            manifest.source_scope
+        ),
+        255,
+    );
+    let options = serde_json::json!({
+        "source": manifest.source,
+        "scope": manifest.source_scope,
+        "numbers": format!("{:?}", opts.numbers),
+        "create_agents": opts.create_agents,
+        "mapped_agents": opts.agent_map.len(),
+    });
+    db(pool, opts.actor_context(), move |conn| {
+        use crate::models::{ImportJobUpdate, NewImportJob};
+        crate::repository::imports::create(
+            conn,
+            NewImportJob {
+                id: job,
+                job_type: JOB_TYPE.to_string(),
+                filename,
+                file_path: String::new(),
+                created_by: Some(actor),
+                upload_of: None,
+                restore_of: None,
+            },
+        )?;
+        crate::repository::imports::update(
+            conn,
+            job,
+            ImportJobUpdate {
+                status: Some("committing".into()),
+                records_committed: Some(Some(0)),
+                options: Some(Some(options)),
+                ..Default::default()
+            },
+        )?;
+        Ok(())
+    })
+    .await
+}
+
+/// How many tickets the run has written, on its job row.
+async fn job_progress(pool: &Pool, opts: &LoadOptions, written: u64) -> Result<(), LoadError> {
+    let job = opts.job_id;
+    db(pool, opts.actor_context(), move |conn| {
+        crate::repository::imports::update(
+            conn,
+            job,
+            crate::models::ImportJobUpdate {
+                records_committed: Some(Some(i32::try_from(written).unwrap_or(i32::MAX))),
+                ..Default::default()
+            },
+        )?;
+        Ok(())
+    })
+    .await
+}
+
+/// Close the run's job row: done, or failed with the reason, and what it
+/// wrote either way.
+async fn close_job(
+    pool: &Pool,
+    opts: &LoadOptions,
+    report: &LoadReport,
+    error: Option<&LoadError>,
+) -> Result<(), LoadError> {
+    let job = opts.job_id;
+    let summary = serde_json::json!({
+        "tickets_written": report.tickets_written,
+        "tickets_skipped": report.tickets_skipped,
+        "comments_written": report.comments_written,
+        "attachments_written": report.attachments_written,
+        "attachment_problems": report.attachment_problems.len(),
+        "people": report.people,
+    });
+    let error = error.map(ToString::to_string);
+    let written = i32::try_from(report.tickets_written).unwrap_or(i32::MAX);
+    db(pool, opts.actor_context(), move |conn| {
+        crate::repository::imports::update(
+            conn,
+            job,
+            crate::models::ImportJobUpdate {
+                status: Some(if error.is_some() { "failed" } else { "done" }.into()),
+                completed_at: Some(Some(Utc::now())),
+                summary: Some(Some(summary)),
+                records_committed: Some(Some(written)),
+                error_message: Some(error),
+                ..Default::default()
+            },
+        )?;
+        Ok(())
+    })
+    .await
+}
+
+/// Everything [`load`] writes, into `report` as it goes, so a run that
+/// fails part way still says what it did.
+async fn write_all(
+    pool: &Pool,
+    storage: Arc<dyn Storage>,
+    bundle: &Bundle,
+    opts: &LoadOptions,
+    progress: &(dyn Fn(&LoadProgress) + Send + Sync),
+    manifest: &bundle::Manifest,
+    report: &mut LoadReport,
+) -> Result<(), LoadError> {
     let source = manifest.source.clone();
     let instance = manifest.source_scope.clone();
-    let mut report = LoadReport::default();
 
     // Settle numbering once, before the first batch, so a resumed run keeps
     // the choice its first batch made (the map holds only our tickets then).
@@ -546,13 +683,14 @@ pub async fn load(
         .await?;
         report.attachments_written += files.written;
         report.attachment_problems.extend(files.problems);
+        job_progress(pool, opts, report.tickets_written).await?;
 
         prog.tickets_done += n;
         prog.comments_written = report.comments_written;
         prog.attachments_written = report.attachments_written;
         progress(&prog);
     }
-    Ok(report)
+    Ok(())
 }
 
 /// A person listed twice in a bundle is brought across once, as first listed.
@@ -823,7 +961,7 @@ fn write_ticket(
     if !tag_ids.is_empty() {
         tag_ids.sort_unstable();
         tag_ids.dedup();
-        crate::repository::tags::set_tags_for_ticket(conn, ticket.id, &tag_ids, Some(opts.actor))?;
+        crate::repository::tags::set_tags_for_ticket(conn, ticket.id, &tag_ids, None)?;
     }
 
     // Only people who hold a seat here watch: a former agent, someone

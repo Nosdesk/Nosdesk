@@ -73,9 +73,12 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.import_source_ids TO nosdes
 --   notification_outbox_enqueue  2026-09-28-000005_ticket_approvals
 --   rule_event_outbox_enqueue    2026-11-18-022437_rules_plugin_event_outbox
 --   webhook_outbox_enqueue       2026-06-25-020000_squash_post_v1011
+-- The two that ran without a fixed search_path get one, as a SECURITY
+-- DEFINER function should; down.sql restores them as they were.
 
 CREATE OR REPLACE FUNCTION public.notification_outbox_enqueue() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path = public, pg_temp
     AS $$
 BEGIN
     -- Imported history notifies nobody.
@@ -160,6 +163,7 @@ ALTER FUNCTION public.rule_event_outbox_enqueue() OWNER TO nosdesk_admin;
 
 CREATE OR REPLACE FUNCTION public.webhook_outbox_enqueue() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path = public, pg_temp
     AS $$
 BEGIN
     -- Imported history is not news to a webhook receiver.

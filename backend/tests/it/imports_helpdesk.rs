@@ -400,6 +400,46 @@ async fn a_zendesk_bundle_lands_as_quiet_history_and_reruns_add_nothing() {
         "{thread:?}"
     );
 
+    // The run is the import's own, not the operator's: a system actor under
+    // the job's reference, and a job row that names who ran it.
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) AS n FROM sync_actions WHERE actor_ref = $1 AND actor_kind <> 'system'",
+            job,
+        ),
+        0
+    );
+    {
+        #[derive(QueryableByName)]
+        struct Job {
+            #[diesel(sql_type = Text)]
+            job_type: String,
+            #[diesel(sql_type = Text)]
+            status: String,
+            #[diesel(sql_type = Nullable<diesel::sql_types::Uuid>)]
+            created_by: Option<Uuid>,
+            #[diesel(sql_type = Nullable<Integer>)]
+            records_committed: Option<i32>,
+            #[diesel(sql_type = Integer)]
+            workspace_id: i32,
+        }
+        let row: Job = diesel::sql_query(
+            "SELECT job_type, status, created_by, records_committed, workspace_id \
+             FROM import_jobs WHERE id = $1",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(job)
+        .get_result(&mut pool.get().expect("conn"))
+        .expect("the run's job row");
+        assert_eq!(
+            (row.job_type.as_str(), row.status.as_str()),
+            ("helpdesk", "done")
+        );
+        assert_eq!(row.created_by, Some(ws.admin_uuid));
+        assert_eq!(row.records_committed, Some(2));
+        assert_eq!(row.workspace_id, ws.workspace_id);
+    }
+
     // Quiet: events were recorded (clients and the feed see the rows), but
     // none reached the notification, rule or webhook outboxes.
     let events = count(
