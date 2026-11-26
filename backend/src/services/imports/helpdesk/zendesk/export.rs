@@ -16,7 +16,13 @@
 //!   `{"organization": {...}}`, or a bare record, which is recognised by
 //!   its shape (or, failing that, by its file name);
 //! - an entry that isn't NDJSON but one JSON document (an array, or
-//!   `{"tickets": [...]}`) is read whole, up to a size limit;
+//!   `{"tickets": [...]}`) is read whole, up to a size limit, past which the
+//!   read fails rather than guess; when the whole entry doesn't parse
+//!   either, it is read line by line after all, so one bad first line costs
+//!   only that line;
+//! - a byte order mark is skipped, and a record of no shape the reader
+//!   knows is counted and reported, and a zip with records but no ticket
+//!   the reader recognises is refused;
 //! - record fields are assumed to match the API's (tickets carrying a
 //!   `comments` array shaped like the comments endpoint's), which is how
 //!   Zendesk's legacy JSON export looked. A ticket without comments gets
@@ -88,7 +94,7 @@ pub async fn read_export(
 
     // Pass one: organisations and people, which fit in memory.
     let path = zip_path.to_path_buf();
-    let (orgs, users, unreadable) = tokio::task::spawn_blocking(move || read_people(&path))
+    let (orgs, users, people_tally) = tokio::task::spawn_blocking(move || read_people(&path))
         .await
         .map_err(|e| SourceError::Protocol(format!("export reader stopped: {e}")))??;
     let orgs = map::organizations(orgs);
@@ -174,7 +180,7 @@ pub async fn read_export(
             }
         };
         let (mut ticket, mut stats) = source
-            .assemble(bundle, &t, created_at, &fields, &raw, &cancel)
+            .assemble(bundle, &t, created_at, None, &fields, &raw, &cancel)
             .await?;
         if ticket.comments.is_empty() {
             if let Some(c) = description_comment(&t, created_at) {
@@ -192,17 +198,31 @@ pub async fn read_export(
             run.report(source);
         }
     }
-    let skipped_lines = reader
+    let ticket_tally = reader
         .await
         .map_err(|e| SourceError::Protocol(format!("export reader stopped: {e}")))??;
     state.tickets_len = writer.checkpoint()?;
     state.tickets_done = true;
     run.report(source);
 
-    let unreadable = unreadable + skipped_lines;
+    let tickets = run.counts.get("tickets").copied().unwrap_or(0);
+    if tickets == 0 && (people_tally.records > 0 || ticket_tally.records > 0) {
+        return Err(SourceError::Protocol(format!(
+            "the export holds {} records but no ticket this reader recognises; \
+             it may not be a Zendesk JSON export",
+            people_tally.records.max(ticket_tally.records)
+        )));
+    }
+    let unreadable = people_tally.unreadable + ticket_tally.unreadable;
     if unreadable > 0 {
         notes.push(format!(
             "{unreadable} lines of the export could not be read and were skipped"
+        ));
+    }
+    let unrecognised = people_tally.unrecognised.max(ticket_tally.unrecognised);
+    if unrecognised > 0 {
+        notes.push(format!(
+            "{unrecognised} records of the export were of no kind this reader knows and were skipped"
         ));
     }
     state.counts = run.counts.clone();
@@ -237,86 +257,179 @@ fn zip_error(e: zip::result::ZipError) -> SourceError {
     SourceError::Protocol(format!("export zip: {e}"))
 }
 
+/// What a pass over the zip met besides the records it handed on.
+#[derive(Debug, Default, Clone, Copy)]
+struct Tally {
+    /// Non-empty lines (or whole documents) seen.
+    records: u64,
+    /// Lines that couldn't be read: not JSON, too long, the wrong shape.
+    unreadable: u64,
+    /// JSON records of no kind the reader knows.
+    unrecognised: u64,
+}
+
+const BOM: &[u8] = b"\xEF\xBB\xBF";
+
 /// Visits every record of every entry in the zip. `want` says which kinds
 /// the caller needs; the rest are passed over without being decoded.
-/// Returns the number of lines that couldn't be read.
 fn each_record(
     path: &Path,
     want: &[Kind],
     mut visit: impl FnMut(Kind, Value) -> bool,
-) -> Result<u64, SourceError> {
+) -> Result<Tally, SourceError> {
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file).map_err(zip_error)?;
-    let mut unreadable = 0u64;
+    let mut tally = Tally::default();
     for i in 0..archive.len() {
-        let entry = archive.by_index(i).map_err(zip_error)?;
-        if entry.is_dir() {
+        let (is_dir, name, hint) = {
+            let entry = archive.by_index(i).map_err(zip_error)?;
+            let name = entry.name().map(|n| n.into_owned()).unwrap_or_default();
+            (entry.is_dir(), name.clone(), kind_from_name(&name))
+        };
+        if is_dir {
             continue;
         }
-        let hint = entry.name().map(|n| kind_from_name(&n)).unwrap_or(None);
-        let mut reader = BufReader::new(entry);
-        let mut first = true;
-        let mut buf = Vec::new();
-        loop {
-            buf.clear();
-            let Some(complete) = read_line_capped(&mut reader, &mut buf)? else {
-                break;
-            };
-            if !complete {
-                unreadable += 1;
-                first = false;
-                continue;
-            }
-            let line = trim_ascii(&buf);
-            if line.is_empty() {
-                continue;
-            }
-            // Cheap skip: a wrapped record of a kind we don't want is
-            // passed over without parsing it.
-            if let Some(k) = wrapped_kind(line) {
-                if !want.contains(&k) {
-                    first = false;
-                    continue;
-                }
-            }
-            match serde_json::from_slice::<Value>(line) {
-                Ok(v) => {
-                    first = false;
-                    for (k, record) in records(v, hint) {
-                        if want.contains(&k) && !visit(k, record) {
-                            return Ok(unreadable);
+        let mut reader = BufReader::new(archive.by_index(i).map_err(zip_error)?);
+        match read_lines(&mut reader, true, want, hint, &mut tally, &mut visit)? {
+            Lines::Stopped => return Ok(tally),
+            Lines::Done => {}
+            Lines::NotNdjson(first) => {
+                // Perhaps one JSON document over many lines: read it whole,
+                // up to the limit.
+                let mut doc = first;
+                doc.push(b'\n');
+                let read = reader
+                    .by_ref()
+                    .take(MAX_DOCUMENT + 1)
+                    .read_to_end(&mut doc)?;
+                let too_big = read as u64 > MAX_DOCUMENT;
+                if !too_big {
+                    if let Ok(v) = serde_json::from_slice::<Value>(&doc) {
+                        tally.records += 1;
+                        if !hand_on(v, hint, want, &mut tally, &mut visit) {
+                            return Ok(tally);
                         }
+                        continue;
                     }
                 }
-                Err(_) if first => {
-                    // Not NDJSON: perhaps one JSON document over many lines.
-                    let mut doc = line.to_vec();
-                    doc.push(b'\n');
-                    reader.by_ref().take(MAX_DOCUMENT).read_to_end(&mut doc)?;
-                    match serde_json::from_slice::<Value>(&doc) {
-                        Ok(v) => {
-                            for (k, record) in records(v, hint) {
-                                if want.contains(&k) && !visit(k, record) {
-                                    return Ok(unreadable);
-                                }
-                            }
-                        }
-                        Err(_) => unreadable += 1,
-                    }
-                    break;
+                // Not one document either: line by line after all, the bad
+                // first line counted as such.
+                drop(reader);
+                let mut lines = BufReader::new(archive.by_index(i).map_err(zip_error)?);
+                let before = tally;
+                if let Lines::Stopped =
+                    read_lines(&mut lines, false, want, hint, &mut tally, &mut visit)?
+                {
+                    return Ok(tally);
                 }
-                Err(_) => unreadable += 1,
+                if too_big && tally.records == before.records {
+                    return Err(SourceError::Protocol(format!(
+                        "export entry {name} is one document over {} MB, more than this reader takes",
+                        MAX_DOCUMENT / (1024 * 1024)
+                    )));
+                }
             }
         }
     }
-    Ok(unreadable)
+    Ok(tally)
 }
 
-fn read_people(path: &Path) -> Result<(Vec<api::Organization>, Vec<api::User>, u64), SourceError> {
+/// How a line-by-line read of an entry ended.
+enum Lines {
+    Done,
+    /// The visitor asked to stop.
+    Stopped,
+    /// The first line isn't JSON on its own: these are its bytes, and the
+    /// reader is just past them.
+    NotNdjson(Vec<u8>),
+}
+
+/// Reads `reader` one line at a time. With `first_may_be_document`, a first
+/// line that doesn't parse ends the read as [`Lines::NotNdjson`]; otherwise
+/// it counts as unreadable like any other.
+fn read_lines(
+    reader: &mut impl BufRead,
+    first_may_be_document: bool,
+    want: &[Kind],
+    hint: Option<Kind>,
+    tally: &mut Tally,
+    visit: &mut impl FnMut(Kind, Value) -> bool,
+) -> Result<Lines, SourceError> {
+    let mut first = true;
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        let Some(complete) = read_line_capped(reader, &mut buf)? else {
+            return Ok(Lines::Done);
+        };
+        let mut line = trim_ascii(&buf);
+        if first {
+            line = line.strip_prefix(BOM).map(trim_ascii).unwrap_or(line);
+        }
+        if !complete {
+            tally.records += 1;
+            tally.unreadable += 1;
+            first = false;
+            continue;
+        }
+        if line.is_empty() {
+            continue;
+        }
+        tally.records += 1;
+        // Cheap skip: a wrapped record of a kind we don't want is passed
+        // over without parsing it.
+        if let Some(k) = wrapped_kind(line) {
+            if !want.contains(&k) {
+                first = false;
+                continue;
+            }
+        }
+        match serde_json::from_slice::<Value>(line) {
+            Ok(v) => {
+                first = false;
+                if !hand_on(v, hint, want, tally, visit) {
+                    return Ok(Lines::Stopped);
+                }
+            }
+            Err(_) if first && first_may_be_document => {
+                tally.records -= 1;
+                return Ok(Lines::NotNdjson(line.to_vec()));
+            }
+            Err(_) => {
+                first = false;
+                tally.unreadable += 1;
+            }
+        }
+    }
+}
+
+/// Hands each wanted record in `v` to `visit`; false when it asked to stop.
+fn hand_on(
+    v: Value,
+    hint: Option<Kind>,
+    want: &[Kind],
+    tally: &mut Tally,
+    visit: &mut impl FnMut(Kind, Value) -> bool,
+) -> bool {
+    let found = records(v, hint);
+    if found.is_empty() {
+        tally.unrecognised += 1;
+    }
+    for (k, record) in found {
+        if want.contains(&k) && !visit(k, record) {
+            return false;
+        }
+    }
+    true
+}
+
+fn read_people(
+    path: &Path,
+) -> Result<(Vec<api::Organization>, Vec<api::User>, Tally), SourceError> {
     let mut orgs = Vec::new();
     let mut users = Vec::new();
     let mut bad = 0u64;
-    let unreadable = each_record(path, &[Kind::User, Kind::Organization], |k, v| {
+    let mut tally = each_record(path, &[Kind::User, Kind::Organization], |k, v| {
         match k {
             Kind::User => match serde_json::from_value(v) {
                 Ok(u) => users.push(u),
@@ -330,14 +443,15 @@ fn read_people(path: &Path) -> Result<(Vec<api::Organization>, Vec<api::User>, u
         }
         true
     })?;
-    Ok((orgs, users, unreadable + bad))
+    tally.unreadable += bad;
+    Ok((orgs, users, tally))
 }
 
 /// Sends each ticket down `tx`; stops when the receiver has gone (the run
 /// failed or was cancelled).
-fn read_tickets(path: &Path, tx: &mpsc::Sender<api::Ticket>) -> Result<u64, SourceError> {
+fn read_tickets(path: &Path, tx: &mpsc::Sender<api::Ticket>) -> Result<Tally, SourceError> {
     let mut bad = 0u64;
-    let unreadable = each_record(path, &[Kind::Ticket], |_, v| {
+    let mut tally = each_record(path, &[Kind::Ticket], |_, v| {
         match serde_json::from_value::<api::Ticket>(v) {
             Ok(t) => tx.blocking_send(t).is_ok(),
             Err(_) => {
@@ -346,7 +460,8 @@ fn read_tickets(path: &Path, tx: &mpsc::Sender<api::Ticket>) -> Result<u64, Sour
             }
         }
     })?;
-    Ok(unreadable + bad)
+    tally.unreadable += bad;
+    Ok(tally)
 }
 
 /// Reads one line into `buf`, at most [`MAX_LINE`] bytes of it. None at

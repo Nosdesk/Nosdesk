@@ -1339,13 +1339,8 @@ async fn helpdesk_import(args: HelpdeskImportArgs) -> Result<()> {
             args.subdomain.trim().to_lowercase()
         ))
     });
+    // A copy of a customer's helpdesk: created readable by its owner only.
     let bundle = Bundle::create(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    // The bundle is a copy of a customer's helpdesk: readable by its owner only.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).ok();
-    }
     let complete = bundle.read_manifest().is_ok();
 
     if !complete || args.refetch {

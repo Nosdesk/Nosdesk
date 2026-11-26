@@ -5,15 +5,22 @@
 //!
 //! 1. Organisations (for names), then every user, from the incremental
 //!    user export, into `people.jsonl`. Redone whole if interrupted; it is
-//!    cheap next to the tickets.
+//!    cheap next to the tickets. The export's cursor is kept.
 //! 2. Custom ticket field titles, every run.
 //! 3. Tickets from the incremental ticket export (which includes archived
-//!    tickets), a page at a time. For each ticket its comments, and for
-//!    each comment its attachments, downloaded to `files/`. A page is
-//!    checkpointed only once all of it is on disk, together with the
-//!    cursor for the next one, so an interrupted fetch redoes at most one
-//!    page.
-//! 4. The manifest, last.
+//!    tickets) with their metrics sideloaded (`include=metric_sets`, for
+//!    when each was solved; the sideload's shape is taken from Zendesk's
+//!    API reference and not yet seen on a real account), a page at a time.
+//!    For each ticket its comments, and for each comment its attachments,
+//!    downloaded to `files/`. A page is checkpointed only once all of it is
+//!    on disk, together with the cursor for the next one, so an interrupted
+//!    fetch redoes at most one page.
+//! 4. Users again, from the kept cursor: anyone created while the tickets
+//!    were fetched, so a ticket raised during a long fetch keeps its
+//!    requester.
+//! 5. On a resumed fetch, attachments that went missing for a reason that
+//!    may pass (a dropped connection, a short read) are tried again.
+//! 6. The manifest, last.
 //!
 //! Credentials: an OAuth bearer token, or (until Zendesk switches them off
 //! on 2027-04-30) an API token. Neither is refreshed here; a 401 mid-run
@@ -27,7 +34,7 @@ mod map;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::sync::OnceLock;
 
@@ -223,7 +230,7 @@ impl ZendeskSource {
         bundle: &Bundle,
         run: &mut Run<'_>,
         cancel: &CancellationToken,
-    ) -> Result<(), SourceError> {
+    ) -> Result<Option<String>, SourceError> {
         let orgs = self
             .list_all(
                 "/api/v2/organizations.json",
@@ -236,8 +243,80 @@ impl ZendeskSource {
         let mut writer = bundle.people_writer(true)?;
         let mut seen = HashSet::new();
         let mut people = 0u64;
+        let cursor = self
+            .users_since(
+                None,
+                &orgs,
+                &mut writer,
+                &mut seen,
+                &mut people,
+                run,
+                cancel,
+            )
+            .await?;
+        writer.checkpoint()?;
+        run.counts.insert("people".into(), people);
+        Ok(cursor)
+    }
+
+    /// The users created or changed since the people were fetched, added to
+    /// people.jsonl when not already there. Returns the export's cursor for
+    /// next time.
+    async fn refresh_people(
+        &self,
+        bundle: &Bundle,
+        cursor: Option<String>,
+        run: &mut Run<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<String>, SourceError> {
+        let Some(cursor) = cursor else {
+            return Ok(None);
+        };
+        let orgs = map::organizations(
+            self.list_all(
+                "/api/v2/organizations.json",
+                |p: api::OrganizationsPage| (p.organizations, p.meta),
+                cancel,
+            )
+            .await?,
+        );
+        let mut seen: HashSet<i64> = bundle
+            .people()?
+            .filter_map(Result::ok)
+            .filter_map(|p| p.source_id.parse().ok())
+            .collect();
+        let mut people = run.counts.get("people").copied().unwrap_or(0);
+        let mut writer = bundle.people_writer(false)?;
+        let cursor = self
+            .users_since(
+                Some(cursor),
+                &orgs,
+                &mut writer,
+                &mut seen,
+                &mut people,
+                run,
+                cancel,
+            )
+            .await?;
+        writer.checkpoint()?;
+        run.counts.insert("people".into(), people);
+        Ok(cursor)
+    }
+
+    /// Pages through the incremental user export from `cursor` (or the
+    /// start), writing each user not `seen` yet.
+    #[allow(clippy::too_many_arguments)]
+    async fn users_since(
+        &self,
+        mut cursor: Option<String>,
+        orgs: &map::Organizations,
+        writer: &mut bundle::JsonlWriter,
+        seen: &mut HashSet<i64>,
+        people: &mut u64,
+        run: &mut Run<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<String>, SourceError> {
         let per_page = USER_PAGE_SIZE.to_string();
-        let mut cursor: Option<String> = None;
         loop {
             let query: Vec<(&str, &str)> = match cursor.as_deref() {
                 Some(c) => vec![("cursor", c), ("per_page", &per_page)],
@@ -254,22 +333,21 @@ impl ZendeskSource {
             for u in &page.users {
                 // A user updated during the export comes round again.
                 if seen.insert(u.id) {
-                    writer.write(&map::person(u, &orgs))?;
-                    people += 1;
+                    writer.write(&map::person(u, orgs))?;
+                    *people += 1;
                 }
             }
-            run.progress.people = people;
+            run.progress.people = *people;
             run.report(self);
             match page.after_cursor {
                 Some(next) if !page.end_of_stream && cursor.as_deref() != Some(next.as_str()) => {
                     cursor = Some(next)
                 }
-                _ => break,
+                // The end: the cursor Zendesk gave stays good for what
+                // changes after it.
+                next => return Ok(next.or(cursor)),
             }
         }
-        writer.checkpoint()?;
-        run.counts.insert("people".into(), people);
-        Ok(())
     }
 
     /// One ticket with its conversation and files. None when it can't be
@@ -278,6 +356,7 @@ impl ZendeskSource {
         &self,
         bundle: &Bundle,
         t: &api::Ticket,
+        solved_at: Option<chrono::DateTime<Utc>>,
         fields: &FieldCatalog,
         cancel: &CancellationToken,
     ) -> Result<TicketOutcome, SourceError> {
@@ -312,18 +391,20 @@ impl ZendeskSource {
             }
         }
         let (ticket, stats) = self
-            .assemble(bundle, t, created_at, fields, &raw, cancel)
+            .assemble(bundle, t, created_at, solved_at, fields, &raw, cancel)
             .await?;
         Ok(TicketOutcome::Fetched(Box::new(ticket), stats))
     }
 
     /// Maps a ticket and its raw comments, downloading every attachment.
     /// Shared with the export path.
+    #[allow(clippy::too_many_arguments)]
     async fn assemble(
         &self,
         bundle: &Bundle,
         t: &api::Ticket,
         created_at: chrono::DateTime<Utc>,
+        solved_at: Option<chrono::DateTime<Utc>>,
         fields: &FieldCatalog,
         raw: &[api::Comment],
         cancel: &CancellationToken,
@@ -347,7 +428,10 @@ impl ZendeskSource {
             stats.comments += 1;
             comments.push(comment);
         }
-        Ok((map::ticket(t, created_at, fields, comments), stats))
+        Ok((
+            map::ticket(t, created_at, fields, comments, solved_at),
+            stats,
+        ))
     }
 
     async fn attachment(
@@ -359,41 +443,105 @@ impl ZendeskSource {
         let source_id = a.id.to_string();
         let file_name = a
             .file_name
-            .clone()
+            .as_deref()
+            .map(map::text)
             .filter(|n| !n.trim().is_empty())
             .unwrap_or_else(|| format!("attachment-{}", a.id));
-        let outcome = match a.content_url.as_deref() {
-            Some(u) if !u.is_empty() => {
-                self.http
-                    .download(
-                        u,
-                        &bundle.file_path(&source_id),
-                        self.max_attachment_bytes,
-                        a.size,
-                        cancel,
-                    )
-                    .await?
-            }
-            _ => Err("Zendesk gave no download link".to_string()),
+        let link = a.content_url.clone().filter(|u| !u.is_empty());
+        let mut att = Attachment {
+            source_id,
+            file_name,
+            content_type: a.content_type.clone(),
+            size: a.size,
+            stored: false,
+            missing_reason: None,
+            source_url: None,
+            retry: false,
         };
-        Ok(match outcome {
-            Ok(len) => Attachment {
-                source_id,
-                file_name,
-                content_type: a.content_type.clone(),
-                size: Some(len),
-                stored: true,
-                missing_reason: None,
-            },
-            Err(reason) => Attachment {
-                source_id,
-                file_name,
-                content_type: a.content_type.clone(),
-                size: a.size,
-                stored: false,
-                missing_reason: Some(reason),
-            },
-        })
+        match link {
+            Some(u) => {
+                // Kept only when it is a link the connector would follow.
+                let allowed = url::Url::parse(&u)
+                    .ok()
+                    .is_some_and(|parsed| self.http.attachment_link_allowed(&parsed).is_ok());
+                if allowed {
+                    att.source_url = Some(u.clone());
+                }
+                self.download_into(bundle, &mut att, &u, cancel).await?;
+            }
+            None => att.missing_reason = Some("Zendesk gave no download link".to_string()),
+        }
+        Ok(att)
+    }
+
+    /// Downloads `att` from `link` into the bundle, recording how it went.
+    async fn download_into(
+        &self,
+        bundle: &Bundle,
+        att: &mut Attachment,
+        link: &str,
+        cancel: &CancellationToken,
+    ) -> Result<(), SourceError> {
+        let dest = bundle.file_path_to_write(&att.source_id)?;
+        let outcome = self
+            .http
+            .download(
+                link,
+                &dest,
+                self.max_attachment_bytes,
+                att.size,
+                att.content_type.as_deref(),
+                cancel,
+            )
+            .await?;
+        match outcome {
+            Ok(len) => {
+                att.size = Some(len);
+                att.stored = true;
+                att.missing_reason = None;
+                att.retry = false;
+            }
+            Err(missing) => {
+                att.stored = false;
+                att.missing_reason = Some(missing.reason);
+                att.retry = missing.retry;
+            }
+        }
+        Ok(())
+    }
+
+    /// Tries again every attachment the bundle lacks for a reason that may
+    /// have passed, rewriting tickets.jsonl once if any came through.
+    async fn retry_missing(
+        &self,
+        bundle: &Bundle,
+        state: &mut FetchState,
+        run: &mut Run<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<(), SourceError> {
+        let mut tickets = bundle.tickets()?.collect::<Result<Vec<_>, _>>()?;
+        let mut recovered = 0u64;
+        for t in &mut tickets {
+            for c in &mut t.comments {
+                for a in &mut c.attachments {
+                    let Some(link) = a.source_url.clone().filter(|_| !a.stored && a.retry) else {
+                        continue;
+                    };
+                    self.download_into(bundle, a, &link, cancel).await?;
+                    if a.stored {
+                        recovered += 1;
+                    }
+                }
+            }
+        }
+        if recovered > 0 {
+            state.tickets_len = bundle.rewrite_tickets(&tickets)?;
+            let missing = run.counts.entry("attachments_missing".into()).or_default();
+            *missing = missing.saturating_sub(recovered);
+            state.counts = run.counts.clone();
+            bundle.write_state(state)?;
+        }
+        Ok(())
     }
 
     async fn fetch_tickets(
@@ -422,11 +570,16 @@ impl ZendeskSource {
                 return Err(SourceError::Cancelled);
             }
             let query: Vec<(&str, &str)> = match cursor.as_deref() {
-                Some(c) => vec![("cursor", c), ("per_page", &per_page)],
+                Some(c) => vec![
+                    ("cursor", c),
+                    ("per_page", &per_page),
+                    ("include", "metric_sets"),
+                ],
                 None => vec![
                     ("start_time", "0"),
                     ("exclude_deleted", "true"),
                     ("per_page", &per_page),
+                    ("include", "metric_sets"),
                 ],
             };
             let url = self
@@ -461,9 +614,17 @@ impl ZendeskSource {
             // Futures built up front rather than in a `.map` closure: a
             // closure over borrowed tickets trips the compiler's `Send`
             // check on the fetch future.
+            let solved: HashMap<i64, chrono::DateTime<Utc>> = page
+                .metric_sets
+                .iter()
+                .filter_map(|m| Some((m.ticket_id?, m.solved_at?)))
+                .collect();
             let pending: Vec<_> = todo
                 .into_iter()
-                .map(|t| self.fetch_ticket(bundle, t, &fields, cancel))
+                .map(|t| {
+                    let solved_at = solved.get(&t.id).copied();
+                    self.fetch_ticket(bundle, t, solved_at, &fields, cancel)
+                })
                 .collect();
             let outcomes: Vec<TicketOutcome> = stream::iter(pending)
                 .buffered(TICKET_CONCURRENCY)
@@ -538,16 +699,26 @@ impl HelpdeskSource for ZendeskSource {
             ));
         }
         let mut state = bundle.read_state()?;
+        let resumed = state != FetchState::default();
         let mut run = Run::new(&state, progress);
 
         if !state.people_done {
-            self.fetch_people(bundle, &mut run, &cancel).await?;
+            state.people_cursor = self.fetch_people(bundle, &mut run, &cancel).await?;
             state.people_done = true;
             state.counts = run.counts.clone();
             bundle.write_state(&state)?;
         }
         if !state.tickets_done {
             self.fetch_tickets(bundle, &mut state, &mut run, &cancel)
+                .await?;
+        }
+        state.people_cursor = self
+            .refresh_people(bundle, state.people_cursor.take(), &mut run, &cancel)
+            .await?;
+        state.counts = run.counts.clone();
+        bundle.write_state(&state)?;
+        if resumed {
+            self.retry_missing(bundle, &mut state, &mut run, &cancel)
                 .await?;
         }
 

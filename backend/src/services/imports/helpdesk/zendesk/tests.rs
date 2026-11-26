@@ -48,6 +48,8 @@ struct Resp {
     status: u16,
     headers: Vec<(&'static str, String)>,
     body: Vec<u8>,
+    /// A Content-Length longer than the body: the connection drops short.
+    declared_len: Option<usize>,
 }
 
 fn json_resp(v: Value) -> Resp {
@@ -55,6 +57,7 @@ fn json_resp(v: Value) -> Resp {
         status: 200,
         headers: vec![("Content-Type", "application/json".into())],
         body: v.to_string().into_bytes(),
+        declared_len: None,
     }
 }
 
@@ -63,6 +66,7 @@ fn status(code: u16) -> Resp {
         status: code,
         headers: vec![],
         body: b"{}".to_vec(),
+        declared_len: None,
     }
 }
 
@@ -119,7 +123,7 @@ impl MockServer {
                     let mut head = format!(
                         "HTTP/1.1 {} X\r\nContent-Length: {}\r\nConnection: close\r\n",
                         resp.status,
-                        resp.body.len()
+                        resp.declared_len.unwrap_or(resp.body.len())
                     );
                     for (k, v) in &resp.headers {
                         head.push_str(&format!("{k}: {v}\r\n"));
@@ -158,6 +162,11 @@ struct Twists {
     deny_ticket_103: AtomicBool,
     deny_everything: AtomicBool,
     users_calls: AtomicU32,
+    /// The first download of 5001 breaks off after two bytes.
+    break_5001_once: AtomicBool,
+    /// User 4 is created while the tickets are fetched; ticket 103 names
+    /// them.
+    late_user: AtomicBool,
 }
 
 /// A small Zendesk account: two orgs and three users over two pages each,
@@ -187,6 +196,7 @@ fn account(api_base: &str, files_base: &str, twists: &Twists, req: &Req) -> Resp
                     status: 429,
                     headers: vec![("Retry-After", "1".into())],
                     body: b"{}".to_vec(),
+                    declared_len: None,
                 };
             }
             match (q("start_time"), q("cursor")) {
@@ -205,6 +215,19 @@ fn account(api_base: &str, files_base: &str, twists: &Twists, req: &Req) -> Resp
                     ],
                     "after_cursor": "u3", "end_of_stream": true
                 })),
+                // Asked again after the tickets: whoever came since.
+                (None, Some("u3")) => {
+                    let users = if twists.late_user.load(Ordering::SeqCst) {
+                        json!([{"id": 4, "name": "Late Larry", "email": "larry@example.com",
+                                "role": "end-user", "active": true}])
+                    } else {
+                        json!([])
+                    };
+                    json_resp(json!({"users": users, "after_cursor": "u4", "end_of_stream": true}))
+                }
+                (None, Some("u4")) => json_resp(json!({
+                    "users": [], "after_cursor": "u4", "end_of_stream": true
+                })),
                 _ => status(400),
             }
         }
@@ -222,10 +245,17 @@ fn account(api_base: &str, files_base: &str, twists: &Twists, req: &Req) -> Resp
                 "tickets": [ticket(101, "open", &[3, 2]), ticket(102, "hold", &[])],
                 "after_cursor": "t2", "end_of_stream": false
             })),
-            (None, Some("t2")) => json_resp(json!({
-                "tickets": [ticket(103, "solved", &[]), ticket(102, "hold", &[]), ticket(104, "deleted", &[])],
-                "after_cursor": "t3", "end_of_stream": true
-            })),
+            (None, Some("t2")) => {
+                let mut solved = ticket(103, "solved", &[]);
+                if twists.late_user.load(Ordering::SeqCst) {
+                    solved["requester_id"] = json!(4);
+                }
+                json_resp(json!({
+                    "tickets": [solved, ticket(102, "hold", &[]), ticket(104, "deleted", &[])],
+                    "metric_sets": [{"ticket_id": 103, "solved_at": "2024-01-04T12:00:00Z"}],
+                    "after_cursor": "t3", "end_of_stream": true
+                }))
+            }
             _ => status(400),
         },
         "/api/v2/tickets/101/comments.json" => match q("page[after]") {
@@ -261,10 +291,17 @@ fn account(api_base: &str, files_base: &str, twists: &Twists, req: &Req) -> Resp
                 "meta": {"has_more": false}
             }))
         }
+        "/attachments/5001" if twists.break_5001_once.swap(false, Ordering::SeqCst) => Resp {
+            status: 200,
+            headers: vec![],
+            body: b"he".to_vec(),
+            declared_len: Some(5),
+        },
         "/attachments/5001" => Resp {
             status: 200,
             headers: vec![],
             body: b"hello".to_vec(),
+            declared_len: None,
         },
         // A private attachment: only a signed request gets it.
         "/attachments/5009" if req.auth.is_none() => status(401),
@@ -272,6 +309,7 @@ fn account(api_base: &str, files_base: &str, twists: &Twists, req: &Req) -> Resp
             status: 200,
             headers: vec![],
             body: b"secret".to_vec(),
+            declared_len: None,
         },
         _ => status(404),
     }
@@ -308,6 +346,7 @@ async fn setup() -> Setup {
             status: 200,
             headers: vec![],
             body: b"world".to_vec(),
+            declared_len: None,
         },
         _ => status(404),
     }))
@@ -407,18 +446,28 @@ async fn fetches_people_tickets_comments_and_attachments_across_pages() {
     assert_eq!(tickets[1].status, StatusKind::OnHold);
     assert_eq!(tickets[2].status, StatusKind::Solved);
 
-    // Attachments: on-host stored with credentials, off-host stored
-    // without, a 404 recorded as missing.
+    // Attachments: on the account's host stored with credentials; a link
+    // off it is refused without a request; a 404 recorded as missing.
     assert!(t101.comments[0].attachments[0].stored);
     assert_eq!(
         std::fs::read(bundle.file_path("5001")).expect("5001"),
         b"hello"
     );
-    assert!(t101.comments[1].attachments[0].stored);
-    assert_eq!(
-        std::fs::read(bundle.file_path("5002")).expect("5002"),
-        b"world"
+    let off_host = &t101.comments[1].attachments[0];
+    assert!(!off_host.stored);
+    assert!(
+        off_host
+            .missing_reason
+            .as_deref()
+            .unwrap_or("")
+            .contains("off the Zendesk account"),
+        "{off_host:?}"
     );
+    assert!(
+        off_host.source_url.is_none(),
+        "an off-account link isn't kept"
+    );
+    assert!(!bundle.file_path("5002").exists());
     let gone = &tickets[2].comments[0].attachments[0];
     assert!(!gone.stored);
     assert!(
@@ -429,9 +478,10 @@ async fn fetches_people_tickets_comments_and_attachments_across_pages() {
     let on_host = s.api.requests("/attachments/5001");
     let expected = format!("Basic {}", base64_encode("admin@acme.test/token:tok"));
     assert_eq!(on_host[0].auth.as_deref(), Some(expected.as_str()));
-    let off_host = s.files.requests("/files/5002");
-    assert_eq!(off_host.len(), 1);
-    assert_eq!(off_host[0].auth, None, "credentials never leave Zendesk");
+    assert!(
+        s.files.requests("/files/5002").is_empty(),
+        "an off-account link is never requested"
+    );
     assert!(s
         .api
         .requests("/api/v2/incremental/tickets/cursor.json")
@@ -449,8 +499,18 @@ async fn fetches_people_tickets_comments_and_attachments_across_pages() {
     assert_eq!(c("tickets"), Some(3));
     assert_eq!(c("comments"), Some(4));
     assert_eq!(c("attachments"), Some(3));
-    assert_eq!(c("attachments_missing"), Some(1));
+    assert_eq!(c("attachments_missing"), Some(2));
     assert_eq!(manifest.counts.len(), 5);
+    // Solved time from the sideloaded metrics.
+    assert_eq!(
+        tickets[2].solved_at.map(|t| t.to_rfc3339()),
+        Some("2024-01-04T12:00:00+00:00".to_string())
+    );
+    assert!(s
+        .api
+        .requests("/api/v2/incremental/tickets/cursor.json")
+        .iter()
+        .all(|r| r.query.get("include").map(String::as_str) == Some("metric_sets")));
     assert_eq!(bundle.read_manifest().expect("manifest"), manifest);
     let last = seen
         .lock()
@@ -485,8 +545,9 @@ async fn waits_out_a_429_with_retry_after() {
         "Retry-After: 1 was honoured"
     );
     assert_eq!(*throttled.lock().expect("t"), 1);
-    // The throttled request, then both pages.
-    assert_eq!(s.twists.users_calls.load(Ordering::SeqCst), 3);
+    // The throttled request, both pages, then the look for users created
+    // while the tickets were fetched.
+    assert_eq!(s.twists.users_calls.load(Ordering::SeqCst), 4);
     assert_eq!(ticket_ids(&bundle).len(), 3);
     let first = &s.api.requests("/api/v2/organizations.json")[0];
     assert_eq!(first.auth.as_deref(), Some("Bearer oauth"));
@@ -545,8 +606,8 @@ async fn interrupted_fetch_resumes_and_writes_each_ticket_once() {
     assert_eq!(ticket_ids(&bundle), vec!["101", "102", "103"]);
     assert_eq!(
         s.twists.users_calls.load(Ordering::SeqCst),
-        users_calls,
-        "people not fetched again"
+        users_calls + 1,
+        "people not fetched again, only those since"
     );
     let first_page_requests = s
         .api
@@ -560,7 +621,7 @@ async fn interrupted_fetch_resumes_and_writes_each_ticket_once() {
     assert_eq!(c("tickets"), Some(3));
     assert_eq!(c("comments"), Some(4));
     assert_eq!(c("attachments"), Some(3));
-    assert_eq!(c("attachments_missing"), Some(1));
+    assert_eq!(c("attachments_missing"), Some(2));
     assert_eq!(
         s.api.requests("/attachments/5001").len(),
         1,
@@ -656,12 +717,48 @@ async fn a_private_attachment_host_is_refused_without_the_allowlist() {
             &dir.path().join("x"),
             10,
             None,
+            None,
             &CancellationToken::new(),
         )
         .await
         .expect("not cancelled");
-    let reason = out.expect_err("refused");
-    assert!(reason.contains("non-routable"), "{reason}");
+    let missing = out.expect_err("refused");
+    assert!(
+        missing.reason.contains("off the Zendesk account"),
+        "{missing:?}"
+    );
+    assert!(!missing.retry);
+}
+
+#[tokio::test]
+async fn a_download_that_breaks_off_is_tried_again_and_late_users_are_fetched() {
+    let s = setup().await;
+    s.twists.break_5001_once.store(true, Ordering::SeqCst);
+    s.twists.late_user.store(true, Ordering::SeqCst);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bundle = Bundle::create(dir.path()).expect("bundle");
+    let mut src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    src.fetch(&bundle, &no_progress, CancellationToken::new())
+        .await
+        .expect("fetch");
+    assert_eq!(
+        std::fs::read(bundle.file_path("5001")).expect("5001"),
+        b"hello",
+        "the broken download was tried again, not kept short"
+    );
+    assert_eq!(s.api.requests("/attachments/5001").len(), 2);
+    assert!(!bundle.root().join("files/5001.part").exists());
+    // Ticket 103's requester was created after the people were fetched.
+    let people: Vec<String> = bundle
+        .people()
+        .expect("people")
+        .map(|p| p.expect("person").source_id)
+        .collect();
+    assert!(people.contains(&"4".to_string()), "{people:?}");
+    assert_eq!(
+        bundle.read_state().expect("state").people_cursor.as_deref(),
+        Some("u4")
+    );
 }
 
 #[test]
@@ -924,4 +1021,127 @@ async fn api_fetch_without_a_credential_is_refused_at_once() {
     assert!(s.api.log.lock().expect("log").is_empty(), "no request made");
     assert!(ZendeskSource::for_export("acme").is_ok());
     assert!(ZendeskSource::for_export("evil.com/").is_err());
+}
+
+fn export_zip(dir: &std::path::Path, entries: &[(&str, Vec<u8>)]) -> std::path::PathBuf {
+    use std::io::Write;
+    let path = dir.join("export.zip");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).expect("zip"));
+    for (name, bytes) in entries {
+        zip.start_file(*name, zip::write::SimpleFileOptions::default())
+            .expect("entry");
+        zip.write_all(bytes).expect("bytes");
+    }
+    zip.finish().expect("finish");
+    path
+}
+
+async fn read_zip(
+    api_base: &str,
+    zip: &std::path::Path,
+    out: &std::path::Path,
+) -> Result<(Bundle, Manifest), SourceError> {
+    let bundle = Bundle::create(out).expect("bundle");
+    let src = with_local_allowlisted(|| ZendeskSource::for_export_with_base_url(api_base))
+        .expect("source");
+    let manifest = read_export(&src, zip, &bundle, &no_progress, CancellationToken::new()).await?;
+    Ok((bundle, manifest))
+}
+
+#[tokio::test]
+async fn the_export_reader_takes_odd_files_without_losing_or_inventing_records() {
+    let s = setup().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut bom = b"\xEF\xBB\xBF".to_vec();
+    bom.extend(
+        json!({"ticket": {
+            "id": 401, "subject": "BOM", "status": "open", "requester_id": 3,
+            "created_at": "2023-05-01T09:00:00Z", "tags": null, "collaborator_ids": null,
+            "custom_fields": null,
+            "comments": [
+                {"id": 1, "author_id": 3, "created_at": "2023-05-01T09:00:00Z", "body": "no public field"},
+                {"id": 2, "author_id": 3, "public": null, "attachments": null,
+                 "created_at": "2023-05-01T10:00:00Z", "body": "public is null"}
+            ]
+        }})
+        .to_string()
+        .into_bytes(),
+    );
+    bom.push(b'\n');
+    let document = serde_json::to_vec_pretty(&json!({"tickets": [{
+        "id": 402, "subject": "Pretty", "status": "open", "requester_id": 3,
+        "created_at": "2023-05-02T09:00:00Z",
+        "comments": [{"id": 3, "author_id": 3, "public": true, "created_at": "2023-05-02T09:00:00Z", "body": "hi"}]
+    }]}))
+    .expect("doc");
+    let unknown = format!(
+        "{}\n{}\n",
+        json!({"widget": {"id": 1}}),
+        json!({"id": 9, "colour": "red"})
+    )
+    .into_bytes();
+    let bad_first = format!(
+        "garbage line\n{}\n",
+        json!({"ticket": {"id": 404, "subject": "After garbage", "status": "open",
+            "requester_id": 3, "created_at": "2023-05-04T09:00:00Z",
+            "comments": [{"id": 4, "author_id": 3, "public": true, "created_at": "2023-05-04T09:00:00Z", "body": "x"}]}})
+    )
+    .into_bytes();
+    let zip = export_zip(
+        dir.path(),
+        &[
+            ("export_1", bom),
+            ("export_2", document),
+            ("export_3", unknown),
+            ("export_4", bad_first),
+        ],
+    );
+    let (bundle, manifest) = read_zip(&s.api.base(), &zip, &dir.path().join("b"))
+        .await
+        .expect("export");
+    let tickets: Vec<_> = bundle
+        .tickets()
+        .expect("tickets")
+        .map(|t| t.expect("ticket"))
+        .collect();
+    let ids: Vec<&str> = tickets.iter().map(|t| t.source_id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["401", "402", "404"],
+        "a bad first line costs only itself"
+    );
+    assert!(
+        tickets[0].comments.iter().all(|c| !c.public),
+        "a comment that doesn't say it's public is an internal note"
+    );
+    assert!(
+        manifest
+            .notes
+            .iter()
+            .any(|n| n.contains("of no kind this reader knows")),
+        "{:?}",
+        manifest.notes
+    );
+    assert!(
+        manifest
+            .notes
+            .iter()
+            .any(|n| n.contains("could not be read")),
+        "{:?}",
+        manifest.notes
+    );
+
+    // A zip of records none of which is a ticket is refused, not read as
+    // an empty helpdesk.
+    let only_unknown = export_zip(
+        &dir.path().join("b"),
+        &[(
+            "export_1",
+            format!("{}\n", json!({"widget": {"id": 1}})).into_bytes(),
+        )],
+    );
+    let err = read_zip(&s.api.base(), &only_unknown, &dir.path().join("c"))
+        .await
+        .expect_err("refused");
+    assert!(matches!(err, SourceError::Protocol(_)), "{err:?}");
 }

@@ -138,6 +138,8 @@ fn tickets() -> Vec<Ticket> {
         size: Some(12),
         stored: true,
         missing_reason: None,
+        source_url: None,
+        retry: false,
     });
     solved.comments[2].attachments.push(Attachment {
         source_id: "a2".into(),
@@ -146,6 +148,8 @@ fn tickets() -> Vec<Ticket> {
         size: None,
         stored: false,
         missing_reason: Some("off-host link refused".into()),
+        source_url: None,
+        retry: false,
     });
     let open = Ticket {
         source_id: "102".into(),
@@ -1010,4 +1014,53 @@ async fn accounts_from_elsewhere_are_attached_only_within_the_workspaces_reach()
     run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
     assert_eq!(requesters(&pool, &ws)[&301], placeholder);
     assert_eq!(seat_of(&pool, ws.workspace_id, agent_elsewhere), None);
+}
+
+#[cfg(unix)]
+#[actix_web::test]
+async fn files_come_only_from_the_bundle_and_are_checked_as_uploads_are() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let dir = tempfile::tempdir().expect("dir");
+    let mut list = tickets();
+    for (id, name) in [("a3", "drawing.svg"), ("a4", "notes.txt")] {
+        list[0].comments[2].attachments.push(Attachment {
+            source_id: id.into(),
+            file_name: name.into(),
+            content_type: Some("text/plain".into()),
+            size: None,
+            stored: true,
+            missing_reason: None,
+            source_url: None,
+            retry: false,
+        });
+    }
+    let bundle = write_bundle(dir.path(), &list);
+    std::fs::write(
+        bundle.file_path("a3"),
+        br#"<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>"#,
+    )
+    .expect("svg");
+    let secret = dir.path().join("operator-secret");
+    std::fs::write(&secret, b"DATABASE_URL=postgres://secret").expect("secret");
+    std::os::unix::fs::symlink(&secret, bundle.file_path("a4")).expect("link");
+
+    let report = run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    assert_eq!(
+        report.attachments_written, 1,
+        "{:?}",
+        report.attachment_problems
+    );
+    for name in ["drawing.svg", "notes.txt"] {
+        assert!(
+            report
+                .attachment_problems
+                .iter()
+                .any(|p| p.starts_with(name)),
+            "{name}: {:?}",
+            report.attachment_problems
+        );
+    }
 }

@@ -7,34 +7,53 @@
 //! `links`) for organizations, ticket fields and comments.
 
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
+
+/// A missing field and an explicit `null` both read as the default: Zendesk
+/// writes `null` for an empty list or flag on some records, and serde's
+/// `default` alone covers only the missing field.
+fn null_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
+}
+
+/// [`null_default`] for a flag that is on unless the record says otherwise.
+fn null_yes<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(Option::<bool>::deserialize(d)?.unwrap_or(true))
+}
 
 /// `GET /api/v2/incremental/users/cursor.json`
 #[derive(Debug, Deserialize)]
 pub struct UsersPage {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub users: Vec<User>,
     #[serde(default)]
     pub after_cursor: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub end_of_stream: bool,
 }
 
 /// `GET /api/v2/incremental/tickets/cursor.json`
 #[derive(Debug, Deserialize)]
 pub struct TicketsPage {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub tickets: Vec<Ticket>,
+    /// Sideloaded with `include=metric_sets`: when each ticket was solved.
+    #[serde(default, deserialize_with = "null_default")]
+    pub metric_sets: Vec<MetricSet>,
     #[serde(default)]
     pub after_cursor: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub end_of_stream: bool,
 }
 
 /// The `meta` block of a cursor-paginated list.
 #[derive(Debug, Default, Deserialize)]
 pub struct Meta {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub has_more: bool,
     #[serde(default)]
     pub after_cursor: Option<String>,
@@ -42,25 +61,25 @@ pub struct Meta {
 
 #[derive(Debug, Deserialize)]
 pub struct OrganizationsPage {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub organizations: Vec<Organization>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub meta: Meta,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct TicketFieldsPage {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub ticket_fields: Vec<TicketField>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub meta: Meta,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CommentsPage {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub comments: Vec<Comment>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub meta: Meta,
 }
 
@@ -73,9 +92,9 @@ pub struct User {
     pub email: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
-    #[serde(default = "yes")]
+    #[serde(default = "yes", deserialize_with = "null_yes")]
     pub active: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub suspended: bool,
     #[serde(default)]
     pub organization_id: Option<i64>,
@@ -139,7 +158,7 @@ pub struct Ticket {
     pub priority: Option<String>,
     #[serde(default, rename = "type")]
     pub ticket_type: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub tags: Vec<String>,
     #[serde(default)]
     pub requester_id: Option<i64>,
@@ -147,22 +166,35 @@ pub struct Ticket {
     pub submitter_id: Option<i64>,
     #[serde(default)]
     pub assignee_id: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub collaborator_ids: Vec<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub follower_ids: Vec<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub email_cc_ids: Vec<i64>,
     #[serde(default)]
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub updated_at: Option<DateTime<Utc>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub custom_fields: Vec<CustomFieldValue>,
     /// Present in the full JSON export only; the API path fetches comments
     /// per ticket.
     #[serde(default)]
     pub comments: Option<Vec<Comment>>,
+    /// The ticket's metrics, when the export carries them inline; the API
+    /// path sideloads them per page instead.
+    #[serde(default)]
+    pub metric_set: Option<MetricSet>,
+}
+
+/// A ticket's metrics, as much as the connector reads: when it was solved.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MetricSet {
+    #[serde(default)]
+    pub ticket_id: Option<i64>,
+    #[serde(default)]
+    pub solved_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -176,11 +208,13 @@ pub struct Comment {
     pub html_body: Option<String>,
     #[serde(default)]
     pub plain_body: Option<String>,
-    #[serde(default = "yes")]
+    /// Absent or null reads as private: an internal note must never come
+    /// across as a public reply.
+    #[serde(default, deserialize_with = "null_default")]
     pub public: bool,
     #[serde(default)]
     pub created_at: Option<DateTime<Utc>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub attachments: Vec<Attachment>,
 }
 

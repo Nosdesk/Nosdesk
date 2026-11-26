@@ -69,11 +69,46 @@ impl RetryPolicy {
     }
 }
 
-/// An attachment that couldn't be stored, and why, for the report.
-pub(super) type Missing = String;
+/// An attachment that couldn't be stored, and why, for the report. The
+/// reason never carries the link, which can hold a token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Missing {
+    pub reason: String,
+    /// The cause may pass (a dropped connection, a short read, a busy
+    /// server), so a resumed fetch tries the file again.
+    pub retry: bool,
+}
+
+impl Missing {
+    fn lasting(reason: impl Into<String>) -> Self {
+        Missing {
+            reason: reason.into(),
+            retry: false,
+        }
+    }
+
+    fn passing(reason: impl Into<String>) -> Self {
+        Missing {
+            reason: reason.into(),
+            retry: true,
+        }
+    }
+}
+
+/// `reason` with `url` (and its path, which can hold a token) taken out.
+fn redact(reason: &str, url: &Url) -> String {
+    let mut out = reason.replace(url.as_str(), "the download link");
+    if url.path().len() > 1 {
+        out = out.replace(url.path(), "the download link");
+    }
+    out
+}
 
 pub(super) struct Http {
     client: reqwest::Client,
+    /// For attachments: follows no redirect itself, so [`Http::download`]
+    /// checks every hop against the attachment host rules.
+    download_client: reqwest::Client,
     /// Scheme, host and port of the Zendesk account (or the operator's
     /// allowlisted stand-in). Every API URL is built from it.
     base: Url,
@@ -105,6 +140,7 @@ impl Http {
         };
         Ok(Http {
             client,
+            download_client: safe_http::no_redirect_client(DOWNLOAD_TIMEOUT)?,
             base,
             auth,
             trusted_host,
@@ -134,15 +170,25 @@ impl Http {
     }
 
     /// Zendesk credentials go to the account itself and to Zendesk's own
-    /// attachment hosts over https, nowhere else. A comment's attachment
-    /// can live on any host, and Zendesk's docs warn about exactly this.
+    /// attachment host over https, nowhere else: not to another Zendesk
+    /// account, and not to wherever a comment's link points.
     fn may_send_credentials(&self, url: &Url) -> bool {
-        if same_origin(url, &self.base) {
-            return true;
+        same_origin(url, &self.base) || is_zendesk_file_host(url)
+    }
+
+    /// Whether an attachment may be fetched from `url`: the account itself
+    /// (or the operator's stand-in for it), or Zendesk's attachment host over
+    /// https. A link anywhere else is the bundle's word, not Zendesk's, and
+    /// its bytes would be stored and served back here, so it isn't followed;
+    /// `NOSDESK_OUTBOUND_ALLOWED_HOSTS` doesn't widen this.
+    pub fn attachment_link_allowed(&self, url: &Url) -> Result<(), String> {
+        if same_origin(url, &self.base) || is_zendesk_file_host(url) {
+            return Ok(());
         }
-        let host = url.host_str().unwrap_or("").to_ascii_lowercase();
-        url.scheme() == "https"
-            && (host.ends_with(".zendesk.com") || host.ends_with(".zdusercontent.com"))
+        Err(format!(
+            "the link points off the Zendesk account (to {}), so it wasn't fetched",
+            url.host_str().unwrap_or("no host")
+        ))
     }
 
     pub fn has_credential(&self) -> bool {
@@ -167,7 +213,27 @@ impl Http {
         timeout: Duration,
         cancel: &CancellationToken,
     ) -> Result<Response, SourceError> {
-        egress_check(url, self.trusted_host.as_deref()).map_err(SourceError::Network)?;
+        self.send_with(&self.client, url, timeout, false, cancel)
+            .await
+    }
+
+    /// [`Self::send`] through `client`. `strict` refuses an IP literal the
+    /// operator allowlisted, unless it is the stand-in's own host: for an
+    /// attachment, whose bytes are stored and served back.
+    async fn send_with(
+        &self,
+        client: &reqwest::Client,
+        url: &Url,
+        timeout: Duration,
+        strict: bool,
+        cancel: &CancellationToken,
+    ) -> Result<Response, SourceError> {
+        if strict {
+            strict_egress_check(url, self.trusted_host.as_deref())
+        } else {
+            egress_check(url, self.trusted_host.as_deref())
+        }
+        .map_err(SourceError::Network)?;
         let with_auth = self.may_send_credentials(url);
         let mut failures = 0u32;
         let mut waits = 0u32;
@@ -175,7 +241,7 @@ impl Http {
             if cancel.is_cancelled() {
                 return Err(SourceError::Cancelled);
             }
-            let mut req = self.client.get(url.clone()).timeout(timeout);
+            let mut req = client.get(url.clone()).timeout(timeout);
             if with_auth {
                 req = self.authorise(req);
             }
@@ -296,63 +362,156 @@ impl Http {
 
     /// Streams `raw_url` to `dest`, at most `cap` bytes. The outer error is
     /// only for a cancelled run; anything wrong with the file itself comes
-    /// back as the inner `Missing` so one bad attachment never stops an
+    /// back as the inner [`Missing`] so one bad attachment never stops an
     /// import. A file already at `dest` with the expected size is kept, so
-    /// a resumed fetch doesn't download it twice.
+    /// a resumed fetch doesn't download it twice. A download that breaks
+    /// off, or ends short of the size Zendesk gave, is tried again.
     pub async fn download(
         &self,
         raw_url: &str,
         dest: &Path,
         cap: u64,
         expected_size: Option<u64>,
+        declared_type: Option<&str>,
         cancel: &CancellationToken,
     ) -> Result<Result<u64, Missing>, SourceError> {
-        if let (Some(expected), Ok(meta)) = (expected_size, tokio::fs::metadata(dest).await) {
+        if let (Some(expected), Ok(meta)) = (expected_size, tokio::fs::symlink_metadata(dest).await)
+        {
             if meta.is_file() && meta.len() == expected {
                 return Ok(Ok(expected));
             }
         }
         if expected_size.is_some_and(|s| s > cap) {
-            return Ok(Err(format!(
-                "larger than the {} MB limit",
-                cap / (1024 * 1024)
-            )));
+            return Ok(Err(too_large(cap)));
         }
         let url = match Url::parse(raw_url) {
             Ok(u) => u,
-            Err(e) => return Ok(Err(format!("unreadable download link: {e}"))),
+            Err(e) => {
+                return Ok(Err(Missing::lasting(format!(
+                    "unreadable download link: {e}"
+                ))))
+            }
         };
-        let mut resp = match self.send(&url, DOWNLOAD_TIMEOUT, cancel).await {
-            Ok(r) => r,
-            Err(SourceError::Cancelled) => return Err(SourceError::Cancelled),
-            Err(e) => return Ok(Err(e.to_string())),
+        if let Err(why) = self.attachment_link_allowed(&url) {
+            return Ok(Err(Missing::lasting(why)));
+        }
+        let mut failures = 0u32;
+        loop {
+            match self
+                .download_once(&url, dest, cap, expected_size, declared_type, cancel)
+                .await?
+            {
+                Err(missing) if missing.retry => {
+                    failures += 1;
+                    if failures >= self.policy.max_attempts {
+                        return Ok(Err(missing));
+                    }
+                    sleep(self.policy.backoff(failures), cancel).await?;
+                }
+                done => return Ok(done),
+            }
+        }
+    }
+
+    async fn download_once(
+        &self,
+        url: &Url,
+        dest: &Path,
+        cap: u64,
+        expected_size: Option<u64>,
+        declared_type: Option<&str>,
+        cancel: &CancellationToken,
+    ) -> Result<Result<u64, Missing>, SourceError> {
+        // Redirects are followed here, one hop at a time, so each hop meets
+        // the same host rule (and gets credentials only where they belong).
+        let mut current = url.clone();
+        let mut hops = 0;
+        let mut resp = loop {
+            let resp = match self
+                .send_with(
+                    &self.download_client,
+                    &current,
+                    DOWNLOAD_TIMEOUT,
+                    true,
+                    cancel,
+                )
+                .await
+            {
+                Ok(r) => r,
+                Err(SourceError::Cancelled) => return Err(SourceError::Cancelled),
+                Err(e) => return Ok(Err(Missing::passing(redact(&e.to_string(), &current)))),
+            };
+            if !resp.status().is_redirection() {
+                break resp;
+            }
+            hops += 1;
+            let next = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|l| l.to_str().ok())
+                .and_then(|l| current.join(l).ok());
+            let Some(next) = next.filter(|_| hops <= 5) else {
+                return Ok(Err(Missing::lasting(
+                    "the download redirected too often or nowhere",
+                )));
+            };
+            if let Err(why) = self.attachment_link_allowed(&next) {
+                return Ok(Err(Missing::lasting(why)));
+            }
+            current = next;
         };
+
         let status = resp.status();
-        if (status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN)
-            && self.auth.is_none()
-        {
-            return Ok(Err(
+        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+            return Ok(Err(Missing::lasting(if self.auth.is_none() {
                 "needs sign-in; re-run with a Zendesk credential".to_string()
-            ));
+            } else {
+                format!("download answered {status}")
+            })));
         }
         if !status.is_success() {
-            return Ok(Err(format!("download answered {status}")));
+            let missing = format!("download answered {status}");
+            return Ok(Err(if status.is_server_error() {
+                Missing::passing(missing)
+            } else {
+                Missing::lasting(missing)
+            }));
         }
         if resp.content_length().is_some_and(|len| len > cap) {
-            return Ok(Err(format!(
-                "larger than the {} MB limit",
-                cap / (1024 * 1024)
+            return Ok(Err(too_large(cap)));
+        }
+        // A sign-in or error page answered with 200 is not the file.
+        let served = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let declared_html = declared_type.is_some_and(|t| t.to_ascii_lowercase().contains("html"));
+        if served.starts_with("text/html") && !declared_html {
+            return Ok(Err(Missing::lasting(
+                "Zendesk answered with a web page instead of the file",
             )));
         }
 
         let part = dest.with_extension("part");
-        let outcome = stream_to(&mut resp, &part, cap, cancel).await;
+        let outcome = match stream_to(&mut resp, &part, cap, cancel).await {
+            Ok(Ok(len)) if expected_size.is_some_and(|e| e != len) => {
+                Ok(Err(Missing::passing(format!(
+                    "the download ended at {len} of {} bytes",
+                    expected_size.unwrap_or_default()
+                ))))
+            }
+            other => other,
+        };
         match outcome {
             Ok(Ok(len)) => match tokio::fs::rename(&part, dest).await {
                 Ok(()) => Ok(Ok(len)),
                 Err(e) => {
                     let _ = tokio::fs::remove_file(&part).await;
-                    Ok(Err(format!("could not store the file: {e}")))
+                    Ok(Err(Missing::lasting(format!(
+                        "could not store the file: {e}"
+                    ))))
                 }
             },
             other => {
@@ -363,15 +522,37 @@ impl Http {
     }
 }
 
+fn too_large(cap: u64) -> Missing {
+    Missing::lasting(format!("larger than the {} MB limit", cap / (1024 * 1024)))
+}
+
+/// Zendesk's attachment host, over https.
+fn is_zendesk_file_host(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url
+            .host_str()
+            .is_some_and(|h| h.to_ascii_lowercase().ends_with(".zdusercontent.com"))
+}
+
 async fn stream_to(
     resp: &mut Response,
     part: &Path,
     cap: u64,
     cancel: &CancellationToken,
 ) -> Result<Result<u64, Missing>, SourceError> {
-    let mut file = match tokio::fs::File::create(part).await {
+    // Never through a link: a `.part` planted as a link to somewhere else
+    // would have the download written there.
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    let mut file = match options.open(part).await {
         Ok(f) => f,
-        Err(e) => return Ok(Err(format!("could not store the file: {e}"))),
+        Err(e) => {
+            return Ok(Err(Missing::lasting(format!(
+                "could not store the file: {e}"
+            ))))
+        }
     };
     let mut written = 0u64;
     loop {
@@ -383,24 +564,32 @@ async fn stream_to(
             Ok(Some(bytes)) => {
                 written += bytes.len() as u64;
                 if written > cap {
-                    return Ok(Err(format!(
-                        "larger than the {} MB limit",
-                        cap / (1024 * 1024)
-                    )));
+                    return Ok(Err(too_large(cap)));
                 }
                 if let Err(e) = file.write_all(&bytes).await {
-                    return Ok(Err(format!("could not store the file: {e}")));
+                    return Ok(Err(Missing::lasting(format!(
+                        "could not store the file: {e}"
+                    ))));
                 }
             }
             Ok(None) => break,
-            Err(e) => return Ok(Err(format!("download interrupted: {e}"))),
+            Err(e) => {
+                return Ok(Err(Missing::passing(format!(
+                    "download interrupted: {}",
+                    e.without_url()
+                ))))
+            }
         }
     }
     if let Err(e) = file.flush().await {
-        return Ok(Err(format!("could not store the file: {e}")));
+        return Ok(Err(Missing::lasting(format!(
+            "could not store the file: {e}"
+        ))));
     }
     if let Err(e) = file.sync_all().await {
-        return Ok(Err(format!("could not store the file: {e}")));
+        return Ok(Err(Missing::lasting(format!(
+            "could not store the file: {e}"
+        ))));
     }
     Ok(Ok(written))
 }
@@ -414,6 +603,16 @@ fn egress_check(url: &Url, trusted_host: Option<&str>) -> Result<(), String> {
     if trusted_host.is_some_and(|t| t.eq_ignore_ascii_case(host))
         || egress::is_host_allowlisted(host)
     {
+        return Ok(());
+    }
+    safe_http::reject_unsafe_ip_literal(url.as_str()).map_err(|e| format!("{host}: {e}"))
+}
+
+/// [`egress_check`] for an attachment: an IP literal passes only as the
+/// stand-in's own host, never through the operator's allowlist.
+fn strict_egress_check(url: &Url, trusted_host: Option<&str>) -> Result<(), String> {
+    let host = url.host_str().ok_or_else(|| format!("{url}: no host"))?;
+    if trusted_host.is_some_and(|t| t.eq_ignore_ascii_case(host)) {
         return Ok(());
     }
     safe_http::reject_unsafe_ip_literal(url.as_str()).map_err(|e| format!("{host}: {e}"))
@@ -468,6 +667,10 @@ mod tests {
         ));
         assert!(ok("https://p1.zdusercontent.com/attachment/1"));
         assert!(
+            !ok("https://other.zendesk.com/attachments/token/abc/"),
+            "another Zendesk account is not this one"
+        );
+        assert!(
             !ok("http://acme.zendesk.com/x"),
             "plain http to another origin"
         );
@@ -477,6 +680,34 @@ mod tests {
         );
         assert!(!ok("https://acme.zendesk.com.evil.com/x"));
         assert!(!ok("https://s3.amazonaws.com/bucket/x"));
+    }
+
+    #[test]
+    fn attachments_come_only_from_the_account_or_zendesk_file_hosts() {
+        let h = http("https://acme.zendesk.com");
+        let ok = |u: &str| {
+            h.attachment_link_allowed(&Url::parse(u).expect("url"))
+                .is_ok()
+        };
+        assert!(ok(
+            "https://acme.zendesk.com/attachments/token/abc/?name=a.png"
+        ));
+        assert!(ok("https://p1.zdusercontent.com/attachment/1"));
+        assert!(!ok("http://p1.zdusercontent.com/attachment/1"), "http");
+        assert!(!ok("https://other.zendesk.com/attachments/1"));
+        assert!(!ok("https://intranet.example/secret"));
+        assert!(!ok("https://10.0.0.5/x"));
+    }
+
+    #[test]
+    fn reasons_never_carry_the_link() {
+        let url =
+            Url::parse("https://acme.zendesk.com/attachments/token/SECRET/?name=a").expect("url");
+        let reason = redact(
+            &format!("error sending request for url ({url}) at {}", url.path()),
+            &url,
+        );
+        assert!(!reason.contains("SECRET"), "{reason}");
     }
 
     #[test]

@@ -44,10 +44,6 @@ pub const JOB_TYPE: &str = "helpdesk";
 /// enough that a failure loses little and locks are short.
 pub const DEFAULT_BATCH: usize = 200;
 
-/// Largest single file brought across. The connector caps its downloads the
-/// same way; this guards bundles from elsewhere.
-const MAX_FILE_BYTES: u64 = 100 * 1024 * 1024;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumberPolicy {
     /// Keep the source's numbers when the workspace has room (no tickets of
@@ -1276,38 +1272,19 @@ async fn attach_files(
                     ));
                     continue;
                 }
-                let path = bundle.file_path(&a.source_id);
-                let meta = match std::fs::metadata(&path) {
-                    Ok(m) => m,
-                    Err(_) => {
-                        out.problems
-                            .push(format!("{label}: missing from the bundle"));
+                let (bytes, mime) = match read_checked(bundle, &a.source_id, &a.file_name) {
+                    Ok(read) => read,
+                    Err(why) => {
+                        out.problems.push(format!("{label}: {why}"));
                         continue;
                     }
                 };
-                if meta.len() > MAX_FILE_BYTES {
-                    out.problems.push(format!(
-                        "{label}: larger than {} MB",
-                        MAX_FILE_BYTES / 1024 / 1024
-                    ));
-                    continue;
-                }
-                let checksum = match sha256_file(&path) {
-                    Ok(h) => h,
-                    Err(e) => {
-                        out.problems.push(format!("{label}: {e}"));
-                        continue;
-                    }
-                };
+                let checksum = hex::encode(Sha256::digest(&bytes));
                 let name =
                     crate::utils::file_validation::FileValidator::sanitize_filename(&a.file_name)
                         .unwrap_or_else(|_| "attachment".to_string());
-                let mime = a
-                    .content_type
-                    .clone()
-                    .unwrap_or_else(|| "application/octet-stream".into());
                 let stored = match scoped
-                    .store_file_from_path(&path, &name, &mime, &format!("tickets/{ticket_id}"))
+                    .store_file(&bytes, &name, &mime, &format!("tickets/{ticket_id}"))
                     .await
                 {
                     Ok(s) => s,
@@ -1326,7 +1303,7 @@ async fn attach_files(
                     a.source_id.clone(),
                     opts.job_id,
                 );
-                let size = meta.len() as i64;
+                let size = bytes.len() as i64;
                 let url = stored.url.clone();
                 let row = db(pool, opts.actor_context(), move |conn| {
                     let scope = Scope {
@@ -1381,19 +1358,39 @@ async fn attach_files(
     Ok(out)
 }
 
-fn sha256_file(path: &std::path::Path) -> std::io::Result<String> {
+/// An attachment's bytes from the bundle, with the type they are, checked
+/// as an upload is: no larger than the instance takes (`MAX_FILE_SIZE_MB`),
+/// and nothing a staff upload would refuse (a blocked extension, an SVG,
+/// an executable). Read once, from a regular file inside the bundle.
+fn read_checked(
+    bundle: &Bundle,
+    source_id: &str,
+    file_name: &str,
+) -> Result<(Vec<u8>, String), String> {
+    use crate::utils::file_validation::{get_max_file_size, FileValidator};
     use std::io::Read;
-    let mut f = std::fs::File::open(path)?;
-    let mut h = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    loop {
-        let n = f.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buf[..n]);
+    let (file, len) = bundle
+        .open_file(source_id)
+        .map_err(|e| format!("not readable in the bundle ({e})"))?;
+    let max = get_max_file_size() as u64;
+    if len > max {
+        return Err(format!(
+            "larger than the {} MB this server takes",
+            max / 1024 / 1024
+        ));
     }
-    Ok(hex::encode(h.finalize()))
+    let mut bytes = Vec::with_capacity(len as usize);
+    file.take(max + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("not readable in the bundle ({e})"))?;
+    if bytes.len() as u64 > max {
+        return Err(format!(
+            "larger than the {} MB this server takes",
+            max / 1024 / 1024
+        ));
+    }
+    let mime = FileValidator::validate_file(&bytes, Some(file_name)).map_err(|e| e.to_string())?;
+    Ok((bytes, mime))
 }
 
 #[cfg(test)]
