@@ -25,5 +25,9 @@ describe('AssetAttributeCell', () => {
       valueType: 'text',
     })
     expect(w.text()).toBe('$40.00')
+    for (const valueType of ['date', 'datetime', 'list', 'boolean', 'user', 'asset']) {
+      const cell = mountWithProviders(AssetAttributeCell, { value: { amount: '40.00', currency: 'USD' }, valueType })
+      expect(cell.text()).toBe('$40.00')
+    }
   })
 })

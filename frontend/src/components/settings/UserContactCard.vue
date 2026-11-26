@@ -26,6 +26,7 @@ import {
 import { useAuthStore } from '@/stores/auth';
 import { extractErrorMessage } from '@/utils/errors';
 import { useToastStore } from '@nosdesk/core/stores/toast';
+import { moneyText } from '@/utils/moneyAttribute';
 
 const props = defineProps<{ uuid: string; editable: boolean }>();
 
@@ -45,6 +46,8 @@ const loading = ref(true);
 // People don't pick their own approver: only admins set a manager.
 const canSetManager = computed(() => useAuthStore().isAdmin);
 const saving = ref(false);
+/** A money field holds an amount that doesn't read. */
+const fieldsInvalid = ref(false);
 
 const properties = computed(() => (schema.value.properties ?? {}) as Record<string, SchemaProperty>);
 
@@ -73,7 +76,7 @@ const hasCustomFields = computed(() => Object.keys(properties.value).length > 0)
 
 function display(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
-  return String(value);
+  return moneyText(value) || String(value);
 }
 
 async function load(): Promise<void> {
@@ -110,6 +113,7 @@ async function saveManager(uuid: string): Promise<void> {
 }
 
 async function save(): Promise<void> {
+  if (fieldsInvalid.value) return;
   saving.value = true;
   try {
     const saved = await setUserProfileFields(props.uuid, {
@@ -191,8 +195,11 @@ async function save(): Promise<void> {
       <!-- Editable custom fields -->
       <div v-if="Object.keys(editableSchema.properties ?? {}).length > 0" class="pt-1 border-t border-subtle">
         <DynamicAttributeForm
+          :key="uuid"
           v-model="customFields"
           :schema="editableSchema"
+          eager
+          @update:invalid="(v: boolean) => (fieldsInvalid = v)"
         />
       </div>
 
@@ -201,7 +208,7 @@ async function save(): Promise<void> {
       </p>
 
       <div v-if="editable" class="flex justify-end pt-1">
-        <Button size="sm" :loading="saving" @click="save">{{ t('common-save') }}</Button>
+        <Button size="sm" :loading="saving" :disabled="fieldsInvalid" @click="save">{{ t('common-save') }}</Button>
       </div>
     </div>
   </SectionCard>

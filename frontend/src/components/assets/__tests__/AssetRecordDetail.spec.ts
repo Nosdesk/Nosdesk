@@ -38,9 +38,12 @@ const REPAIR: AssetRecordType = {
   color: null,
   field_schema: {
     type: 'object',
-    properties: { parts: { type: 'object', format: 'money', title: 'Parts' } },
+    properties: {
+      parts: { type: 'object', format: 'money', title: 'Parts (AUD)' },
+      labour: { type: 'object', format: 'money', title: 'Labour' },
+    },
   },
-  field_order: ['parts'],
+  field_order: ['parts', 'labour'],
   core_fields: {},
   outcomes: [{ key: 'repaired', category: 'done' }],
   applies_to_kinds: null,
@@ -129,9 +132,16 @@ describe('AssetRecordDetail', () => {
     expect(link.text()).toBe('#123')
   })
 
-  it('shows a money field in its currency', () => {
+  it('shows a money field in its currency, without the unit its title names', () => {
     const w = render(record({ ticket_id: null, attributes: { parts: { amount: '84.20', currency: 'AUD' } } }))
     expect(w.text()).toContain('A$84.20')
+    expect(w.text()).not.toContain('A$84.20 AUD')
     expect(w.text()).not.toContain('[object Object]')
+  })
+
+  it('shows a value written before the field held money', () => {
+    const w = render(record({ ticket_id: null, attributes: { parts: '1250', labour: 'about forty' } }))
+    expect(w.text()).toContain('1250')
+    expect(w.text()).toContain('about forty')
   })
 })

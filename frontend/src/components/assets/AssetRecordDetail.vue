@@ -19,6 +19,7 @@ import DownloadLink from '@/components/common/DownloadLink.vue'
 import { useUsersDirectory } from '@/composables/useUsersDirectory'
 import { numberForTicketId, titleForTicketId } from '@/composables/useTicketNumberLookup'
 import { ticketLabel } from '@/utils/ticketNumbers'
+import { isMoneyProp } from '@/utils/moneyAttribute'
 import { formatDateTime } from '@nosdesk/core/utils/dateUtils'
 import { formatMoney } from '@nosdesk/core/utils/money'
 import { ticketRoute } from '@nosdesk/core/utils/ticketRoutes'
@@ -155,7 +156,8 @@ const facts = computed<Fact[]>(() => {
     out.push({
       key: `field-${key}`,
       label: name,
-      value: unit ? `${value} ${unit}` : value,
+      // Money says its own currency.
+      value: unit && !isMoneyProp(prop) ? `${value} ${unit}` : value,
       serialOffer: key === 'serial_received' ? (serialOffer.value ?? undefined) : undefined,
     })
   }

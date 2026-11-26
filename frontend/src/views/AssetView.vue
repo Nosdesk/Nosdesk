@@ -967,7 +967,7 @@ useSyncActions(
                      sync-owned keys staying locked. Autosaves on input. -->
                 <div
                   v-for="key in visibleAttrKeys"
-                  :key="`attr-${key}`"
+                  :key="`attr-${device?.id}-${key}`"
                   class="sm:col-span-2"
                 >
                   <DynamicAttributeForm

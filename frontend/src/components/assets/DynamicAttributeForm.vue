@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, reactive, useId } from 'vue';
 import BaseDropdown from '@/components/common/BaseDropdown.vue';
 import Checkbox from '@/components/common/Checkbox.vue';
 import DatePicker from '@/components/common/DatePicker.vue';
@@ -7,7 +7,7 @@ import FormNumber from '@/components/common/FormNumber.vue';
 import UserAttributePicker from '@/components/assets/UserAttributePicker.vue';
 import AssetAttributePicker from '@/components/assets/AssetAttributePicker.vue';
 import MoneyAttributeInput from '@/components/assets/MoneyAttributeInput.vue';
-import { isMoneyProp, moneyCurrency, type MoneyWrite } from '@/utils/moneyAttribute';
+import { isMoneyProp, type MoneyWrite } from '@/utils/moneyAttribute';
 
 /**
  * Render form inputs for a constrained JSON Schema (the subset
@@ -68,14 +68,29 @@ const props = defineProps<{
   schema: Schema | null;
   modelValue: Record<string, unknown>;
   disabled?: boolean;
-  /** The workspace currency, for a money field that pins none and has no
-   *  value yet. Left out, the server fills it on save. */
+  /** The workspace currency, shown in a money field that pins none and
+   *  has no value yet. The server fills it on save. */
   currency?: string | null;
+  /** Report money amounts as they read rather than on blur, for a form
+   *  with a Save button. */
+  eager?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: Record<string, unknown>): void;
+  /** A money field holds text that doesn't read: hold the save. */
+  (e: 'update:invalid', invalid: boolean): void;
 }>();
+
+const uid = useId();
+const fieldId = (key: string) => `${uid}-${key}`;
+
+const invalidKeys = reactive(new Set<string>());
+function onMoneyInvalid(key: string, invalid: boolean) {
+  if (invalid) invalidKeys.add(key);
+  else invalidKeys.delete(key);
+  emit('update:invalid', invalidKeys.size > 0);
+}
 
 const properties = computed(() =>
   props.schema?.properties ? Object.entries(props.schema.properties) : [],
@@ -176,7 +191,10 @@ function enumOptions(prop: SchemaProperty): { value: string; label: string }[] {
       :key="key"
       class="flex flex-col gap-1"
     >
-      <label class="text-xs font-medium text-secondary uppercase tracking-wide">
+      <label
+        class="text-xs font-medium text-secondary uppercase tracking-wide"
+        :for="isMoneyProp(prop) ? fieldId(key) : undefined"
+      >
         {{ prop.title || key }}
         <span v-if="requiredSet.has(key)" class="text-status-error">*</span>
       </label>
@@ -205,10 +223,17 @@ function enumOptions(prop: SchemaProperty): { value: string; label: string }[] {
       <!-- money -> amount with the currency's code in the field -->
       <MoneyAttributeInput
         v-else-if="isMoneyProp(prop)"
+        :id="fieldId(key)"
         :model-value="modelValue[key]"
-        :currency="moneyCurrency(prop, modelValue[key], currency)"
+        :pinned="prop.currency"
+        :currency="currency"
+        :minimum="prop.minimum"
+        :maximum="prop.maximum"
+        :required="requiredSet.has(key)"
+        :eager="eager"
         :disabled="disabled"
         @update:model-value="(v) => onMoneyUpdate(key, v)"
+        @update:invalid="(v) => onMoneyInvalid(key, v)"
       />
 
       <!-- enum + allow-custom -> pick-or-type (suggestions, any value). Must

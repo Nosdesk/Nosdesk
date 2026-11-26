@@ -211,6 +211,10 @@ const triedSubmit = ref(false)
 const baseline = ref<Record<string, unknown> | null>(null)
 /** The cost text an edit started from. */
 const seededCost = ref('')
+/** A type field holds an amount that doesn't read. */
+const fieldsInvalid = ref(false)
+/** Counts each fill or reset, so the type's fields start over with it. */
+const formRound = ref(0)
 
 const editing = computed(() => !!props.record)
 const type = computed(() => types.value.find((x) => x.slug === form.type))
@@ -248,6 +252,8 @@ function reset(keep?: { type: string | null; day: string; vendor: string }) {
   triedSubmit.value = false
   baseline.value = null
   seededCost.value = ''
+  formRound.value++
+  fieldsInvalid.value = false
   holdTypeWatch()
   openExtras()
 }
@@ -287,6 +293,8 @@ function fill(record: AssetRecord) {
     replacement: record.replacement_asset_id ? String(record.replacement_asset_id) : '',
   })
   openExtras(record)
+  formRound.value++
+  fieldsInvalid.value = false
   files.value = []
   errorMessage.value = ''
   triedSubmit.value = false
@@ -623,7 +631,7 @@ function changes(record: AssetRecord): UpdateAssetRecordBody {
 
 async function submit() {
   triedSubmit.value = true
-  if (Object.keys(missing.value).length > 0) return
+  if (Object.keys(missing.value).length > 0 || fieldsInvalid.value) return
   submitting.value = true
   errorMessage.value = ''
   try {
@@ -1099,9 +1107,11 @@ const reassurance = computed(() =>
 
         <AssetRecordTypeFields
           v-if="type"
+          :key="formRound"
           v-model="form.attributes"
           :type="type"
           :currency="currency ?? suggestedCurrency"
+          @update:invalid="(v: boolean) => (fieldsInvalid = v)"
         />
 
         <SearchableDropdown

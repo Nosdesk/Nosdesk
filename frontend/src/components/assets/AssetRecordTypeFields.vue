@@ -5,14 +5,14 @@
  * a date, a yes or no) take one column; text and lists take both. Same
  * mapping as `DynamicAttributeForm`, drawn with the form's own inputs.
  */
-import { computed } from 'vue'
+import { computed, reactive } from 'vue'
 import { useFluent } from 'fluent-vue'
 import Checkbox from '@/components/common/Checkbox.vue'
 import DatePicker from '@/components/common/DatePicker.vue'
 import FormInput from '@/components/common/FormInput.vue'
 import FormNumber from '@/components/common/FormNumber.vue'
 import MoneyAttributeInput from '@/components/assets/MoneyAttributeInput.vue'
-import { isMoneyProp, moneyCurrency } from '@/utils/moneyAttribute'
+import { isMoneyProp } from '@/utils/moneyAttribute'
 import type { AssetRecordType } from '@nosdesk/core/types/asset'
 import { fieldProps, fieldTitle } from './assetTimeline'
 
@@ -24,7 +24,11 @@ const props = defineProps<{
   currency?: string | null
 }>()
 
-const emit = defineEmits<{ 'update:modelValue': [value: Record<string, unknown>] }>()
+const emit = defineEmits<{
+  'update:modelValue': [value: Record<string, unknown>]
+  /** A money field holds text that doesn't read: hold the save. */
+  'update:invalid': [invalid: boolean]
+}>()
 
 const fluent = useFluent()
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args)
@@ -32,6 +36,13 @@ const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key
 const fields = computed(() =>
   fieldProps(props.type).map(([key, prop]) => ({ key, prop, title: fieldTitle(t, props.type, key, prop) })),
 )
+
+const invalidKeys = reactive(new Set<string>())
+function onMoneyInvalid(key: string, invalid: boolean) {
+  if (invalid) invalidKeys.add(key)
+  else invalidKeys.delete(key)
+  emit('update:invalid', invalidKeys.size > 0)
+}
 
 function set(key: string, value: unknown) {
   const next = { ...props.modelValue }
@@ -86,8 +97,13 @@ function setList(key: string, raw: string) {
       v-else-if="isMoneyProp(field.prop)"
       :model-value="modelValue[field.key]"
       :label="field.title"
-      :currency="moneyCurrency(field.prop, modelValue[field.key], currency)"
+      :pinned="field.prop.currency"
+      :currency="currency"
+      :minimum="field.prop.minimum"
+      :maximum="field.prop.maximum"
+      eager
       @update:model-value="(v) => set(field.key, v)"
+      @update:invalid="(v: boolean) => onMoneyInvalid(field.key, v)"
     />
     <FormNumber
       v-else-if="field.prop.type === 'number' || field.prop.type === 'integer'"

@@ -214,6 +214,10 @@ const recordSummary = ref('');
 const recordVendor = ref('');
 const recordReference = ref('');
 const recordAttributes = ref<Record<string, unknown>>({});
+/** A record field holds an amount that doesn't read. */
+const attributesInvalid = ref(false);
+/** Counts each reset, so the record fields start over with it. */
+const formRound = ref(0);
 const completeRecord = ref(true);
 const completeRecordId = ref<number | null>(null);
 const completeOutcome = ref('');
@@ -310,6 +314,8 @@ function resetForm() {
   recordVendor.value = '';
   recordReference.value = '';
   recordAttributes.value = {};
+  attributesInvalid.value = false;
+  formRound.value++;
   completeRecord.value = true;
   completeRecordId.value = null;
   completeOutcome.value = '';
@@ -402,10 +408,14 @@ function parseTicketId(): number | null {
 const needsChoice = computed(
   () => completesRecord.value && openRecords.value.length > 1 && !completing.value,
 );
-/** Save waits for the record queries, a picked record and a readable cost. */
+/** Save waits for the record queries, a picked record, a readable cost and
+ *  readable amounts in the record's fields. */
 const blocked = computed(
   () =>
-    recordsLoading.value || needsChoice.value || (completesRecord.value && !!costError.value),
+    recordsLoading.value ||
+    needsChoice.value ||
+    (completesRecord.value && !!costError.value) ||
+    attributesInvalid.value,
 );
 
 async function submitTransition() {
@@ -547,9 +557,12 @@ async function submitTransition() {
             :required="required(enteringType, 'reference')"
           />
           <DynamicAttributeForm
+            :key="formRound"
             v-model="recordAttributes"
             :schema="orderedSchema(enteringType)"
             :currency="currency || null"
+            eager
+            @update:invalid="(v: boolean) => (attributesInvalid = v)"
           />
         </template>
       </section>

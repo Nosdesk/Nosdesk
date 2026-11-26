@@ -11040,6 +11040,15 @@ asset-lifecycle-record-completed-on = Completed on
 asset-lifecycle-record-cost-invalid = Enter the cost as a number
 asset-lifecycle-record-cost-ambiguous = This amount reads two ways; write it without a thousands separator
 asset-lifecycle-record-cost-negative = A cost can't be below zero
+asset-attribute-money-invalid = Enter the amount as a number
+asset-attribute-money-ambiguous = This amount reads two ways; write it without a thousands separator
+asset-attribute-money-negative = This amount can't be below zero
+asset-attribute-money-too-many-decimals = { $digits ->
+    [0] { $code } amounts have no decimal places
+   *[other] { $code } amounts have at most { $digits } decimal places
+}
+asset-attribute-money-below-minimum = Enter at least { $min }
+asset-attribute-money-above-maximum = Enter at most { $max }
 
 # Asset Timeline card, record form and record view.
 asset-record-ago-days = { $count } days ago

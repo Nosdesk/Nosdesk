@@ -11,7 +11,7 @@ import { useFluent } from 'fluent-vue'
 import { RouterLink } from 'vue-router'
 import { formatDate, formatDateTime } from '@nosdesk/core/utils/dateUtils'
 import { useReference } from '@nosdesk/core/sync/composables'
-import { moneyText } from '@/utils/moneyAttribute'
+import { moneyText, moneyValueOf } from '@/utils/moneyAttribute'
 import { UserAvatarCell } from '@/components/common/cells'
 import type { AttributeValueType } from '@/utils/assetAttributeColumns'
 
@@ -40,6 +40,9 @@ const referenced = useReference<{ name?: string }>('asset', () => assetId.value)
 const text = computed<string>(() => {
   const v = props.value
   if (isEmpty.value) return ''
+  // A column takes its type from the first kind to declare the key, so
+  // money may sit in a column of any type.
+  if (moneyValueOf(v)) return moneyText(v)
   switch (props.valueType) {
     case 'boolean':
       return v === true
@@ -52,12 +55,8 @@ const text = computed<string>(() => {
       return formatDateTime(String(v)) || String(v)
     case 'list':
       return Array.isArray(v) ? v.join(', ') : String(v)
-    // A column takes its type from the first kind to declare the key, so
-    // money may sit in any column.
-    case 'money':
     default:
-      if (typeof v === 'object') return moneyText(v) || JSON.stringify(v)
-      return String(v)
+      return typeof v === 'object' ? JSON.stringify(v) : String(v)
   }
 })
 </script>

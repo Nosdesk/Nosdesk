@@ -47,11 +47,6 @@ const queryCache = useQueryCache();
 const { manufacturers } = useManufacturersQuery();
 const { models } = useAssetModelsQuery();
 const { kinds } = useAssetKindsQuery();
-// The currency a money default is entered in: the one the server would fill.
-const recordTypes = useAssetRecordTypes(true);
-const workspaceCurrency = computed(
-  () => recordTypes.currency.value ?? recordTypes.suggestedCurrency.value,
-);
 
 const manufacturerName = (id: number) => manufacturers.value.find((m) => m.id === id)?.name ?? '';
 const kindLabel = (slug: string) => kinds.value.find((k) => k.slug === slug)?.label ?? slug;
@@ -135,6 +130,15 @@ const blankModel = (): ModelForm => ({
 const modelModal = ref<ModelForm>(blankModel());
 const modelSaving = ref(false);
 const modelError = ref<string | null>(null);
+/** A default spec holds an amount that doesn't read. */
+const defaultsInvalid = ref(false);
+/** Counts each opening, so the default specs start over with it. */
+const modelRound = ref(0);
+// The currency shown in a money default with none yet: the workspace's.
+const recordTypes = useAssetRecordTypes(() => modelModal.value.show);
+const workspaceCurrency = computed(
+  () => recordTypes.currency.value ?? recordTypes.suggestedCurrency.value,
+);
 
 const manufacturerOptions = computed<DropdownOption[]>(() =>
   manufacturers.value.map((m) => ({ value: String(m.id), label: m.name })),
@@ -146,7 +150,8 @@ const modelCanSave = computed(
   () =>
     modelModal.value.manufacturer_id !== '' &&
     modelModal.value.name.trim() !== '' &&
-    modelModal.value.kind !== '',
+    modelModal.value.kind !== '' &&
+    !defaultsInvalid.value,
 );
 
 // Default specs are authored against the user-editable slice of the
@@ -180,6 +185,8 @@ function openModelCreate() {
     manufacturer_id: manufacturerFilter.value !== 'all' ? String(manufacturerFilter.value) : '',
   };
   modelError.value = null;
+  defaultsInvalid.value = false;
+  modelRound.value++;
 }
 function openModelEdit(m: AssetModel) {
   modelModal.value = {
@@ -193,6 +200,8 @@ function openModelEdit(m: AssetModel) {
     default_attributes: { ...(m.default_attributes ?? {}) },
   };
   modelError.value = null;
+  defaultsInvalid.value = false;
+  modelRound.value++;
 }
 async function saveModel() {
   if (!modelCanSave.value) return;
@@ -448,9 +457,12 @@ async function confirmDelete() {
           </label>
           <p class="text-xs text-tertiary -mt-0.5">{{ $t('asset-catalog-default-specs-hint') }}</p>
           <DynamicAttributeForm
+            :key="modelRound"
             v-model="modelModal.default_attributes"
             :schema="modelKindUserSchema"
             :currency="workspaceCurrency"
+            eager
+            @update:invalid="(v: boolean) => (defaultsInvalid = v)"
           />
         </div>
         <FormTextarea v-model="modelModal.notes" :label="$t('asset-catalog-notes')" :rows="2" :max-rows="6" />
