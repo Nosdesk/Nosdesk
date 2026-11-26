@@ -44,6 +44,7 @@ mod asset_model_kind;
 mod assignable_people;
 mod assignee_eligibility;
 mod assignment_on_create;
+mod assignment_rule_targets;
 mod attachment_claims;
 mod attachment_display_names;
 mod attachment_emit_lint;

@@ -227,7 +227,7 @@ impl AssignmentEngine {
 
     /// Execute the assignment strategy and return the assigned user UUID.
     /// Only someone who can work tickets is picked; a direct rule naming
-    /// anyone else doesn't apply.
+    /// anyone but the workspace's own staff doesn't apply.
     fn execute_strategy(
         conn: &mut DbConnection,
         rule: &AssignmentRule,
@@ -236,9 +236,12 @@ impl AssignmentEngine {
         match rule.method {
             AssignmentMethod::DirectUser => match rule.target_user_uuid {
                 Some(user) => {
-                    let assignable =
-                        crate::repository::assignees::is_assignable(conn, workspace_id, user)
-                            .unwrap_or(false);
+                    let assignable = crate::repository::assignment_rules::is_eligible_target(
+                        conn,
+                        workspace_id,
+                        user,
+                    )
+                    .unwrap_or(false);
                     if !assignable {
                         log::warn!(
                             "Assignment rule {} names someone who can't work tickets; skipped",

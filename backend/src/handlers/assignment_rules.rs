@@ -110,6 +110,22 @@ pub struct CreateAssignmentRuleRequest {
 enum CreateOutcome {
     Created(serde_json::Value),
     Conflict,
+    IneligibleTarget,
+}
+
+/// A rule's user is one of this workspace's agents or admins. A stranger and
+/// a uuid no account has get the same answer.
+const INELIGIBLE_TARGET: &str = "The rule's user must be an agent or admin of this workspace";
+
+/// Whether `user` can be the target of a rule in the pinned workspace; false
+/// when nothing is pinned.
+fn eligible_target_here(conn: &mut crate::db::DbConnection, user: Uuid) -> Result<bool, Error> {
+    match crate::sync::session::current_workspace_id(conn)? {
+        Some(workspace_id) => {
+            repository::assignment_rules::is_eligible_target(conn, workspace_id, user)
+        }
+        None => Ok(false),
+    }
 }
 
 /// Create a new assignment rule (admin only)
@@ -183,6 +199,12 @@ pub async fn create_rule(
             return Ok(CreateOutcome::Conflict);
         }
 
+        if let Some(user) = body.target_user_uuid {
+            if !eligible_target_here(conn, user)? {
+                return Ok(CreateOutcome::IneligibleTarget);
+            }
+        }
+
         let new_rule = NewAssignmentRule {
             name: body.name.clone(),
             description: body.description.clone(),
@@ -212,6 +234,9 @@ pub async fn create_rule(
         Ok(CreateOutcome::Conflict) => Err(ApiError::Conflict(
             "A rule with this name already exists".into(),
         )),
+        Ok(CreateOutcome::IneligibleTarget) => {
+            Ok(crate::errors::unprocessable_entity(INELIGIBLE_TARGET))
+        }
         Err(_) => Err(ApiError::Internal(
             "Failed to create assignment rule".into(),
         )),
@@ -243,6 +268,7 @@ enum UpdateOutcome {
     Ok(serde_json::Value),
     NotFound,
     Conflict,
+    IneligibleTarget,
 }
 
 /// Update an assignment rule (admin only)
@@ -305,6 +331,20 @@ pub async fn update_rule(
             }
         }
 
+        // A new target, or a stored one a rule switches to, is checked. A rule
+        // left naming its old target can still be renamed or turned off.
+        let target = body.target_user_uuid.unwrap_or(existing.target_user_uuid);
+        let target_changed = body
+            .target_user_uuid
+            .is_some_and(|t| t != existing.target_user_uuid);
+        let becomes_direct = method == Some(AssignmentMethod::DirectUser)
+            && existing.method != AssignmentMethod::DirectUser;
+        if let Some(user) = target.filter(|_| target_changed || becomes_direct) {
+            if !eligible_target_here(conn, user)? {
+                return Ok(UpdateOutcome::IneligibleTarget);
+            }
+        }
+
         let rule_update = AssignmentRuleUpdate {
             name: body.name.clone(),
             description: body.description.clone(),
@@ -340,6 +380,9 @@ pub async fn update_rule(
         Ok(UpdateOutcome::Conflict) => Err(ApiError::Conflict(
             "A rule with this name already exists".into(),
         )),
+        Ok(UpdateOutcome::IneligibleTarget) => {
+            Ok(crate::errors::unprocessable_entity(INELIGIBLE_TARGET))
+        }
         Err(_) => Err(ApiError::Internal(
             "Failed to update assignment rule".into(),
         )),
