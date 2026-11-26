@@ -184,10 +184,14 @@ fn tickets() -> Vec<Ticket> {
 }
 
 fn write_bundle(dir: &std::path::Path, tickets: &[Ticket]) -> Bundle {
+    write_bundle_of(dir, &people(), tickets)
+}
+
+fn write_bundle_of(dir: &std::path::Path, people: &[Person], tickets: &[Ticket]) -> Bundle {
     let b = Bundle::create(dir).expect("bundle");
     let mut w = b.people_writer(true).expect("people");
-    for p in people() {
-        w.write(&p).expect("person");
+    for p in people {
+        w.write(p).expect("person");
     }
     w.checkpoint().expect("flush");
     let mut w = b.tickets_writer(0).expect("tickets");
@@ -669,4 +673,301 @@ async fn a_record_listed_twice_in_a_bundle_is_written_once() {
         4,
         "the repeated reply is written once"
     );
+}
+
+fn person(id: &str, email: &str, role: PersonRole, active: bool) -> Person {
+    Person {
+        source_id: id.into(),
+        email: Some(email.into()),
+        name: format!("Source {id}"),
+        role,
+        active,
+        organization: None,
+        created_at: None,
+        updated_at: None,
+    }
+}
+
+fn raised_by(id: &str, requester: &str, watchers: &[&str]) -> Ticket {
+    Ticket {
+        source_id: id.into(),
+        number: id.parse().ok(),
+        subject: format!("Ticket {id}"),
+        status: StatusKind::Open,
+        status_label: "open".into(),
+        priority: None,
+        ticket_type: None,
+        tags: vec![],
+        requester: Some(requester.into()),
+        assignee: None,
+        watchers: watchers.iter().map(|w| w.to_string()).collect(),
+        created_at: at(1, 9),
+        updated_at: at(1, 10),
+        solved_at: None,
+        fields: BTreeMap::new(),
+        comments: vec![comment(
+            &format!("c{id}"),
+            Some(requester),
+            true,
+            "<p>Help</p>",
+            at(1, 9),
+        )],
+    }
+}
+
+/// An account from outside the import: `platform_role` as given, a primary
+/// address, any secondary ones, and a seat in `seat_in` with `role`.
+fn account(
+    pool: &TestPool,
+    name: &str,
+    platform_role: Option<&str>,
+    primary: &str,
+    secondary: &[&str],
+    seat_in: Option<(i32, &str)>,
+) -> Uuid {
+    #[derive(QueryableByName)]
+    struct Id {
+        #[diesel(sql_type = diesel::sql_types::Uuid)]
+        uuid: Uuid,
+    }
+    let mut conn = pool.get().expect("conn");
+    let uuid = diesel::sql_query(
+        "INSERT INTO users (uuid, name, platform_role) VALUES (gen_random_uuid(), $1, coalesce($2, 'user')) \
+         RETURNING uuid",
+    )
+    .bind::<Text, _>(name)
+    .bind::<Nullable<Text>, _>(platform_role)
+    .get_result::<Id>(&mut conn)
+    .expect("user")
+    .uuid;
+    let mut emails = vec![(primary, true)];
+    emails.extend(secondary.iter().map(|e| (*e, false)));
+    for (email, is_primary) in emails {
+        diesel::sql_query(
+            "INSERT INTO user_emails (user_uuid, email, email_type, is_primary, is_verified) \
+             VALUES ($1, $2, 'personal', $3, true)",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(uuid)
+        .bind::<Text, _>(email)
+        .bind::<Bool, _>(is_primary)
+        .execute(&mut conn)
+        .expect("email");
+    }
+    if let Some((ws, role)) = seat_in {
+        crate::common::seat(&mut conn, ws, uuid, role);
+    }
+    uuid
+}
+
+#[derive(QueryableByName, Debug)]
+struct Requested {
+    #[diesel(sql_type = Integer)]
+    number: i32,
+    #[diesel(sql_type = diesel::sql_types::Uuid)]
+    requester: Uuid,
+}
+
+fn requesters(pool: &TestPool, ws: &WorkspaceSeed) -> HashMap<i32, Uuid> {
+    run_in_workspace(pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query(
+            "SELECT number, requester_uuid AS requester FROM tickets WHERE submitted_via = 'import'",
+        )
+        .load::<Requested>(c)
+    })
+    .expect("requesters")
+    .into_iter()
+    .map(|r| (r.number, r.requester))
+    .collect()
+}
+
+#[derive(QueryableByName, Debug)]
+struct Seat {
+    #[diesel(sql_type = Text)]
+    role: String,
+    #[diesel(sql_type = Bool)]
+    removed: bool,
+}
+
+/// The account's seat in `ws`, with whether it was removed.
+fn seat_of(pool: &TestPool, ws: i32, user: Uuid) -> Option<(String, bool)> {
+    let mut conn = pool.get().expect("conn");
+    diesel::sql_query(
+        "SELECT role, removed_at IS NOT NULL AS removed FROM workspace_members \
+         WHERE workspace_id = $1 AND user_uuid = $2",
+    )
+    .bind::<Integer, _>(ws)
+    .bind::<diesel::sql_types::Uuid, _>(user)
+    .get_result::<Seat>(&mut conn)
+    .optional()
+    .expect("seat")
+    .map(|s| (s.role, s.removed))
+}
+
+fn account_of(pool: &TestPool, email: &str) -> Uuid {
+    #[derive(QueryableByName)]
+    struct Id {
+        #[diesel(sql_type = diesel::sql_types::Uuid)]
+        user_uuid: Uuid,
+    }
+    let mut conn = pool.get().expect("conn");
+    diesel::sql_query("SELECT user_uuid FROM user_emails WHERE lower(email) = lower($1)")
+        .bind::<Text, _>(email)
+        .get_result::<Id>(&mut conn)
+        .expect("account")
+        .user_uuid
+}
+
+fn watchers_of(pool: &TestPool, ws: &WorkspaceSeed, number: i32) -> Vec<Uuid> {
+    #[derive(QueryableByName)]
+    struct W {
+        #[diesel(sql_type = diesel::sql_types::Uuid)]
+        user_uuid: Uuid,
+    }
+    run_in_workspace(pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query(
+            "SELECT w.user_uuid FROM ticket_watchers w JOIN tickets t ON t.id = w.ticket_id \
+             WHERE t.number = $1",
+        )
+        .bind::<Integer, _>(number)
+        .load::<W>(c)
+    })
+    .expect("watchers")
+    .into_iter()
+    .map(|w| w.user_uuid)
+    .collect()
+}
+
+#[actix_web::test]
+async fn accounts_from_elsewhere_are_attached_only_within_the_workspaces_reach() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let two = crate::common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let (ws, other) = (two.a, two.b);
+
+    let agent_elsewhere = account(
+        &pool,
+        "Agent Elsewhere",
+        None,
+        "agent@other.test",
+        &[],
+        Some((other.workspace_id, "agent")),
+    );
+    let platform = account(
+        &pool,
+        "Platform Admin",
+        Some("platform_admin"),
+        "root@other.test",
+        &[],
+        None,
+    );
+    let aliased = account(
+        &pool,
+        "Has An Alias",
+        None,
+        "main@other.test",
+        &["alias@other.test"],
+        Some((other.workspace_id, "member")),
+    );
+    let reachable = account(
+        &pool,
+        "Requester Elsewhere",
+        None,
+        "known@other.test",
+        &[],
+        Some((other.workspace_id, "member")),
+    );
+
+    let bundle_people = vec![
+        person("1", "agent@other.test", PersonRole::Requester, true),
+        person("2", "root@other.test", PersonRole::Requester, true),
+        person("3", "ALIAS@other.test", PersonRole::Requester, true),
+        person("4", "known@other.test", PersonRole::Requester, true),
+        person("5", "suspended@customer.test", PersonRole::Requester, false),
+        person("6", "gone@acme.test", PersonRole::Agent, false),
+        person("7", "watcher@customer.test", PersonRole::Requester, true),
+    ];
+    let list = vec![
+        raised_by("301", "1", &[]),
+        raised_by("302", "2", &[]),
+        raised_by("303", "3", &[]),
+        raised_by("304", "4", &["5", "6", "7", "1"]),
+        raised_by("305", "5", &[]),
+    ];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_of(dir.path(), &bundle_people, &list);
+    let mut opts = options(&ws, Uuid::now_v7());
+    opts.create_agents = false;
+    let report = run(&pool, &bundle, &opts).await;
+    assert_eq!(report.tickets_written, 5);
+
+    let by_number = requesters(&pool, &ws);
+    // Staff elsewhere, a platform role and a secondary address of an account
+    // from elsewhere are never attached: their tickets go to the placeholder.
+    let placeholder = by_number[&301];
+    for (n, account) in [(301, agent_elsewhere), (302, platform), (303, aliased)] {
+        assert_eq!(by_number[&n], placeholder, "ticket {n}");
+        assert_ne!(by_number[&n], account, "ticket {n}");
+        assert_eq!(
+            seat_of(&pool, ws.workspace_id, account),
+            None,
+            "no seat for {n}"
+        );
+    }
+    let thread = comments_of(&pool, &ws, imported_tickets(&pool, &ws)[0].id);
+    assert!(
+        thread.iter().any(|c| c.author == "Unknown (Zendesk)"),
+        "{thread:?}"
+    );
+    {
+        #[derive(QueryableByName)]
+        struct Meta {
+            #[diesel(sql_type = Nullable<Text>)]
+            email: Option<String>,
+        }
+        let kept: Vec<Option<String>> = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+            diesel::sql_query(
+                "SELECT c.channel_metadata->'import'->>'author_email' AS email FROM comments c \
+                 JOIN tickets t ON t.id = c.ticket_id WHERE t.number = 301 AND NOT c.is_internal",
+            )
+            .load::<Meta>(c)
+        })
+        .expect("meta")
+        .into_iter()
+        .map(|m| m.email)
+        .collect();
+        assert_eq!(kept, vec![Some("agent@other.test".to_string())]);
+    }
+
+    // A requester from elsewhere within reach is reused and seated here.
+    assert_eq!(by_number[&304], reachable);
+    assert_eq!(
+        seat_of(&pool, ws.workspace_id, reachable),
+        Some(("member".to_string(), false))
+    );
+
+    // Suspended and former people get accounts without a seat, and don't
+    // watch; a seated requester does.
+    let suspended = account_of(&pool, "suspended@customer.test");
+    let gone = account_of(&pool, "gone@acme.test");
+    let watcher = account_of(&pool, "watcher@customer.test");
+    assert_eq!(by_number[&305], suspended);
+    assert_eq!(
+        seat_of(&pool, ws.workspace_id, suspended),
+        Some(("member".to_string(), true))
+    );
+    assert_eq!(
+        seat_of(&pool, ws.workspace_id, gone),
+        Some(("member".to_string(), true))
+    );
+    let watching = watchers_of(&pool, &ws, 304);
+    assert!(watching.contains(&watcher), "{watching:?}");
+    for not_watching in [suspended, gone, agent_elsewhere, placeholder] {
+        assert!(!watching.contains(&not_watching), "{watching:?}");
+    }
+
+    // A rerun attaches no one new and keeps the placeholder.
+    run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    assert_eq!(requesters(&pool, &ws)[&301], placeholder);
+    assert_eq!(seat_of(&pool, ws.workspace_id, agent_elsewhere), None);
 }

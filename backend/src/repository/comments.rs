@@ -404,6 +404,9 @@ pub fn create_comment_with_annotation(
 /// reply's so the ticket view renders it from the pool, with `created_via`
 /// naming the source and `imported: true`. Run it under an `import:<job>`
 /// actor reference and the outboxes skip it.
+///
+/// Like any reply, it can't go on a ticket merged into another one, and its
+/// author is one of the ticket's workspace's people.
 pub fn import_comment(
     conn: &mut DbConnection,
     row: NewImportedComment,
@@ -411,6 +414,10 @@ pub fn import_comment(
 ) -> QueryResult<Comment> {
     conn.transaction(|conn| {
         let parent: Ticket = tickets::table.find(row.ticket_id).first(conn)?;
+        if crate::repository::ticket_merge::is_merge_source(conn, parent.id)? {
+            return Err(crate::repository::tickets::TicketWriteError::Merged.into());
+        }
+        crate::repository::tickets::ensure_requester(conn, parent.workspace_id, row.user_uuid)?;
         let comment: Comment = diesel::insert_into(comments::table)
             .values(&row)
             .get_result(conn)?;
@@ -449,6 +456,25 @@ pub fn import_comment(
         )?;
         Ok(comment)
     })
+}
+
+/// The ticket each of `comment_ids` is on, for those that are replies in
+/// `workspace_id`.
+pub fn tickets_of(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    comment_ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, i32>> {
+    if comment_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    Ok(comments::table
+        .filter(comments::workspace_id.eq(workspace_id))
+        .filter(comments::id.eq_any(comment_ids))
+        .select((comments::id, comments::ticket_id))
+        .load::<(i32, i32)>(conn)?
+        .into_iter()
+        .collect())
 }
 
 /// Record the tickets a new comment references through `ticket_link`

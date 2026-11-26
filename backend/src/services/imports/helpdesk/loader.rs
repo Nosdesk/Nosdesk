@@ -24,7 +24,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::bundle::{self, Body, BodyFormat, Bundle, PriorityLevel, StatusKind};
-use super::people::{self, Decision, PeopleOptions, Resolved};
+use super::people::{self, PeopleOptions, Resolved};
 use crate::db::{DbConnection, Pool};
 use crate::models::{
     ContentFormat, NewAttachment, NewImportedComment, NewImportedTicket, NewTag, Ticket,
@@ -283,6 +283,7 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
     let m = manifest.clone();
     db(pool, opts.actor_context(), move |conn| {
         let scope = Scope {
+            workspace_id: o.workspace_id,
             source: &m.source,
             instance: &m.source_scope,
         };
@@ -336,7 +337,10 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
         plan.keep_numbers = keep;
         plan.numbers_reason = reason;
 
-        let referenced = people::referenced(b.tickets()?.filter_map(Result::ok));
+        let mut referenced = HashSet::new();
+        for t in b.tickets()?.filter_map(Result::ok) {
+            people::mentioned(&t, &mut referenced);
+        }
         let persons: Vec<bundle::Person> = b
             .people()?
             .filter_map(Result::ok)
@@ -344,13 +348,14 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
             .collect();
         let persons = first_of_each(persons);
         let popts = PeopleOptions {
-            workspace_id: o.workspace_id,
             scope,
             job_id: o.job_id,
             agent_map: &o.agent_map,
             create_agents: o.create_agents,
         };
-        for d in people::plan(conn, &persons, &popts)? {
+        let people_plan = people::plan(conn, &persons, &popts)?;
+        plan.notes.extend(people_plan.warnings);
+        for d in people_plan.decisions {
             *plan.people.entry(d.outcome.label()).or_default() += 1;
             if d.person.role.is_staff() {
                 plan.staff.push((
@@ -388,9 +393,8 @@ fn number_decision(
     if policy == NumberPolicy::AfterExisting {
         return Ok((false, "numbered after existing tickets, as asked".into()));
     }
-    let in_workspace = crate::repository::tickets::count_tickets(conn)?;
-    let ours = idmap::count(conn, scope, Entity::Ticket)?;
-    let room = in_workspace == ours;
+    let others = idmap::other_tickets(conn, scope)?;
+    let room = others == 0;
     match (room && numbers_ok, policy) {
         (true, _) => Ok((true, "the source's numbers are kept".into())),
         (false, NumberPolicy::Keep) => Err(LoadError::Refused(if !numbers_ok {
@@ -398,15 +402,14 @@ fn number_decision(
                 .into()
         } else {
             format!(
-                "the workspace already has {} tickets of its own, so the source's numbers can't \
-                 be kept; run with numbers after existing",
-                in_workspace - ours
+                "the workspace already has {others} tickets of its own, so the source's numbers \
+                 can't be kept; run with numbers after existing"
             )
         })),
         (false, _) => Ok((
             false,
             if numbers_ok {
-                format!("the workspace already has {} tickets, so imported tickets are numbered after them", in_workspace - ours)
+                format!("the workspace already has {others} tickets, so imported tickets are numbered after them")
             } else {
                 "the source's numbers aren't usable, so tickets are numbered after existing ones"
                     .into()
@@ -433,12 +436,18 @@ pub async fn load(
     // Settle numbering once, before the first batch, so a resumed run keeps
     // the choice its first batch made (the map holds only our tickets then).
     let keep_numbers = {
-        let (s, i, policy) = (source.clone(), instance.clone(), opts.numbers);
+        let (s, i, policy, ws) = (
+            source.clone(),
+            instance.clone(),
+            opts.numbers,
+            opts.workspace_id,
+        );
         let numbers_ok = numbers_usable(bundle)?;
         db(pool, opts.actor_context(), move |conn| {
             Ok(number_decision(
                 conn,
                 Scope {
+                    workspace_id: ws,
                     source: &s,
                     instance: &i,
                 },
@@ -450,9 +459,13 @@ pub async fn load(
         .await?
     };
 
-    // People first: everyone the tickets mention, in one transaction.
-    let people_map: Arc<HashMap<String, Resolved>> = {
-        let referenced = people::referenced(bundle.tickets()?.filter_map(Result::ok));
+    // People first: everyone the tickets mention, under the source's lock,
+    // with the placeholder author their unattachable replies go to.
+    let (people_map, placeholder): (Arc<HashMap<String, Resolved>>, Uuid) = {
+        let mut referenced = HashSet::new();
+        for t in bundle.tickets()?.filter_map(Result::ok) {
+            people::mentioned(&t, &mut referenced);
+        }
         let persons: Vec<bundle::Person> = bundle
             .people()?
             .filter_map(Result::ok)
@@ -461,10 +474,10 @@ pub async fn load(
         let persons = first_of_each(persons);
         let o = opts.clone();
         let (s, i) = (source.clone(), instance.clone());
-        let resolved = db(pool, opts.actor_context(), move |conn| {
+        let (resolved, placeholder) = db(pool, opts.actor_context(), move |conn| {
             let popts = PeopleOptions {
-                workspace_id: o.workspace_id,
                 scope: Scope {
+                    workspace_id: o.workspace_id,
                     source: &s,
                     instance: &i,
                 },
@@ -472,36 +485,18 @@ pub async fn load(
                 agent_map: &o.agent_map,
                 create_agents: o.create_agents,
             };
-            let decisions: Vec<Decision> = people::plan(conn, &persons, &popts)?;
-            Ok(people::apply(conn, &decisions, &popts)?)
+            idmap::lock_source(conn, popts.scope)?;
+            let placeholder = people::placeholder(conn, &popts)?;
+            Ok((
+                people::apply(conn, &persons, &popts, placeholder)?,
+                placeholder,
+            ))
         })
         .await?;
         for r in resolved.values() {
             *report.people.entry(r.outcome.label()).or_default() += 1;
         }
-        Arc::new(resolved)
-    };
-
-    // Placeholder author for replies whose author the bundle doesn't know.
-    let placeholder: Uuid = {
-        let (s, i) = (source.clone(), instance.clone());
-        db(pool, opts.actor_context(), move |conn| {
-            let scope = Scope {
-                source: &s,
-                instance: &i,
-            };
-            let name = format!("Unknown ({})", source_title(&s));
-            Ok(
-                crate::repository::user_helpers::find_or_provision_requester(
-                    &people::placeholder_email(scope),
-                    &name,
-                    conn,
-                    None,
-                )?
-                .uuid,
-            )
-        })
-        .await?
+        (Arc::new(resolved), placeholder)
     };
 
     let total = manifest.counts.get("tickets").copied().unwrap_or(0);
@@ -609,18 +604,19 @@ async fn write_batch(
     );
     db(pool, opts.actor_context(), move |conn| {
         let scope = Scope {
+            workspace_id: o.workspace_id,
             source: &s,
             instance: &i,
         };
         // One batch at a time per source and workspace, and the map read
         // under the lock, so an overlapping run skips what this one wrote.
-        idmap::lock_source(conn, o.workspace_id, scope)?;
+        idmap::lock_source(conn, scope)?;
         let states = StateMap::load(conn)?;
         let cats = categories(conn)?;
         let mut tags = TagCache::load(conn)?;
         let ids: Vec<String> = batch.iter().map(|t| t.source_id.clone()).collect();
         let mut mapped = idmap::targets_of(conn, scope, Entity::Ticket, &ids)?;
-        let mut live = live_tickets(conn, &mapped)?;
+        let mut live = live_tickets(conn, o.workspace_id, &mapped)?;
 
         let mut out = BatchWritten {
             tickets: 0,
@@ -684,23 +680,18 @@ async fn write_batch(
     .await
 }
 
-/// Which of the mapped tickets still exist here.
+/// Which of the mapped tickets still exist in the workspace.
 fn live_tickets(
     conn: &mut DbConnection,
+    workspace_id: i32,
     mapped: &HashMap<String, String>,
 ) -> QueryResult<HashSet<i32>> {
-    use crate::schema::tickets;
-    use diesel::prelude::*;
     let ids: Vec<i32> = mapped.values().filter_map(|v| v.parse().ok()).collect();
-    if ids.is_empty() {
-        return Ok(HashSet::new());
-    }
-    Ok(tickets::table
-        .filter(tickets::id.eq_any(&ids))
-        .select(tickets::id)
-        .load::<i32>(conn)?
-        .into_iter()
-        .collect())
+    Ok(
+        crate::repository::tickets::imported_targets(conn, workspace_id, &ids)?
+            .into_keys()
+            .collect(),
+    )
 }
 
 struct TagCache {
@@ -780,6 +771,7 @@ fn write_ticket(
 
     let ticket: Ticket = crate::repository::tickets::import_ticket(
         conn,
+        opts.workspace_id,
         NewImportedTicket {
             title: {
                 let s = truncate(&t.subject, 255);
@@ -791,11 +783,11 @@ fn write_ticket(
             },
             workflow_state_id: state_id,
             priority: priority(t.priority),
-            requester_uuid: requester.map(|r| r.uuid),
+            requester_uuid: Some(requester.map_or(placeholder, |r| r.uuid)),
             assignee_uuid,
             category_id: category.map(|(id, _)| *id),
             submitted_via: Some(HELPDESK_IMPORT.to_string()),
-            created_by: requester.map(|r| r.uuid),
+            created_by: Some(requester.map_or(placeholder, |r| r.uuid)),
             number: if keep_numbers {
                 t.number.and_then(|n| i32::try_from(n).ok())
             } else {
@@ -834,9 +826,12 @@ fn write_ticket(
         crate::repository::tags::set_tags_for_ticket(conn, ticket.id, &tag_ids, Some(opts.actor))?;
     }
 
+    // Only people who hold a seat here watch: a former agent, someone
+    // suspended at the source or an account the import couldn't attach
+    // hears nothing of the ticket.
     for w in &t.watchers {
         if let Some(r) = people.get(w) {
-            if Some(r.uuid) != ticket.requester_uuid {
+            if r.seated && Some(r.uuid) != ticket.requester_uuid {
                 crate::repository::ticket_watchers::add_watcher(conn, ticket.id, r.uuid, false)?;
             }
         }
@@ -844,7 +839,7 @@ fn write_ticket(
 
     // One internal note with what Nosdesk has no column for, dated with the
     // ticket so it sits at the top of the thread.
-    let note = import_note(scope.source, t, assignee.filter(|r| !r.staff).is_some());
+    let note = import_note(scope.source, t, requester, assignee);
     write_comment(
         conn,
         scope,
@@ -890,6 +885,11 @@ fn write_reply(
     let source_author = SourceAuthor {
         id: c.author.as_deref(),
         name: resolved.map(|r| r.source_name.as_str()),
+        // Kept only when the reply is credited to the placeholder in their
+        // stead; otherwise the account says who they are.
+        email: resolved
+            .filter(|r| r.withheld())
+            .and_then(|r| r.source_email.as_deref()),
         staff: resolved.is_some_and(|r| r.source_staff),
     };
     write_comment(
@@ -912,17 +912,46 @@ fn write_reply(
 struct SourceAuthor<'a> {
     id: Option<&'a str>,
     name: Option<&'a str>,
+    email: Option<&'a str>,
     staff: bool,
 }
 
-fn import_note(source: &str, t: &bundle::Ticket, assignee_without_seat: bool) -> String {
+/// A source person by name and address, for a note.
+fn who(r: &Resolved) -> String {
+    match &r.source_email {
+        Some(e) => format!("{} <{e}>", r.source_name),
+        None => r.source_name.clone(),
+    }
+}
+
+fn import_note(
+    source: &str,
+    t: &bundle::Ticket,
+    requester: Option<&Resolved>,
+    assignee: Option<&Resolved>,
+) -> String {
     let mut lines = vec![match t.number {
         Some(n) => format!("Imported from {} #{n}.", source_title(source)),
         None => format!("Imported from {}.", source_title(source)),
     }];
     lines.push(format!("Status there: {}.", t.status_label));
-    if assignee_without_seat {
-        lines.push("It was assigned to someone who has no seat here, so it is unassigned.".into());
+    if let Some(r) = requester.filter(|r| r.withheld()) {
+        lines.push(format!(
+            "Requested there by {}, whose address belongs to an account this workspace can't \
+             attach, so it is credited to the placeholder author.",
+            who(r)
+        ));
+    }
+    match assignee {
+        Some(a) if a.withheld() => lines.push(format!(
+            "It was assigned to {}, who has no seat here, so it is unassigned.",
+            who(a)
+        )),
+        Some(a) if !a.staff => lines.push(format!(
+            "It was assigned to {}, who has no staff seat here, so it is unassigned.",
+            a.source_name
+        )),
+        _ => {}
     }
     if let Some(ty) = &t.ticket_type {
         lines.push(format!("Type: {ty}."));
@@ -966,6 +995,7 @@ fn write_comment(
                     "source_id": source_id,
                     "author": source_author.as_ref().and_then(|a| a.id),
                     "author_name": source_author.as_ref().and_then(|a| a.name),
+                    "author_email": source_author.as_ref().and_then(|a| a.email),
                     "author_role": source_author.as_ref().map(|a| if a.staff { "staff" } else { "requester" }),
                 }
             })),
@@ -1055,25 +1085,21 @@ async fn attach_files(
     let (s, i) = (source.to_string(), instance.to_string());
     let comment_ids: Vec<String> = wanted.iter().map(|(c, _)| c.clone()).collect();
     let file_ids: Vec<String> = wanted.iter().map(|(_, a)| a.clone()).collect();
+    let ws_id = opts.workspace_id;
     let (comments, attached, tickets) = db(pool, opts.actor_context(), move |conn| {
         let scope = Scope {
+            workspace_id: ws_id,
             source: &s,
             instance: &i,
         };
         let comments = idmap::targets_of(conn, scope, Entity::Comment, &comment_ids)?;
         let attached = idmap::targets_of(conn, scope, Entity::Attachment, &file_ids)?;
-        let ticket_of: HashMap<String, i32> = {
-            use crate::schema::comments as c;
-            use diesel::prelude::*;
-            let ids: Vec<i32> = comments.values().filter_map(|v| v.parse().ok()).collect();
-            c::table
-                .filter(c::id.eq_any(&ids))
-                .select((c::id, c::ticket_id))
-                .load::<(i32, i32)>(conn)?
+        let ids: Vec<i32> = comments.values().filter_map(|v| v.parse().ok()).collect();
+        let ticket_of: HashMap<String, i32> =
+            crate::repository::comments::tickets_of(conn, ws_id, &ids)?
                 .into_iter()
                 .map(|(id, t)| (id.to_string(), t))
-                .collect()
-        };
+                .collect();
         Ok((comments, attached, ticket_of))
     })
     .await?;
@@ -1164,13 +1190,13 @@ async fn attach_files(
                 );
                 let size = meta.len() as i64;
                 let url = stored.url.clone();
-                let ws_id = opts.workspace_id;
                 let row = db(pool, opts.actor_context(), move |conn| {
                     let scope = Scope {
+                        workspace_id: ws_id,
                         source: &s,
                         instance: &i,
                     };
-                    idmap::lock_source(conn, ws_id, scope)?;
+                    idmap::lock_source(conn, scope)?;
                     // An overlapping run may have attached it meanwhile.
                     if idmap::target_of(conn, scope, Entity::Attachment, &src_id)?.is_some() {
                         return Ok(false);

@@ -38,16 +38,24 @@ impl Entity {
     }
 }
 
-/// Which source instance a lookup is about: `("zendesk", "acme")`.
+/// Which source instance a lookup is about, in which workspace:
+/// `("zendesk", "acme")` brought into workspace 3. Every read and write
+/// names the workspace itself rather than leaving it to row security.
 #[derive(Debug, Clone, Copy)]
 pub struct Scope<'a> {
+    pub workspace_id: i32,
     pub source: &'a str,
     pub instance: &'a str,
 }
 
+/// The person id the source's placeholder author is mapped under: not a
+/// shape any source uses for its own ids.
+pub const PLACEHOLDER_PERSON: &str = "~placeholder";
+
 #[derive(Debug, Insertable)]
 #[diesel(table_name = import_source_ids)]
 struct NewSourceId<'a> {
+    workspace_id: i32,
     source: &'a str,
     source_scope: &'a str,
     entity: &'a str,
@@ -65,6 +73,7 @@ pub fn target_of(
     source_id: &str,
 ) -> QueryResult<Option<String>> {
     import_source_ids::table
+        .filter(import_source_ids::workspace_id.eq(scope.workspace_id))
         .filter(import_source_ids::source.eq(scope.source))
         .filter(import_source_ids::source_scope.eq(scope.instance))
         .filter(import_source_ids::entity.eq(entity.as_str()))
@@ -86,6 +95,7 @@ pub fn targets_of(
         return Ok(HashMap::new());
     }
     let rows: Vec<(String, String)> = import_source_ids::table
+        .filter(import_source_ids::workspace_id.eq(scope.workspace_id))
         .filter(import_source_ids::source.eq(scope.source))
         .filter(import_source_ids::source_scope.eq(scope.instance))
         .filter(import_source_ids::entity.eq(entity.as_str()))
@@ -95,14 +105,43 @@ pub fn targets_of(
     Ok(rows.into_iter().collect())
 }
 
-/// How many records of this kind have been brought across from the source.
-pub fn count(conn: &mut DbConnection, scope: Scope<'_>, entity: Entity) -> QueryResult<i64> {
-    import_source_ids::table
-        .filter(import_source_ids::source.eq(scope.source))
-        .filter(import_source_ids::source_scope.eq(scope.instance))
-        .filter(import_source_ids::entity.eq(entity.as_str()))
-        .count()
-        .get_result(conn)
+#[derive(QueryableByName)]
+struct Count {
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    n: i64,
+}
+
+// sync-audit-only: read-only (counts the workspace's tickets the map doesn't name)
+/// How many of the workspace's tickets this source didn't bring: its own,
+/// or another import's. Zero means the source's numbers can't collide with
+/// anything but themselves, however many of its tickets were deleted here.
+pub fn other_tickets(conn: &mut DbConnection, scope: Scope<'_>) -> QueryResult<i64> {
+    diesel::sql_query(
+        "SELECT count(*) AS n FROM tickets t \
+         WHERE t.workspace_id = $1 AND NOT EXISTS ( \
+             SELECT 1 FROM import_source_ids m \
+             WHERE m.workspace_id = $1 AND m.source = $2 AND m.source_scope = $3 \
+               AND m.entity = 'ticket' AND m.target_id = t.id::text)",
+    )
+    .bind::<diesel::sql_types::Integer, _>(scope.workspace_id)
+    .bind::<diesel::sql_types::Text, _>(scope.source)
+    .bind::<diesel::sql_types::Text, _>(scope.instance)
+    .get_result::<Count>(conn)
+    .map(|c| c.n)
+}
+
+// sync-audit-only: import bookkeeping no client reads, cleared with the account it names
+/// Forget every mapping, in every workspace, to the account `user_uuid`:
+/// the account is being purged, so a rerun brings the person across again
+/// rather than finding a mapping to nothing. Run on the purge's bypass
+/// connection, which sees every workspace's rows.
+pub fn forget_account(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<usize> {
+    diesel::delete(
+        import_source_ids::table
+            .filter(import_source_ids::entity.eq(Entity::Person.as_str()))
+            .filter(import_source_ids::target_id.eq(user_uuid.to_string())),
+    )
+    .execute(conn)
 }
 
 // sync-audit-only: takes a lock and writes nothing
@@ -111,15 +150,11 @@ pub fn count(conn: &mut DbConnection, scope: Scope<'_>, entity: Entity) -> Query
 /// same import (an operator's retry while the first still runs) then
 /// interleave whole batches, each reading the map after the other's commit,
 /// instead of both writing the same ticket.
-pub fn lock_source(
-    conn: &mut DbConnection,
-    workspace_id: i32,
-    scope: Scope<'_>,
-) -> QueryResult<()> {
+pub fn lock_source(conn: &mut DbConnection, scope: Scope<'_>) -> QueryResult<()> {
     diesel::sql_query("SELECT pg_advisory_xact_lock(hashtext($1))")
         .bind::<diesel::sql_types::Text, _>(format!(
-            "helpdesk-import:{workspace_id}:{}:{}",
-            scope.source, scope.instance
+            "helpdesk-import:{}:{}:{}",
+            scope.workspace_id, scope.source, scope.instance
         ))
         .execute(conn)
         .map(|_| ())
@@ -136,6 +171,7 @@ pub fn forget(
 ) -> QueryResult<()> {
     diesel::delete(
         import_source_ids::table
+            .filter(import_source_ids::workspace_id.eq(scope.workspace_id))
             .filter(import_source_ids::source.eq(scope.source))
             .filter(import_source_ids::source_scope.eq(scope.instance))
             .filter(import_source_ids::entity.eq(entity.as_str()))
@@ -162,6 +198,7 @@ pub fn record(
 ) -> QueryResult<()> {
     diesel::insert_into(import_source_ids::table)
         .values(&NewSourceId {
+            workspace_id: scope.workspace_id,
             source: scope.source,
             source_scope: scope.instance,
             entity: entity.as_str(),

@@ -257,6 +257,94 @@ pub fn primary_email_holders(
     Ok(out)
 }
 
+/// An account holding an address, as [`address_holders`] reports it.
+#[derive(Debug, Clone)]
+pub struct AddressHolder {
+    pub uuid: Uuid,
+    /// The address is the account's primary one.
+    pub primary: bool,
+    /// Their role in the workspace when they hold an active seat there.
+    pub active_role: Option<String>,
+    /// One of the workspace's people (`repository::directory`): an active
+    /// or former member, or someone its records name.
+    pub person: bool,
+}
+
+// sync-audit-only: read-only (resolves an import's people to accounts)
+/// For each of `emails`, keyed lower-case, the account holding it as any of
+/// its addresses, primary or not, compared case-insensitively, with where
+/// that account stands in `workspace_id`. Addresses no account holds are
+/// absent. When case variants of one address belong to different accounts,
+/// the workspace's own person wins, then the primary holder, then the
+/// oldest account, so the answer never depends on row order.
+pub fn address_holders(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    emails: &[String],
+) -> QueryResult<std::collections::HashMap<String, AddressHolder>> {
+    use crate::schema::{user_emails, users, workspace_members};
+    use std::collections::{HashMap, HashSet};
+
+    if emails.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let keys: Vec<String> = emails.iter().map(|e| e.to_lowercase()).collect();
+    let rows: Vec<(String, Uuid, bool, chrono::DateTime<chrono::Utc>)> = user_emails::table
+        .inner_join(users::table.on(users::uuid.eq(user_emails::user_uuid)))
+        .filter(
+            diesel::dsl::sql::<diesel::sql_types::Text>("lower(user_emails.email)").eq_any(&keys),
+        )
+        .select((
+            user_emails::email,
+            user_emails::user_uuid,
+            user_emails::is_primary,
+            users::created_at,
+        ))
+        .load(conn)?;
+    let uuids: Vec<Uuid> = rows
+        .iter()
+        .map(|r| r.1)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let people = crate::repository::directory::people_among(conn, workspace_id, &uuids)?;
+    let roles: HashMap<Uuid, String> = workspace_members::table
+        .filter(workspace_members::workspace_id.eq(workspace_id))
+        .filter(workspace_members::user_uuid.eq_any(&uuids))
+        .filter(workspace_members::removed_at.is_null())
+        .select((workspace_members::user_uuid, workspace_members::role))
+        .load::<(Uuid, String)>(conn)?
+        .into_iter()
+        .collect();
+
+    let mut best: HashMap<String, (AddressHolder, chrono::DateTime<chrono::Utc>)> = HashMap::new();
+    for (email, uuid, primary, created) in rows {
+        let holder = AddressHolder {
+            uuid,
+            primary,
+            active_role: roles.get(&uuid).cloned(),
+            person: people.contains(&uuid),
+        };
+        let rank = |h: &AddressHolder, at: &chrono::DateTime<chrono::Utc>| {
+            (
+                std::cmp::Reverse(h.active_role.is_some()),
+                std::cmp::Reverse(h.person),
+                std::cmp::Reverse(h.primary),
+                *at,
+                h.uuid,
+            )
+        };
+        let key = email.to_lowercase();
+        match best.get(&key) {
+            Some((current, at)) if rank(current, at) <= rank(&holder, &created) => {}
+            _ => {
+                best.insert(key, (holder, created));
+            }
+        }
+    }
+    Ok(best.into_iter().map(|(k, (h, _))| (k, h)).collect())
+}
+
 /// Outcome of [`create_user_with_email`].
 pub enum CreateUserWithEmailOutcome {
     Created(User, UserEmail),

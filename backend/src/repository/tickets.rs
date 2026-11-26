@@ -488,11 +488,42 @@ pub fn create_ticket_with_annotation(
     })
 }
 
-/// How many tickets the workspace holds, merged and closed ones included.
-/// A helpdesk import keeps the source's numbers only when every one of them
-/// is its own.
-pub fn count_tickets(conn: &mut DbConnection) -> QueryResult<i64> {
-    tickets::table.count().get_result(conn)
+/// Which of `ids` are tickets of `workspace_id`, each with whether it was
+/// merged into another ticket. For a helpdesk import's rerun, which adds
+/// replies only to tickets still here and not merged away.
+pub fn imported_targets(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    ids: &[i32],
+) -> QueryResult<std::collections::HashMap<i32, bool>> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let here: Vec<i32> = tickets::table
+        .filter(tickets::workspace_id.eq(workspace_id))
+        .filter(tickets::id.eq_any(ids))
+        .select(tickets::id)
+        .load(conn)?;
+    let merged: std::collections::HashSet<i32> = ticket_merges::table
+        .filter(ticket_merges::ticket_id.eq_any(&here))
+        .select(ticket_merges::ticket_id)
+        .load::<i32>(conn)?
+        .into_iter()
+        .collect();
+    Ok(here
+        .into_iter()
+        .map(|id| (id, merged.contains(&id)))
+        .collect())
+}
+
+/// Whether `workspace_id` already has a ticket numbered `number`.
+pub fn number_taken(conn: &mut DbConnection, workspace_id: i32, number: i32) -> QueryResult<bool> {
+    diesel::select(diesel::dsl::exists(
+        tickets::table
+            .filter(tickets::workspace_id.eq(workspace_id))
+            .filter(tickets::number.eq(number)),
+    ))
+    .get_result(conn)
 }
 
 /// Write a ticket a helpdesk import brings across: history, not a request.
@@ -504,12 +535,24 @@ pub fn count_tickets(conn: &mut DbConnection) -> QueryResult<i64> {
 /// ticket, with `created_via` naming the source and `imported: true`. Run
 /// it under an `import:<job>` actor reference and the notification, rule and
 /// webhook outboxes skip that event.
+///
+/// The requester (who is also its creator) is one of the workspace's people,
+/// and the assignee (who is also its closer) can work tickets here, as for
+/// every other import; either refusal reads as [`ensure_requester`]'s and
+/// [`crate::repository::assignees::ensure_assignable`]'s do.
 pub fn import_ticket(
     conn: &mut DbConnection,
+    workspace_id: i32,
     row: NewImportedTicket,
     source: &str,
 ) -> QueryResult<Ticket> {
     conn.transaction(|conn| {
+        for person in [row.requester_uuid, row.created_by].into_iter().flatten() {
+            ensure_requester(conn, workspace_id, person)?;
+        }
+        for staff in [row.assignee_uuid, row.closed_by].into_iter().flatten() {
+            crate::repository::assignees::ensure_assignable(conn, workspace_id, staff)?;
+        }
         let ticket: Ticket = diesel::insert_into(tickets::table)
             .values(&row)
             .get_result(conn)?;
