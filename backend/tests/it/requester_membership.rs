@@ -389,6 +389,7 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
             "source": "guest_ticket_submission",
             "workspace_id": b,
             "ticket_ids": [created.ticket.id],
+            "sent_to": "held@guest.example",
         })),
     )
     .expect("mint token");
@@ -426,6 +427,14 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
         Some("pending"),
         "the other held request stays held"
     );
+    // The confirmation POST proved the address it was mailed to.
+    let proven: Option<chrono::DateTime<Utc>> = backend::schema::user_emails::table
+        .filter(backend::schema::user_emails::user_uuid.eq(guest))
+        .filter(backend::schema::user_emails::email.eq("held@guest.example"))
+        .select(backend::schema::user_emails::proven_at)
+        .first(&mut seed_conn(&inbox))
+        .expect("address");
+    assert!(proven.is_some());
 }
 
 /// No seat anywhere: they may have been removed here before removal kept the
@@ -533,8 +542,15 @@ fn state_of(inbox: &Inbox, ticket: i32) -> Option<String> {
         .expect("ticket")
 }
 
-/// A guest confirmation for `user` naming `ws`, as the form mints one.
-fn guest_confirmation(inbox: &Inbox, user: uuid::Uuid, ws: i32) -> String {
+/// A guest confirmation for `user` naming `ws` and the held `ticket`, sent to
+/// `address`, as the form mints one.
+fn guest_confirmation(
+    inbox: &Inbox,
+    user: uuid::Uuid,
+    ws: i32,
+    ticket: i32,
+    address: &str,
+) -> String {
     use backend::utils::reset_tokens::{ResetTokenUtils, TokenType};
     let issued = ResetTokenUtils::create_reset_token(user, TokenType::Invitation);
     backend::repository::reset_tokens::create_reset_token(
@@ -545,7 +561,12 @@ fn guest_confirmation(inbox: &Inbox, user: uuid::Uuid, ws: i32) -> String {
         None,
         None,
         issued.expires_at,
-        Some(serde_json::json!({ "source": "guest_ticket_submission", "workspace_id": ws })),
+        Some(serde_json::json!({
+            "source": "guest_ticket_submission",
+            "workspace_id": ws,
+            "ticket_ids": [ticket],
+            "sent_to": address,
+        })),
     )
     .expect("mint token");
     issued.raw_token
@@ -619,7 +640,13 @@ async fn accepting_with_a_password_releases_the_request_where_it_was_held() {
     let created = submit_form(&inbox, "password@guest.example", true);
     assert_eq!(role_in(&inbox.pool, b, guest), None);
 
-    let raw = guest_confirmation(&inbox, guest, b);
+    let raw = guest_confirmation(
+        &inbox,
+        guest,
+        b,
+        created.ticket.id,
+        "password@guest.example",
+    );
     assert_eq!(accept_with_password(&inbox, &raw).await, 200);
     assert_eq!(
         state_of(&inbox, created.ticket.id).as_deref(),
@@ -637,7 +664,7 @@ async fn a_failed_seat_leaves_the_request_recoverable() {
     let b = inbox.ws.workspace_id;
     let guest = guest_of(&inbox.pool, a, "fault@guest.example");
     let created = submit_form(&inbox, "fault@guest.example", true);
-    let raw = guest_confirmation(&inbox, guest, b);
+    let raw = guest_confirmation(&inbox, guest, b, created.ticket.id, "fault@guest.example");
 
     diesel::sql_query(
         "CREATE FUNCTION test_refuse_seat() RETURNS trigger LANGUAGE plpgsql AS \
@@ -721,7 +748,13 @@ async fn a_confirmation_on_another_workspaces_origin_is_refused() {
     let b = inbox.ws.workspace_id;
     let guest = guest_of(&inbox.pool, a, "elsewhere@guest.example");
     let created = submit_form(&inbox, "elsewhere@guest.example", true);
-    let raw = guest_confirmation(&inbox, guest, b);
+    let raw = guest_confirmation(
+        &inbox,
+        guest,
+        b,
+        created.ticket.id,
+        "elsewhere@guest.example",
+    );
     let (_dir, search) = search(&inbox.pool);
     let app = actix_web::test::init_service(
         App::new()

@@ -31,6 +31,17 @@ async fn only_the_sign_in_pages_post_spends_the_link_and_proves_the_address() {
         ))
         .execute(&mut c)
         .expect("address");
+    // The link went to a second address the account holds.
+    diesel::insert_into(user_emails::table)
+        .values((
+            user_emails::user_uuid.eq(person),
+            user_emails::email.eq("second@example.com"),
+            user_emails::email_type.eq("work"),
+            user_emails::is_primary.eq(false),
+            user_emails::is_verified.eq(false),
+        ))
+        .execute(&mut c)
+        .expect("second address");
     let issued = ResetTokenUtils::create_reset_token(person, TokenType::PortalMagicLink);
     backend::repository::reset_tokens::create_reset_token(
         &mut c,
@@ -40,7 +51,7 @@ async fn only_the_sign_in_pages_post_spends_the_link_and_proves_the_address() {
         None,
         None,
         issued.expires_at,
-        None,
+        Some(serde_json::json!({ "sent_to": "Second@Example.com" })),
     )
     .expect("mint token");
     let pool = db.runtime_pool(4);
@@ -64,13 +75,17 @@ async fn only_the_sign_in_pages_post_spends_the_link_and_proves_the_address() {
             .first(c)
             .expect("token")
     };
-    let proven = |c: &mut backend::db::DbConnection| -> Option<chrono::DateTime<chrono::Utc>> {
+    let proven_at = |c: &mut backend::db::DbConnection,
+                     address: &str|
+     -> Option<chrono::DateTime<chrono::Utc>> {
         user_emails::table
             .filter(user_emails::user_uuid.eq(person))
+            .filter(user_emails::email.eq(address))
             .select(user_emails::proven_at)
             .first(c)
             .expect("address")
     };
+    let proven = |c: &mut backend::db::DbConnection| proven_at(c, "second@example.com");
 
     // A scanner (or anyone) opening the link, twice.
     for _ in 0..2 {
@@ -114,7 +129,15 @@ async fn only_the_sign_in_pages_post_spends_the_link_and_proves_the_address() {
         "a session"
     );
     assert!(used(&mut c));
-    assert!(proven(&mut c).is_some(), "the mailbox answered");
+    assert!(
+        proven(&mut c).is_some(),
+        "the mailbox the link went to answered"
+    );
+    assert_eq!(
+        proven_at(&mut c, "member@example.com"),
+        None,
+        "not the primary it wasn't sent to"
+    );
 
     let again = http_test::call_service(&app, continue_with(&issued.raw_token)).await;
     assert_eq!(again.status(), 400, "the link works once");

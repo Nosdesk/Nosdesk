@@ -748,8 +748,10 @@ pub fn count_recent_to_anywhere(
 /// confirmation allowance for `recipient` (case-insensitive), or with
 /// `workspace_id` the one on that workspace's ceiling. The allowances are a
 /// count then an insert, so two requests at the limit would both pass without
-/// it. Take the address's lock before the workspace's, always, so two
-/// requests can't wait on each other.
+/// it. The order is fixed on every path, so two requests can't wait on each
+/// other: the request form's per-address submission lock
+/// (`tickets::lock_guest_submissions_for`) first, then this address lock,
+/// then the workspace's. Nothing takes the workspace's before an address's.
 pub fn lock_confirmation_allowance(
     conn: &mut DbConnection,
     recipient: &str,
