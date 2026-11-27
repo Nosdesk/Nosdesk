@@ -1,7 +1,8 @@
 //! The connector against a fake Zendesk on 127.0.0.1. Requests go through
-//! the production client path (safe_http with the egress allowlist): the
-//! mock's host is allowlisted, exactly as an operator would allowlist a
-//! private stand-in.
+//! the production client path (safe_http and the egress checks). The mock's
+//! host is trusted when the source is built, as an allowlisted stand-in's
+//! is, but without setting `NOSDESK_OUTBOUND_ALLOWED_HOSTS`: that env var is
+//! process-wide, and other tests in this binary assert 127.0.0.1 is refused.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -17,26 +18,6 @@ use super::client::RetryPolicy;
 use super::*;
 use crate::services::imports::helpdesk::bundle::InputSet;
 use crate::services::imports::helpdesk::bundle::{BodyFormat, PersonRole, StatusKind};
-
-/// The allowlist is a process-global env var, and other tests in the crate
-/// (utils::egress, utils::safe_http) assert 127.0.0.1 is refused while it
-/// is unset. So a test sets it only for as long as it takes to build a
-/// source (which trusts its base host from then on), under this lock, and
-/// puts it back.
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Runs `f` with 127.0.0.1 allowlisted.
-fn with_local_allowlisted<T>(f: impl FnOnce() -> T) -> T {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let previous = std::env::var("NOSDESK_OUTBOUND_ALLOWED_HOSTS").ok();
-    std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "127.0.0.1");
-    let out = f();
-    match previous {
-        Some(v) => std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", v),
-        None => std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS"),
-    }
-    out
-}
 
 #[derive(Debug, Clone)]
 struct Req {
@@ -488,8 +469,7 @@ async fn setup() -> Setup {
 }
 
 fn source(base: &str, auth: ZendeskAuth) -> ZendeskSource {
-    let mut s = with_local_allowlisted(|| ZendeskSource::with_base_url(base, auth))
-        .expect("allowlisted base");
+    let mut s = ZendeskSource::trusting_base_url(base, Some(auth)).expect("trusted base");
     s.http.policy = RetryPolicy {
         max_attempts: 3,
         initial_backoff: Duration::from_millis(10),
@@ -901,22 +881,22 @@ async fn attachment_over_the_cap_is_listed_not_stored() {
 
 #[tokio::test]
 async fn base_url_must_be_allowlisted() {
-    with_local_allowlisted(|| {
-        let refused =
-            ZendeskSource::with_base_url("http://10.9.8.7:8080", ZendeskAuth::Bearer("t".into()));
-        assert!(matches!(
-            refused,
-            Err(ZendeskConfigError::BaseUrlRefused(_))
-        ));
-        let refused =
-            ZendeskSource::with_base_url("file:///etc/passwd", ZendeskAuth::Bearer("t".into()));
-        assert!(refused.is_err());
-        assert!(ZendeskSource::with_base_url(
-            "http://127.0.0.1:9",
-            ZendeskAuth::Bearer("t".into())
-        )
-        .is_ok());
-    });
+    // Nothing allowlists 10.9.8.7, so the real gate refuses it.
+    let refused =
+        ZendeskSource::with_base_url("http://10.9.8.7:8080", ZendeskAuth::Bearer("t".into()));
+    assert!(matches!(
+        refused,
+        Err(ZendeskConfigError::BaseUrlRefused(_))
+    ));
+    // The gate itself, with an allowlist naming only 127.0.0.1.
+    let allowlist = |host: &str| host == "127.0.0.1";
+    let auth = || Some(ZendeskAuth::Bearer("t".into()));
+    assert!(matches!(
+        ZendeskSource::at_base_url_if("http://10.9.8.7:8080", auth(), allowlist),
+        Err(ZendeskConfigError::BaseUrlRefused(_))
+    ));
+    assert!(ZendeskSource::at_base_url_if("file:///etc/passwd", auth(), |_| true).is_err());
+    assert!(ZendeskSource::at_base_url_if("http://127.0.0.1:9", auth(), allowlist).is_ok());
 }
 
 #[tokio::test]
@@ -1177,8 +1157,7 @@ async fn export_reads_without_a_credential() {
         zip.finish().expect("finish");
     }
     let bundle = Bundle::create(dir.path().join("bundle")).expect("bundle");
-    let src = with_local_allowlisted(|| ZendeskSource::for_export_with_base_url(&api_base))
-        .expect("source");
+    let src = ZendeskSource::trusting_base_url(&api_base, None).expect("source");
     let manifest = read_export(
         &src,
         std::slice::from_ref(&zip_path),
@@ -1228,8 +1207,7 @@ async fn api_fetch_without_a_credential_is_refused_at_once() {
     let s = setup().await;
     let dir = tempfile::tempdir().expect("tempdir");
     let bundle = Bundle::create(dir.path()).expect("bundle");
-    let mut src = with_local_allowlisted(|| ZendeskSource::for_export_with_base_url(&s.api.base()))
-        .expect("source");
+    let mut src = ZendeskSource::trusting_base_url(&s.api.base(), None).expect("source");
     let err = src
         .fetch(&bundle, &no_progress, CancellationToken::new())
         .await
@@ -1259,8 +1237,7 @@ async fn read_zip(
     out: &std::path::Path,
 ) -> Result<(Bundle, Manifest), SourceError> {
     let bundle = Bundle::create(out).expect("bundle");
-    let src = with_local_allowlisted(|| ZendeskSource::for_export_with_base_url(api_base))
-        .expect("source");
+    let src = ZendeskSource::trusting_base_url(api_base, None).expect("source");
     let manifest = read_export(
         &src,
         &[zip.to_path_buf()],
@@ -1695,8 +1672,7 @@ async fn two_zips_merge_and_the_later_record_wins() {
             ]),
         )],
     );
-    let src = with_local_allowlisted(|| ZendeskSource::for_export_with_base_url(&s.api.base()))
-        .expect("source");
+    let src = ZendeskSource::trusting_base_url(&s.api.base(), None).expect("source");
     let (bundle, manifest) =
         read_zips(&src, &[older.clone(), newer.clone()], &dir.path().join("b")).await;
 
@@ -1738,8 +1714,7 @@ async fn input_set_change_refuses_without_refetch() {
             ndjson(&[json!({"user": {"id": 3, "name": "Cara", "email": "c@x.test"}})]),
         )],
     );
-    let src = with_local_allowlisted(|| ZendeskSource::for_export_with_base_url(&s.api.base()))
-        .expect("source");
+    let src = ZendeskSource::trusting_base_url(&s.api.base(), None).expect("source");
     let (_, manifest) = read_zips(&src, std::slice::from_ref(&a), &dir.path().join("b")).await;
 
     let same = InputSet::of(std::slice::from_ref(&a), false, true).expect("set");
@@ -2020,8 +1995,7 @@ async fn group_and_brand_names_or_ids() {
     assert!(orgs[0].shared_tickets);
 
     // Without one: the ids.
-    let src = with_local_allowlisted(|| ZendeskSource::for_export_with_base_url(&s.api.base()))
-        .expect("source");
+    let src = ZendeskSource::trusting_base_url(&s.api.base(), None).expect("source");
     let (bundle, _) = read_zips(&src, &[zip], &dir.path().join("b2")).await;
     let tickets = tickets_of(&bundle);
     assert_eq!(field(&tickets[0], "Group there").as_deref(), Some("id 10"));

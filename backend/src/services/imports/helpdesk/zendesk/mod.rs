@@ -160,6 +160,26 @@ impl ZendeskSource {
     }
 
     fn at_base_url(base_url: &str, auth: Option<ZendeskAuth>) -> Result<Self, ZendeskConfigError> {
+        Self::at_base_url_if(base_url, auth, egress::is_host_allowlisted)
+    }
+
+    /// A stand-in whose host is trusted without the allowlist, so a lib test
+    /// reaches its mock on 127.0.0.1 without setting the process-wide env var
+    /// that other tests in the same binary read.
+    #[cfg(test)]
+    fn trusting_base_url(
+        base_url: &str,
+        auth: Option<ZendeskAuth>,
+    ) -> Result<Self, ZendeskConfigError> {
+        Self::at_base_url_if(base_url, auth, |_| true)
+    }
+
+    /// [`Self::at_base_url`] with the allowlist check passed in as `allowed`.
+    fn at_base_url_if(
+        base_url: &str,
+        auth: Option<ZendeskAuth>,
+        allowed: impl Fn(&str) -> bool,
+    ) -> Result<Self, ZendeskConfigError> {
         let url =
             Url::parse(base_url).map_err(|e| ZendeskConfigError::BaseUrlRefused(e.to_string()))?;
         let host = url
@@ -169,7 +189,7 @@ impl ZendeskSource {
         if !matches!(url.scheme(), "http" | "https") {
             return Err(ZendeskConfigError::BaseUrlRefused("not http(s)".into()));
         }
-        if !egress::is_host_allowlisted(&host) {
+        if !allowed(&host) {
             return Err(ZendeskConfigError::BaseUrlRefused(format!(
                 "{host} is not in NOSDESK_OUTBOUND_ALLOWED_HOSTS"
             )));
