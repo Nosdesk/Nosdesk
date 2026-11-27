@@ -382,12 +382,28 @@ const GUEST_TICKETS_PER_WORKSPACE_PER_DAY: u32 = 1000;
 /// Unconfirmed requests one address may have waiting at once.
 const MAX_PENDING_PER_ADDRESS: i64 = 3;
 
-/// The answer to a request that needs its email confirmed. Identical however
-/// the submission went, so it says nothing about the address.
-fn check_your_email() -> HttpResponse {
+/// The answer to every submission that got past validation and the limits:
+/// the same status and body whatever became of it (a new account, a reused
+/// one, an address with an account that must sign in instead, one with too
+/// many requests waiting), so it says nothing about the address. Nothing
+/// ticket-derived is in it, not even with confirmation off, because a
+/// submission for an address with an account files no ticket to describe.
+/// It varies only with the workspace's confirmation setting.
+fn submission_answer(req: &HttpRequest, verification_required: bool) -> HttpResponse {
+    let locale = crate::utils::locale::request_locale(req);
+    let key = if verification_required {
+        "guest-submit-answer-verify"
+    } else {
+        "guest-submit-received-message"
+    };
+    let message = format!(
+        "{} {}",
+        crate::utils::i18n::tr(&locale, key),
+        crate::utils::i18n::tr(&locale, "guest-submit-have-account-hint")
+    );
     HttpResponse::Accepted().json(json!({
-        "verification_required": true,
-        "email_sent": true,
+        "verification_required": verification_required,
+        "message": message,
     }))
 }
 
@@ -599,6 +615,8 @@ pub async fn submit_guest_ticket(
             return Err(ApiError::ServiceUnavailable("Settings unavailable".into()));
         }
     };
+    // Filing takes its own connection; don't hold two.
+    drop(conn);
 
     if !settings.guest_tickets_enabled {
         return Err(ApiError::Forbidden(
@@ -729,42 +747,73 @@ pub async fn submit_guest_ticket(
         }
     }
 
-    // When email verification is enabled, tickets start in a `pending` state
-    // invisible to techs (see ticket_query::apply_filters). The verification
-    // link in the invitation email flips them to `verified` atomically in
-    // accept_invitation::verify_pending_tickets_for_user.
-    let verification_required = settings.guest_ticket_email_verification;
-    let requested_type = body.category_id;
-    let lookup_token = Uuid::new_v4();
-
+    let attachment_tokens = if settings.guest_ticket_attachments_enabled {
+        body.attachment_tokens.as_slice()
+    } else {
+        &[]
+    };
     let submission = GuestSubmission {
         email,
         name,
         title,
         description,
         priority,
-        category_id: requested_type,
-        verification_required,
-        lookup_token,
+        category_id: body.category_id,
+        verification_required: settings.guest_ticket_email_verification,
+        lookup_token: Uuid::new_v4(),
     };
+    file_guest_submission(
+        &pool,
+        search_service.get_ref(),
+        storage.get_ref(),
+        &req,
+        &ws,
+        &submission,
+        attachment_tokens,
+    )
+    .await
+}
+
+/// File a validated request-form submission that passed the limits, and
+/// answer it with [`submission_answer`].
+///
+/// When email verification is enabled, tickets start in a `pending` state
+/// invisible to techs (see ticket_query::apply_filters). The verification
+/// link in the invitation email flips them to `verified` atomically in
+/// accept_invitation::verify_pending_tickets_for_user.
+pub async fn file_guest_submission(
+    pool: &Pool,
+    search: &Arc<SearchService>,
+    storage: &Arc<dyn Storage>,
+    req: &HttpRequest,
+    ws: &WorkspaceContext,
+    submission: &GuestSubmission<'_>,
+    attachment_tokens: &[String],
+) -> Result<HttpResponse, ApiError> {
+    let mut conn = pool.get()?;
+    let actor = guest_actor(ws, "guest:ticket_create");
+    let email = submission.email;
+    let verification_required = submission.verification_required;
+    let answer = || submission_answer(req, verification_required);
+
     let create_result = session::with_actor_context::<_, CreateError>(&mut conn, &actor, |conn| {
-        create_guest_submission(conn, ws.workspace_id, search_service.get_ref(), &submission)
+        create_guest_submission(conn, ws.workspace_id, search, submission)
     });
 
-    // The same answer whatever the address: an address with an account gets a
-    // sign-in link instead (so the form doesn't reveal who has one), and one
-    // with too many unconfirmed requests gets nothing more until it confirms.
+    // An address with an account gets a sign-in link instead, and one with
+    // too many unconfirmed requests gets nothing more until it confirms; both
+    // are answered as any other submission is.
     let (user, is_new_guest, ticket, first_comment_id) = match create_result {
         Ok(c) => (c.user, c.is_new_guest, c.ticket, c.first_comment_id),
         Err(CreateError::EmailClaimed) => {
             crate::handlers::portal::spawn_sign_in_link(
-                pool.get_ref().clone(),
+                pool.clone(),
                 ws.clone(),
                 email.to_string(),
             );
-            return Ok(check_your_email());
+            return Ok(answer());
         }
-        Err(CreateError::TooManyPending) => return Ok(check_your_email()),
+        Err(CreateError::TooManyPending) => return Ok(answer()),
         Err(CreateError::Internal) => {
             return Err(ApiError::Internal("Failed to create ticket".into()));
         }
@@ -773,12 +822,11 @@ pub async fn submit_guest_ticket(
     // Claim any referenced attachments. Cap at GUEST_MAX_FILES_PER_TICKET —
     // silently truncate extras rather than rejecting the submission.
     if let Some(comment_id) = first_comment_id {
-        if !body.attachment_tokens.is_empty() && settings.guest_ticket_attachments_enabled {
+        if !attachment_tokens.is_empty() {
             // A token that does not verify is dropped rather than rejected, the
             // same treatment an expired or already-claimed id has always had:
             // one stale attachment should not cost the submitter their ticket.
-            let ids: Vec<i32> = body
-                .attachment_tokens
+            let ids: Vec<i32> = attachment_tokens
                 .iter()
                 .take(GUEST_MAX_FILES_PER_TICKET)
                 .filter_map(|token| {
@@ -787,8 +835,7 @@ pub async fn submit_guest_ticket(
                 .collect();
             // Scope storage to this workspace so the temp->ticket move
             // stays under the ws/{id}/ prefix.
-            let scoped_storage =
-                WorkspaceScopedStorage::arc(storage.get_ref().clone(), ws.workspace_id);
+            let scoped_storage = WorkspaceScopedStorage::arc(storage.clone(), ws.workspace_id);
             claim_guest_attachments(
                 &mut conn,
                 &scoped_storage,
@@ -807,7 +854,7 @@ pub async fn submit_guest_ticket(
             c,
             user.uuid,
             "guest_ticket_submitted",
-            &req,
+            req,
             json!({
                 "ticket_id": ticket.id,
                 "email_domain": email.rsplit('@').next().unwrap_or(""),
@@ -826,15 +873,15 @@ pub async fn submit_guest_ticket(
     //
     // The email itself is framed as "confirm your ticket submission" rather
     // than the generic "welcome / invitation" copy — see
-    // EmailService::send_guest_ticket_confirmation_email.
-    let send_email = verification_required || is_new_guest;
-    let email_sent = if send_email {
+    // EmailService::send_guest_ticket_confirmation_email. Whether it went
+    // out is logged, never answered.
+    if verification_required || is_new_guest {
         let workspace_id = ws.workspace_id;
         let sent =
             session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
                 Ok(crate::handlers::users::send_guest_ticket_confirmation(
                     conn,
-                    &req,
+                    req,
                     user.uuid,
                     email,
                     workspace_id,
@@ -846,7 +893,7 @@ pub async fn submit_guest_ticket(
         match sent {
             // At its daily allowance: nothing sent, same answer.
             crate::handlers::users::SendInvitationResult::Success
-            | crate::handlers::users::SendInvitationResult::Capped => true,
+            | crate::handlers::users::SendInvitationResult::Capped => {}
             other => {
                 warn!(
                     user_uuid = %user.uuid,
@@ -854,42 +901,24 @@ pub async fn submit_guest_ticket(
                     result = %other,
                     "Failed to send guest ticket confirmation email"
                 );
-                false
             }
         }
-    } else {
-        false
-    };
+    }
 
     // Only surface the ticket to techs once it's actually verified. Pending
     // tickets skip search indexing entirely — accept_invitation picks them
     // up at verification time. The verified ticket reaches clients through
     // the sync pool (the repository write emits `ticket.created`).
     if !verification_required {
-        indexing_tasks::spawn_index_ticket(search_service.get_ref().clone(), ticket.clone(), None);
+        indexing_tasks::spawn_index_ticket(search.clone(), ticket.clone(), None);
     }
 
     info!(
         ticket_id = ticket.id,
-        email_sent, verification_required, "Guest ticket submitted"
+        verification_required, "Guest ticket submitted"
     );
 
-    if verification_required {
-        // Don't disclose the ticket id or lookup token yet — the Zendesk-
-        // style UX treats a pending ticket as "not yet submitted" from the
-        // requester's perspective. They get both once they verify.
-        let _ = email_sent;
-        Ok(check_your_email())
-    } else {
-        Ok(HttpResponse::Created().json(json!({
-            "verification_required": false,
-            "ticket_id": ticket.id,
-            "ticket_number": ticket.number,
-            "lookup_token": lookup_token.to_string(),
-            "status_url": format!("/ticket-status/{}", lookup_token),
-            "email_sent": email_sent,
-        })))
-    }
+    Ok(answer())
 }
 
 // ---------- Guest ticket status lookup ----------
