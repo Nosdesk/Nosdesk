@@ -7583,15 +7583,16 @@ public-layout-help-link = Aide
 guest-submit-disabled-title = L'envoi de tickets n'est pas disponible
 guest-submit-disabled-message = L'envoi de tickets par les invités est actuellement désactivé. Connectez-vous si vous avez un compte.
 guest-submit-verify-title = Vérifiez votre boîte de réception
-guest-submit-verify-message-prefix = Cliquez sur le lien de confirmation que nous avons envoyé à
-guest-submit-verify-message-suffix = pour transmettre votre demande à l'équipe.
+# MACHINE TRANSLATION, pending native review
+guest-submit-verify-next-prefix = Consultez vos e-mails à l'adresse
+guest-submit-verify-next-suffix = pour connaître la suite.
 guest-submit-verify-spam-hint = Rien reçu ? Vérifiez vos spams, puis réessayez dans quelques minutes.
 guest-submit-another = Envoyer un autre ticket
 # MACHINE TRANSLATION, pending native review
 guest-submit-received-title = Merci pour votre demande
 guest-submit-received-message = Nous vous répondrons par e-mail.
 guest-submit-have-account-hint = Si vous avez déjà un compte chez nous, connectez-vous et envoyez votre demande depuis votre compte.
-guest-submit-answer-verify = Consultez vos e-mails : un lien vous permet de confirmer votre demande.
+guest-submit-answer-verify = Consultez vos e-mails pour connaître la suite.
 guest-submit-another-short = Envoyer un autre
 guest-submit-heading = Envoyer un ticket
 guest-submit-tagline = Nous vous répondrons par e-mail.

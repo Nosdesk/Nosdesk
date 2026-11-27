@@ -172,7 +172,7 @@ async fn one_answer_for_every_address(verification_required: bool) {
     assert_eq!(keys, ["message", "verification_required"], "{body}");
     assert_eq!(body["verification_required"], verification_required);
     let expected = if verification_required {
-        "Check your email for a link to confirm your request."
+        "Check your email for what to do next."
     } else {
         "We'll be in touch by email."
     };

@@ -20,9 +20,9 @@
       <div class="flex flex-col gap-2">
         <h1 class="text-xl font-semibold text-primary">{{ t('guest-submit-verify-title') }}</h1>
         <p class="text-sm text-secondary">
-          {{ t('guest-submit-verify-message-prefix') }}
+          {{ t('guest-submit-verify-next-prefix') }}
           <span class="text-primary font-medium">{{ submittedEmail }}</span>
-          {{ t('guest-submit-verify-message-suffix') }}
+          {{ t('guest-submit-verify-next-suffix') }}
         </p>
       </div>
       <p class="text-xs text-tertiary">

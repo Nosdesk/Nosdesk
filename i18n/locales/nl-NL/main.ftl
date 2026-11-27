@@ -7573,15 +7573,16 @@ public-layout-help-link = Hulp
 guest-submit-disabled-title = Ticket indienen is niet beschikbaar
 guest-submit-disabled-message = Tickets indienen als gast is momenteel uitgeschakeld. Log in als je een account hebt.
 guest-submit-verify-title = Controleer je inbox
-guest-submit-verify-message-prefix = Klik op de bevestigingslink die we hebben gestuurd naar
-guest-submit-verify-message-suffix = om je verzoek naar het team te sturen.
+# MACHINE TRANSLATION, pending native review
+guest-submit-verify-next-prefix = Kijk in je e-mail op
+guest-submit-verify-next-suffix = voor de volgende stap.
 guest-submit-verify-spam-hint = Niet ontvangen? Controleer je spam en probeer het over een paar minuten opnieuw.
 guest-submit-another = Nog een ticket indienen
 # MACHINE TRANSLATION, pending native review
 guest-submit-received-title = Bedankt voor je aanvraag
 guest-submit-received-message = We nemen per e-mail contact met je op.
 guest-submit-have-account-hint = Heb je al een account bij ons? Log dan in en dien je aanvraag daar in.
-guest-submit-answer-verify = Kijk in je e-mail voor een link om je aanvraag te bevestigen.
+guest-submit-answer-verify = Kijk in je e-mail voor de volgende stap.
 guest-submit-another-short = Nog een indienen
 guest-submit-heading = Ticket indienen
 guest-submit-tagline = We nemen per e-mail contact op.
