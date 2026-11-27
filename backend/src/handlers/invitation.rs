@@ -491,8 +491,15 @@ fn complete_verification(
     // stream and the search index so techs pick it up immediately — the
     // same side-effects that would have fired at submit time for a
     // non-gated ticket.
+    //
+    // A reused account that wrote to this workspace's form from a seat held
+    // elsewhere is seated here first, now that the address is proven, so the
+    // released request's requester is a member when its `ticket.created`
+    // goes out and the portal session below can be minted. In the same
+    // transaction: a failed seat leaves the request held and the link usable.
     let mut released_tickets = Vec::new();
     match crate::sync::session::with_actor_context(conn, &actor, |c| {
+        repository::workspaces::join_as_requester(c, workspace_id, user.uuid)?;
         repository::tickets::verify_pending_tickets_for_user(c, user.uuid)
     }) {
         Ok(released) if !released.is_empty() => {

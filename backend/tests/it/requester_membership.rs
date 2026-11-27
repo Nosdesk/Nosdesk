@@ -314,6 +314,8 @@ async fn a_guest_of_another_workspace_who_uses_the_guest_form_can_open_their_req
 
 /// With confirmation required, B's request is held until the guest confirms,
 /// and confirming releases it in B, whichever workspace the account began in.
+/// The account is seated in B by the confirmation, not by the submission: an
+/// unproven address seats nobody.
 #[actix_web::test]
 async fn a_guest_of_another_workspace_confirms_a_held_request() {
     use backend::schema::reset_tokens as rt;
@@ -329,7 +331,12 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
         created.ticket.verification_state.as_deref(),
         Some("pending")
     );
-    assert_eq!(role_in(&inbox.pool, b, guest).as_deref(), Some("member"));
+    assert_eq!(
+        role_in(&inbox.pool, b, guest),
+        None,
+        "not seated before proof"
+    );
+    assert_eq!(rows_in(&inbox, b, guest), 0);
 
     // The confirmation the form sends names B. (Mailing its link needs a
     // configured origin; the token is stored first either way.)
@@ -394,6 +401,11 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
             .verification_state
             .as_deref(),
         Some("verified")
+    );
+    assert_eq!(role_in(&inbox.pool, b, guest).as_deref(), Some("member"));
+    assert_eq!(
+        view_request(&inbox, guest, created.ticket.id).await,
+        ticket_path(created.ticket.number)
     );
 }
 

@@ -448,21 +448,27 @@ pub fn create_guest_submission(
         verification_required,
         lookup_token,
     } = *submission;
-    let (user, is_new_guest) = match user_helpers::find_or_create_guest_requester(
-        email,
-        name,
-        workspace_id,
-        conn,
-        Some(search),
-    ) {
-        Ok(GuestUserResult::Created(u)) => (u, true),
-        Ok(GuestUserResult::Existing(u)) => (u, false),
-        Ok(GuestUserResult::EmailClaimed) => return Err(CreateError::EmailClaimed),
-        Err(e) => {
-            error!(error = %e, "Failed to provision guest user");
-            return Err(CreateError::Internal);
-        }
-    };
+    let (user, is_new_guest) =
+        match user_helpers::find_or_create_guest_user(email, name, conn, Some(search)) {
+            Ok(GuestUserResult::Created(u)) => (u, true),
+            Ok(GuestUserResult::Existing(u)) => {
+                // A reused account may hold seats only elsewhere, and without one
+                // here its View request link and portal sign-in refuse it. A held
+                // request seats it when the address is confirmed
+                // (`invitation::complete_verification`); one that needs no
+                // confirmation is live at once, so it is seated now, as a
+                // mailed-in request's sender is.
+                if !verification_required {
+                    crate::repository::workspaces::join_as_requester(conn, workspace_id, u.uuid)?;
+                }
+                (u, false)
+            }
+            Ok(GuestUserResult::EmailClaimed) => return Err(CreateError::EmailClaimed),
+            Err(e) => {
+                error!(error = %e, "Failed to provision guest user");
+                return Err(CreateError::Internal);
+            }
+        };
 
     // Unconfirmed requests are capped per address, so confirming one
     // email can only ever release a handful.

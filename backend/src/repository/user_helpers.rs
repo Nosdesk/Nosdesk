@@ -603,8 +603,10 @@ pub fn find_or_provision_requester(
 ///
 /// **Seat:** a created guest gets a `member` seat in the pinned workspace; a
 /// reused one may hold seats only elsewhere. A caller that attributes a ticket
-/// to the result uses [`find_or_create_guest_requester`], or seats it with
-/// [`crate::repository::workspaces::join_as_requester`].
+/// to the result seats it with
+/// [`crate::repository::workspaces::join_as_requester`] once the ticket is
+/// live: the guest form does so when its request needs no confirmation, and
+/// the confirmation does so when it does.
 ///
 /// **Concurrency:** the lookup and insert run inside a single DB transaction.
 /// If a racing insert causes a unique-violation, the transaction retries the
@@ -684,24 +686,6 @@ pub fn find_or_create_guest_user(
             Err(e) => Err(e),
         }
     })
-}
-
-/// [`find_or_create_guest_user`] for a request landing in `workspace_id` (the
-/// pinned one): a reused account that only ever wrote to another workspace is
-/// seated here as a requester, or the request's View request link and the
-/// portal sign-in refuse it. An existing seat, removed or not, is left alone.
-pub fn find_or_create_guest_requester(
-    email: &str,
-    name: &str,
-    workspace_id: i32,
-    conn: &mut DbConnection,
-    observer: Option<&dyn UserCreatedObserver>,
-) -> Result<GuestUserResult, diesel::result::Error> {
-    let result = find_or_create_guest_user(email, name, conn, observer)?;
-    if let GuestUserResult::Existing(user) = &result {
-        crate::repository::workspaces::join_as_requester(conn, workspace_id, user.uuid)?;
-    }
-    Ok(result)
 }
 
 /// Return the verified / privileged Nosdesk user that owns the given
