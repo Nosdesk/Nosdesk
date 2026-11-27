@@ -285,6 +285,8 @@ mod tests {
         // localhost resolves to 127.0.0.1 / ::1 on every platform.
         // The resolver must refuse it, even though "localhost" looks
         // like a benign domain name.
+        let _guard = crate::utils::egress::TEST_ALLOWLIST_LOCK.lock().await;
+        std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");
         let client = client(Duration::from_secs(5)).unwrap();
         let res = client.get("http://localhost/").send().await;
         assert!(res.is_err(), "localhost request must fail");
@@ -301,6 +303,7 @@ mod tests {
         // refuses it. We don't expect the actual request to succeed
         // (no server on this port) but we expect the failure mode
         // to be "connection refused" rather than "non-routable".
+        let _guard = crate::utils::egress::TEST_ALLOWLIST_LOCK.lock().await;
         std::env::set_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS", "localhost");
         let client = client(Duration::from_secs(2)).unwrap();
         let res = client.get("http://localhost:1/").send().await;
