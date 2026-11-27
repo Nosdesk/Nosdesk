@@ -77,7 +77,16 @@ impl Cloud {
         with_actor_context::<_, diesel::result::Error>(
             &mut self.pool.get().expect("conn"),
             &actor,
-            |c| Ok(send_guest_ticket_confirmation(c, &backend::utils::client_ip::RequestOrigin::of(&http), user, email, ws, 0)),
+            |c| {
+                Ok(send_guest_ticket_confirmation(
+                    c,
+                    &backend::utils::client_ip::RequestOrigin::of(&http),
+                    user,
+                    email,
+                    ws,
+                    0,
+                ))
+            },
         )
         .expect("send")
     }
@@ -288,7 +297,14 @@ async fn two_confirmations_at_the_limit_at_once_send_one() {
                     together.wait();
                     let result =
                         with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
-                            Ok(send_guest_ticket_confirmation(conn, &backend::utils::client_ip::RequestOrigin::of(&http), user, to, ws, 0))
+                            Ok(send_guest_ticket_confirmation(
+                                conn,
+                                &backend::utils::client_ip::RequestOrigin::of(&http),
+                                user,
+                                to,
+                                ws,
+                                0,
+                            ))
                         })
                         .expect("send");
                     sent(&result)
@@ -331,4 +347,123 @@ async fn account_mail_to_an_unproven_address_names_nobody() {
     backend::repository::user_emails::mark_primary_proven(&mut c.db.conn(), &person)
         .expect("prove");
     assert!(mail(&c).names, "a proven mailbox");
+}
+
+/// POST the stop link `url` as a mail client's RFC 8058 one-click does.
+async fn one_click_stop(c: &Cloud, ws: i32, url: &str) {
+    let path = url[url.find("/api/").expect("a path")..].to_string();
+    let ctx = c.context(ws);
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(web::Data::new(c.pool.clone()))
+            .wrap_fn(move |req, srv| {
+                req.extensions_mut().insert(ctx.clone());
+                srv.call(req)
+            })
+            .service(web::scope("/api/public").configure(backend::handlers::email_stop::config)),
+    )
+    .await;
+    let resp = actix_web::test::call_service(
+        &app,
+        actix_web::test::TestRequest::post()
+            .uri(&path)
+            .insert_header(("Content-Type", "application/x-www-form-urlencoded"))
+            .set_payload("List-Unsubscribe=One-Click")
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), 200);
+}
+
+/// Send `ws`'s confirmations to each of `to` at the same moment, each in its
+/// own transaction; which were sent.
+fn confirm_together(c: &Cloud, ws: i32, to: &[&str]) -> Vec<bool> {
+    let users: Vec<uuid::Uuid> = to.iter().map(|address| c.guest(ws, address)).collect();
+    let together = std::sync::Arc::new(std::sync::Barrier::new(to.len()));
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = to
+            .iter()
+            .zip(users)
+            .map(|(address, user)| {
+                let together = together.clone();
+                scope.spawn(move || {
+                    let http = actix_web::test::TestRequest::default().to_http_request();
+                    http.extensions_mut().insert(c.context(ws));
+                    let actor = ActorContext::system("guest:ticket_create").with_workspace(ws);
+                    let mut conn = c.pool.get().expect("conn");
+                    together.wait();
+                    let result =
+                        with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
+                            Ok(send_guest_ticket_confirmation(
+                                conn,
+                                &backend::utils::client_ip::RequestOrigin::of(&http),
+                                user,
+                                address,
+                                ws,
+                                0,
+                            ))
+                        })
+                        .expect("send");
+                    sent(&result)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("thread"))
+            .collect()
+    })
+}
+
+/// One short of the workspace's ceiling on new addresses, two submissions to
+/// two new addresses at the same moment: the count and the insert are
+/// serialised on the workspace, so only one goes.
+#[actix_web::test]
+async fn two_confirmations_at_the_new_address_ceiling_at_once_send_one() {
+    use backend::handlers::users::NEW_ADDRESS_CONFIRMATIONS_PER_DAY;
+    let c = cloud();
+    let a = c.seeded.a.workspace_id;
+    c.first_contacts(a, NEW_ADDRESS_CONFIRMATIONS_PER_DAY as usize - 1);
+    let results = confirm_together(&c, a, &["first@victim.example", "second@victim.example"]);
+    assert_eq!(results.iter().filter(|s| **s).count(), 1, "{results:?}");
+}
+
+/// A hard bounce on the address, then the stop link: the stop wins, and the
+/// workspace sends it no more confirmations. (A bounce alone doesn't hold
+/// them: a forged DSN can add one.)
+#[actix_web::test]
+async fn a_stop_after_a_hard_bounce_holds_the_confirmations() {
+    let c = cloud();
+    let a = c.seeded.a.workspace_id;
+    let to = "bounced@victim.example";
+    run_in_workspace(&c.pool, REF, a, |conn| {
+        backend::repository::email_suppressions::upsert(
+            conn,
+            backend::models::NewEmailSuppression {
+                email: to.into(),
+                reason: backend::models::email_suppression_reason::HARD_BOUNCE.into(),
+                bounce_diagnostic: Some("550 5.1.1".into()),
+                workspace_id: a,
+            },
+        )
+    })
+    .expect("bounce");
+    assert!(sent(&c.confirm(a, to)), "a bounce alone doesn't hold it");
+    let url = c.confirmations(to)[0].headers_json["List-Unsubscribe"]
+        .as_str()
+        .expect("List-Unsubscribe")
+        .to_string();
+    one_click_stop(&c, a, &url).await;
+    let reason: String = {
+        use backend::schema::email_suppressions as s;
+        s::table
+            .filter(s::workspace_id.eq(a))
+            .filter(s::email.eq(to))
+            .select(s::reason)
+            .first(&mut c.db.conn())
+            .expect("suppression")
+    };
+    assert_eq!(reason, backend::models::email_suppression_reason::REQUESTED);
+    assert!(matches!(c.confirm(a, to), SendInvitationResult::Capped));
+    assert_eq!(c.confirmations(to).len(), 1);
 }

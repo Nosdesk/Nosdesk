@@ -649,9 +649,14 @@ where
             // exception: it carries the bootstrap token in the query
             // string, so it gets `no-referrer` to keep the token from
             // leaking via the Referer header on any same-page subrequest
-            // fired before the SPA strips it from the URL.
+            // fired before the SPA strips it from the URL. The portal's
+            // sign-in link page (`/sign-in`, `/portal/sign-in` self-hosted)
+            // carries a sign-in token the same way.
             if !headers.contains_key(header::REFERRER_POLICY) {
-                let policy = if path.starts_with("/onboarding") {
+                let policy = if path.starts_with("/onboarding")
+                    || path.starts_with("/sign-in")
+                    || path.starts_with("/portal/sign-in")
+                {
                     "no-referrer"
                 } else {
                     "strict-origin-when-cross-origin"
@@ -732,6 +737,35 @@ where
 
 #[cfg(test)]
 mod tests {
+
+    /// The pages that carry a token in their query string send no referrer:
+    /// onboarding, and the portal's sign-in link page.
+    #[actix_web::test]
+    async fn pages_carrying_a_token_send_no_referrer() {
+        use actix_web::{test, web, App, HttpResponse};
+        let app = test::init_service(
+            App::new()
+                .wrap(super::SecurityHeaders)
+                .default_service(web::to(|| async { HttpResponse::Ok().finish() })),
+        )
+        .await;
+        for (path, want) in [
+            ("/sign-in?token=T", "no-referrer"),
+            ("/portal/sign-in?token=T", "no-referrer"),
+            ("/onboarding?token=T", "no-referrer"),
+            ("/tickets", "strict-origin-when-cross-origin"),
+        ] {
+            let resp =
+                test::call_service(&app, test::TestRequest::get().uri(path).to_request()).await;
+            assert_eq!(
+                resp.headers()
+                    .get("referrer-policy")
+                    .and_then(|v| v.to_str().ok()),
+                Some(want),
+                "{path}"
+            );
+        }
+    }
     use super::*;
 
     fn parse_directives(csp: &str) -> std::collections::HashMap<String, Vec<String>> {

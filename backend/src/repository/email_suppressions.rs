@@ -49,6 +49,13 @@ pub fn upsert(
             email_suppressions::bounce_count.eq(email_suppressions::bounce_count + 1),
             email_suppressions::last_seen_at.eq(diesel::dsl::now),
             email_suppressions::bounce_diagnostic.eq(&normalized.bounce_diagnostic),
+            // A reason the address or the workspace chose (a stop link, an
+            // admin, a complaint) replaces a hard bounce, which a forged DSN
+            // can add; a bounce never replaces a chosen reason.
+            email_suppressions::reason.eq(diesel::dsl::sql::<diesel::sql_types::Text>(
+                "CASE WHEN email_suppressions.reason = 'hard_bounce' \
+                 THEN EXCLUDED.reason ELSE email_suppressions.reason END",
+            )),
         ))
         .get_result(conn)
 }
