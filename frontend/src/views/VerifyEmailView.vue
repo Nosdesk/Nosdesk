@@ -4,7 +4,8 @@
 // Unauthenticated by design: the link is opened from a mail client, which may
 // not be the browser holding the session, and requiring a login first would
 // strand anyone confirming a second address from a different device. The token
-// is the proof.
+// is the proof. Opening the link confirms nothing: mail scanners open every
+// link on delivery, so the button does.
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useFluent } from 'fluent-vue';
@@ -19,20 +20,28 @@ const router = useRouter();
 const fluent = useFluent();
 const t = (key: string, args?: Record<string, string | number>) => fluent.$t(key, args);
 
-type State = 'working' | 'verified' | 'failed';
-const state = ref<State>('working');
+type State = 'ready' | 'working' | 'verified' | 'failed';
+const state = ref<State>('ready');
 const address = ref('');
 const errorMessage = ref('');
 
-onMounted(async () => {
-  const token = route.query.token;
-  if (typeof token !== 'string' || !token) {
+const token = ref('');
+
+onMounted(() => {
+  const given = route.query.token;
+  if (typeof given !== 'string' || !given) {
     state.value = 'failed';
     errorMessage.value = t('verify-email-missing-token');
     return;
   }
+  token.value = given;
+});
+
+async function confirm() {
+  if (!token.value || state.value === 'working') return;
+  state.value = 'working';
   try {
-    const result = await userService.verifyEmailToken(token);
+    const result = await userService.verifyEmailToken(token.value);
     address.value = result.email ?? '';
     state.value = 'verified';
   } catch (error) {
@@ -41,13 +50,21 @@ onMounted(async () => {
     errorMessage.value = extractErrorMessage(error, t('verify-email-failed-body'));
     state.value = 'failed';
   }
-});
+}
 </script>
 
 <template>
   <div class="min-h-screen flex items-center justify-center px-4">
     <div class="w-full max-w-md flex flex-col items-center gap-4 text-center">
-      <template v-if="state === 'working'">
+      <template v-if="state === 'ready'">
+        <h1 class="text-xl font-semibold text-primary">{{ $t('verify-email-confirm-title') }}</h1>
+        <p class="text-secondary text-sm">{{ $t('verify-email-confirm-body') }}</p>
+        <Button variant="primary" @click="confirm">
+          {{ $t('verify-email-confirm-button') }}
+        </Button>
+      </template>
+
+      <template v-else-if="state === 'working'">
         <Spinner size="lg" class="text-accent" />
         <p class="text-secondary text-sm">{{ $t('verify-email-working') }}</p>
       </template>

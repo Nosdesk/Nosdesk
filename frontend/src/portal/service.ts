@@ -135,6 +135,11 @@ export async function getSso(): Promise<PortalSso> {
 export const SSO_START_URL = '/api/portal/auth/sso/start'
 
 /** Sign in with the 6-digit code from the sign-in email. */
+/** Sign in with the token from a sign-in email's link (the button's POST). */
+export async function signInWithLink(token: string): Promise<void> {
+  await portalApi.post('/auth/callback', { token })
+}
+
 export async function signInWithCode(email: string, code: string): Promise<void> {
   await portalApi.post('/auth/code', { email, code })
 }

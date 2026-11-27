@@ -108,6 +108,7 @@ derive_more = "2.1.1"
 rand = "0.10.1"             # Random number generation for auth state
 reqwest = { version = "0.13", features = ["json", "form"] } # HTTP client for OAuth requests
 urlencoding = "2.1.3"       # URL encoding/decoding
+unicode-segmentation = "1.13" # grapheme clusters (already in the tree)
 url = "2.5"                 # URL parsing and manipulation
 querystring = "1.1.0"       # Query string parsing
 

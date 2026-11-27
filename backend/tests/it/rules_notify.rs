@@ -391,9 +391,16 @@ async fn an_event_reply_posts_as_its_agent_and_goes_to_the_relay() {
     });
     assert_eq!(author, agent);
     assert!(content.contains("Sam here"), "{content}");
-    assert_eq!(
-        metadata,
-        Some(json!({ "kind": "rule_reply", "visibility": "public", "rule_id": rule }))
+    let metadata = metadata.expect("metadata");
+    assert_eq!(metadata["kind"], "rule_reply");
+    assert_eq!(metadata["visibility"], "public");
+    assert_eq!(metadata["rule_id"], rule);
+    // The render a copy that may not name the ticket takes.
+    assert!(
+        metadata["redacted_html"]
+            .as_str()
+            .is_some_and(|h| h.contains("Thanks,")),
+        "{metadata}"
     );
 
     // The relay queues the reply off the run, so wait for it.
@@ -510,4 +517,153 @@ async fn people_a_step_cannot_use_are_refused_at_save() {
         let (status, body) = json_of(as_admin(&h.pool, a, save(trigger, step)).await).await;
         assert_eq!(status, StatusCode::CREATED, "{trigger}: {body}");
     }
+}
+
+/// What a stranger typed as a ticket's title and their name.
+const STRANGER_TITLE: &str = "Refund waiting at title-marker.example";
+const STRANGER_NAME: &str = "Name Marker";
+
+/// A ticket filed for `ws`'s member `via` a route nobody vouches for (an API
+/// token, as a website relaying a form uses, or the request form without
+/// confirmation): the title and the requester's name are whatever was typed.
+fn stranger_ticket(h: &Harness, ws: &WorkspaceSeed, via: &str) -> i32 {
+    diesel::update(users::table.find(ws.member_uuid))
+        .set(users::name.eq(STRANGER_NAME))
+        .execute(&mut h.db.conn())
+        .expect("name the requester");
+    h.as_admin(ws, |c| {
+        let open = backend::repository::workflow_states::default_state(c)?;
+        backend::repository::tickets::create_ticket(
+            c,
+            backend::models::NewTicket {
+                title: STRANGER_TITLE.to_string(),
+                workflow_state_id: open.id,
+                requester_uuid: Some(ws.member_uuid),
+                submitted_via: Some(via.to_string()),
+                ..Default::default()
+            },
+        )
+    })
+    .id
+}
+
+fn names_the_ticket(m: &OutboundEmail) -> bool {
+    [STRANGER_TITLE, STRANGER_NAME].iter().any(|marker| {
+        m.subject.contains(marker)
+            || m.body_text.contains(marker)
+            || m.body_html.as_deref().is_some_and(|h| h.contains(marker))
+    })
+}
+
+/// Wait for the relay, which queues a reply off the run, to queue `count`.
+async fn mail_settled(
+    h: &Harness,
+    ws: &WorkspaceSeed,
+    ticket: i32,
+    count: usize,
+) -> Vec<OutboundEmail> {
+    let mut sent = Vec::new();
+    for _ in 0..50 {
+        sent = mail(h, ws, ticket);
+        if sent.len() >= count {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    sent
+}
+
+/// On a ticket a stranger may have filed, a notify step and an automated
+/// reply name the ticket by number and leave the requester's name out until
+/// the requester writes on it; the reply's subject is "Re: [#N]". After that
+/// they name it again.
+#[actix_rt::test]
+async fn rule_mail_about_a_strangers_ticket_names_it_once_the_requester_writes() {
+    for via in [
+        backend::models::SUBMITTED_VIA_API,
+        backend::models::SUBMITTED_VIA_GUEST,
+    ] {
+        rule_mail_names_the_ticket_once_proven(via).await;
+    }
+}
+
+async fn rule_mail_names_the_ticket_once_proven(via: &str) {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    email(&h, a.member_uuid, "requester@example.com");
+    let agent = member(&h, a, "Sam Agent", "agent");
+    let steps = json!([
+        notify(json!({ "recipient": "requester" })),
+        { "kind": "reply", "config": {
+            "visibility": "public",
+            "body": "Hi {{customer_name}}, about {{ticket_title}}.",
+            "send_as_uuid": agent,
+        } },
+    ]);
+    h.rule(a, Spec::live(Trigger::TicketCreated, steps.clone()));
+    h.rule(a, Spec::live(Trigger::TicketUpdated, steps));
+    let ticket = stranger_ticket(&h, a, via);
+    let number: i32 = h.as_admin(a, |c| {
+        backend::repository::tickets::get_ticket_by_id(c, ticket).map(|t| t.number)
+    });
+    h.drain().await;
+
+    let sent = mail_settled(&h, a, ticket, 2).await;
+    assert_eq!(sent.len(), 2, "the notify and the relayed reply: {sent:?}");
+    for m in &sent {
+        assert_eq!(m.recipient, "requester@example.com");
+        assert!(!names_the_ticket(m), "{m:?}");
+    }
+    assert_eq!(sent[0].subject, format!("[#{number}] About #{number}"));
+    let reply = sent
+        .iter()
+        .find(|m| m.comment_id.is_some())
+        .expect("the reply");
+    assert_eq!(reply.subject, format!("Re: [#{number}]"));
+    // The name is left out with its space, so the sentence still reads.
+    assert!(
+        reply.body_text.contains(&format!("Hi, about #{number}.")),
+        "{}",
+        reply.body_text
+    );
+    let notified = sent
+        .iter()
+        .find(|m| m.comment_id.is_none())
+        .expect("the notify");
+    assert!(
+        notified.body_text.contains("Hi, we close quiet tickets"),
+        "{}",
+        notified.body_text
+    );
+
+    // The requester adds someone, then writes on the ticket: from then on its
+    // mail to them names it. The person they added hasn't written on it, so
+    // their copy of the same reply still names it by number.
+    let pat = member(&h, a, "Pat Participant", "member");
+    email(&h, pat, "participant@example.com");
+    let requester = backend::sync::actor::ActorContext::user(a.member_uuid, None)
+        .with_workspace(a.workspace_id);
+    backend::sync::session::with_actor_context(&mut h.pool.get().expect("conn"), &requester, |c| {
+        backend::repository::ticket_watchers::add_watcher(c, ticket, pat, false)
+    })
+    .expect("add a participant");
+    h.reply(a, ticket, a.member_uuid);
+    h.set_priority(a, ticket, backend::models::TicketPriority::High);
+    h.drain().await;
+    let sent = mail_settled(&h, a, ticket, 5).await;
+    assert!(sent.len() >= 5, "{sent:?}");
+    let mut participant_copies = 0;
+    for m in &sent[2..] {
+        if m.recipient == "participant@example.com" {
+            participant_copies += 1;
+            assert!(!names_the_ticket(m), "the participant's copy: {m:?}");
+            assert!(m.body_text.contains("Hi, about #"), "{}", m.body_text);
+        } else {
+            assert!(
+                m.subject.contains(STRANGER_TITLE) || m.body_text.contains(STRANGER_TITLE),
+                "named once they wrote: {m:?}"
+            );
+        }
+    }
+    assert!(participant_copies >= 1, "{sent:?}");
 }

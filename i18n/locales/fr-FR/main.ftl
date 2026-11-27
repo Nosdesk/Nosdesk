@@ -25,6 +25,39 @@ invitation-subject = Vous avez été invité à rejoindre { $app } - Créez votr
 invitation-title = Bienvenue sur { $app } !
 invitation-greeting = Bonjour <strong>{ $name }</strong>,
 invitation-intro = Vous avez été invité à rejoindre <strong>{ $app }</strong> par <strong>{ $by }</strong>.
+# MACHINE TRANSLATION, pending native review
+email-greeting-anonymous = Bonjour,
+invitation-intro-anonymous = Vous avez été invité à rejoindre <strong>{ $app }</strong>.
+invitation-body-text-anonymous =
+    Bonjour,
+
+    Vous avez été invité à rejoindre { $app }.
+
+    Pour finaliser la création de votre compte et choisir votre mot de passe, ouvrez ce lien dans votre navigateur :
+
+    { $link }
+
+    À savoir :
+      - Cette invitation expirera dans 7 jours.
+      - Vous choisirez un mot de passe pendant la configuration.
+      - Choisissez un mot de passe robuste d'au moins 8 caractères.
+      - Si vous n'attendiez pas cette invitation, vous pouvez ignorer cet e-mail.
+password-reset-body-text-anonymous =
+    Bonjour,
+
+    Nous avons reçu une demande de réinitialisation du mot de passe de votre compte { $app }. Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail.
+
+    Pour réinitialiser votre mot de passe, ouvrez ce lien dans votre navigateur :
+
+    { $link }
+
+    Notes de sécurité :
+      - Ce lien expirera dans 1 heure.
+      - Ce lien ne peut être utilisé qu'une seule fois.
+      - Ne partagez jamais ce lien avec personne.
+      - Si vous n'avez pas demandé cette réinitialisation, sécurisez votre compte.
+
+    Pour toute question, contactez votre administrateur système.
 invitation-action-prompt = Pour finaliser la création de votre compte et choisir votre mot de passe, cliquez sur le bouton ci-dessous :
 invitation-cta-label = Configurer mon compte
 invitation-notice-expiry = Ce lien d'invitation expirera dans <strong>7 jours</strong>
@@ -60,6 +93,10 @@ verify-email-failed-body = Ce lien de confirmation est invalide ou a expiré.
 verify-email-failed-hint = Les liens de confirmation expirent après 24 heures et ne servent qu’une fois. Vous pouvez en envoyer un nouveau depuis votre profil.
 verify-email-missing-token = Ce lien ne contient pas de code de confirmation.
 verify-email-continue = Continuer
+# MACHINE TRANSLATION, pending native review
+verify-email-confirm-title = Confirmer cette adresse
+verify-email-confirm-body = Appuyez sur le bouton pour confirmer cette adresse sur votre compte.
+verify-email-confirm-button = Confirmer l'adresse
 settings-emails-resend = Renvoyer la confirmation
 settings-emails-resend-sending = Envoi…
 settings-emails-resend-sent = Confirmation envoyée
@@ -113,7 +150,10 @@ notif-ticket-status-changed = [{ $app }] Statut modifié : { $title }
 notif-comment-added = [{ $app }] Nouveau commentaire : { $title }
 notif-mentioned = [{ $app }] { $actor } vous a mentionné
 notif-ticket-referenced = [{ $app }] { $actor } a mentionné votre ticket
-notif-ticket-created-requester = [{ $app }] Nous avons bien reçu votre demande : { $title }
+# MACHINE TRANSLATION, pending native review
+notif-ticket-created-requester = [{ $app }] Nous avons bien reçu votre demande n° { $number }
+notif-ticket-redacted = [{ $app }] Mise à jour de la demande n° { $number }
+notif-redacted-body = La demande n° { $number } a été mise à jour.
 notif-doc-page-updated = [{ $app }] Page mise à jour : { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
 # MACHINE TRANSLATION, pending native review
@@ -133,6 +173,9 @@ participant-added-title = Vous avez été ajouté à une demande
 participant-added-body = { $adder } vous a ajouté à la demande n° { $id } : { $title }.
 participant-added-replies = Vous recevrez les réponses de l'équipe par e-mail et pourrez y répondre.
 participant-added-cta = Voir la demande
+# MACHINE TRANSLATION, pending native review
+participant-added-subject-redacted = [{ $app }] Vous avez été ajouté à la demande n° { $id }
+participant-added-body-redacted = Vous avez été ajouté à la demande n° { $id }.
 notif-footer-preferences = Vous recevez cet e-mail en raison de vos préférences de notification.
 # Notification digest (machine, pending native review)
 notif-digest-subject = [{ $app }] { $count ->
@@ -584,6 +627,8 @@ settings-localization-save-failed = Échec de l'enregistrement des préférences
 # Footer on an agent reply sent with no email channel (replies to it are lost).
 reply-email-reply-elsewhere = Les réponses à cet e-mail ne nous parviennent pas. Pour répondre, ouvrez votre demande :
 reply-email-view-request = Voir votre demande
+# MACHINE TRANSLATION, pending native review
+reply-email-redacted-body = Il y a une nouvelle réponse à la demande n° { $number }.
 
 # Channel auto-acknowledgement.
 auto-ack-default-template = Votre demande (#{ $ticket_id }) a été reçue et est en cours d'examen par notre équipe d'assistance. Pour ajouter d'autres commentaires, répondez à cet e-mail.
@@ -2591,6 +2636,18 @@ admin-channels-email-auto-ack-success-saved = Accusé de réception mis à jour
 # Accusé de réception déplacé (machine, à relire par un locuteur natif).
 admin-channels-email-auto-ack-elsewhere = L'accusé de réception automatique se règle sur la page Distribution des e-mails
 admin-email-auto-ack-error-save = Échec de l'enregistrement de l'accusé de réception automatique. Veuillez réessayer.
+# MACHINE TRANSLATION, pending native review
+admin-requester-ack-heading = Accusé de réception des demandes
+admin-requester-ack-subtitle = Quand une demande est déposée via le portail, le formulaire de demande ou l'API, informer le demandeur par e-mail qu'elle est bien arrivée.
+admin-requester-ack-toggle-label = Envoyer un accusé de réception
+admin-requester-ack-toggle-description = Une intégration peut l'omettre pour une demande en envoyant acknowledge à false.
+admin-requester-ack-template-label = Message personnalisé
+admin-requester-ack-template-placeholder = Bonjour {"{{"}customer_first_name{"}}"}, nous avons bien reçu votre demande n° {"{{"}ticket_id{"}}"} et reviendrons vers vous.
+admin-requester-ack-template-hint = Laissez vide pour le message par défaut, qui désigne la demande par son numéro. Texte brut uniquement.
+admin-requester-ack-unproven-hint = Une demande déposée via l'API, ou via le formulaire sans confirmation par e-mail, peut venir de n'importe qui. Tant que le demandeur n'a pas confirmé son adresse, son titre est remplacé par son numéro et le nom est omis.
+admin-requester-ack-save = Enregistrer l'accusé de réception
+admin-requester-ack-success-saved = Accusé de réception des demandes mis à jour
+admin-requester-ack-error-save = Échec de l'enregistrement de l'accusé de réception des demandes. Veuillez réessayer.
 # Note de sécurité (machine, à relire par un locuteur natif).
 admin-email-security-note-heading = Note de sécurité
 # Machine, à relire par un locuteur natif.
@@ -9770,6 +9827,10 @@ portal-sign-in-use-another = Utiliser une autre adresse e-mail
 # MACHINE TRANSLATION, pending native review
 portal-sign-in-password = Se connecter avec un mot de passe
 portal-sign-in-error = Ce lien de connexion n'a pas fonctionné. Il a peut-être expiré ou déjà été utilisé. Saisissez votre e-mail pour en recevoir un nouveau.
+# MACHINE TRANSLATION, pending native review
+portal-sign-in-link-title = Connexion à { $app }
+portal-sign-in-link-intro = Appuyez sur Continuer pour terminer la connexion. Le lien ne fonctionne qu'une fois.
+portal-sign-in-link-continue = Continuer
 # Traduction automatique, en attente de relecture par un locuteur natif.
 portal-sso-button = Se connecter avec { $provider }
 portal-sso-or = ou

@@ -91,6 +91,13 @@ pub struct SiteSettings {
     /// The ISO 4217 code money fields offer by default; `None` until an
     /// admin picks one. See [`crate::utils::money`].
     pub currency_code: Option<String>,
+    /// Whether a requester hears "we've received your request" when one is
+    /// filed for them (the portal, the request form, the API). The email
+    /// channel's acknowledgement is `channel_auto_ack_enabled`. Defaults true.
+    pub requester_ack_enabled: bool,
+    /// Admin-written body for that acknowledgement, with the auto-ack's
+    /// variables. `None` uses the built-in wording.
+    pub requester_ack_template: Option<String>,
 }
 
 /// What requester-role members (role `user`) may see of the workspace's
@@ -160,6 +167,9 @@ pub struct UpdateSiteSettings {
     pub requester_asset_visibility: Option<String>,
     /// `Some(None)` clears the workspace currency.
     pub currency_code: Option<Option<String>>,
+    pub requester_ack_enabled: Option<bool>,
+    /// `Some(None)` reverts to the built-in wording.
+    pub requester_ack_template: Option<Option<String>>,
 }
 
 // API response for site settings (without internal fields)
@@ -202,6 +212,10 @@ pub struct SiteSettingsResponse {
     pub portal_share_by_domain: bool,
     /// See [`SiteSettings::portal_share_staff_requests`].
     pub portal_share_staff_requests: bool,
+    /// See [`SiteSettings::requester_ack_enabled`].
+    pub requester_ack_enabled: bool,
+    /// See [`SiteSettings::requester_ack_template`].
+    pub requester_ack_template: Option<String>,
 }
 
 impl From<SiteSettings> for SiteSettingsResponse {
@@ -230,6 +244,8 @@ impl From<SiteSettings> for SiteSettingsResponse {
             email_security_note_template: settings.email_security_note_template,
             portal_share_by_domain: settings.portal_share_by_domain,
             portal_share_staff_requests: settings.portal_share_staff_requests,
+            requester_ack_enabled: settings.requester_ack_enabled,
+            requester_ack_template: settings.requester_ack_template,
         }
     }
 }

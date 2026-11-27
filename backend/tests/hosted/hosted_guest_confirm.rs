@@ -47,8 +47,8 @@ fn open(pool: &common::TestPool, ws: i32, title: &str, pending_for: Option<uuid:
     .expect("open ticket")
 }
 
-/// A guest-confirmation token, minted as the send path does.
-fn guest_token(conn: &mut DbConnection, user: uuid::Uuid) -> String {
+/// A guest-confirmation token with `metadata`, minted as the send path does.
+fn guest_token(conn: &mut DbConnection, user: uuid::Uuid, metadata: serde_json::Value) -> String {
     use backend::utils::reset_tokens::{ResetTokenUtils, TokenType};
     let issued = ResetTokenUtils::create_reset_token(user, TokenType::Invitation);
     backend::repository::reset_tokens::create_reset_token(
@@ -59,7 +59,7 @@ fn guest_token(conn: &mut DbConnection, user: uuid::Uuid) -> String {
         None,
         None,
         issued.expires_at,
-        Some(serde_json::json!({ "source": "guest_ticket_submission" })),
+        Some(metadata),
     )
     .expect("mint token");
     issued.raw_token
@@ -67,6 +67,17 @@ fn guest_token(conn: &mut DbConnection, user: uuid::Uuid) -> String {
 
 #[actix_web::test]
 async fn confirming_on_hosted_sends_the_guest_to_the_tickets_number() {
+    confirm_on_hosted(false).await;
+}
+
+/// A link whose own requests were released already, carrying only one that
+/// rode along on it, still signs the guest in, and opens that one.
+#[actix_web::test]
+async fn confirming_only_a_request_that_rode_along_still_signs_in() {
+    confirm_on_hosted(true).await;
+}
+
+async fn confirm_on_hosted(rode_along: bool) {
     crate::hosted_env();
     common::ensure_test_keyring();
     let db = common::TestDb::new();
@@ -94,7 +105,16 @@ async fn confirming_on_hosted_sends_the_guest_to_the_tickets_number() {
         ticket.id, ticket.number,
         "the id must differ from the number"
     );
-    let token = guest_token(&mut conn, guest);
+    let metadata = if rode_along {
+        serde_json::json!({
+            "source": "guest_ticket_submission",
+            "ticket_ids": [],
+            "rode_along": [ticket.id],
+        })
+    } else {
+        serde_json::json!({ "source": "guest_ticket_submission", "ticket_ids": [ticket.id] })
+    };
+    let token = guest_token(&mut conn, guest, metadata);
 
     let origin = {
         let w = find_by_id(&mut conn, a.workspace_id)

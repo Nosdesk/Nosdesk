@@ -432,6 +432,19 @@ impl NotificationPayload {
         self.title = title.into();
         self
     }
+
+    /// The body for an email that may not name the ticket's own text (see
+    /// `services::ticket_mail_redaction`). Without one, such an email says
+    /// only that the request was updated.
+    pub fn with_redacted_body(mut self, body: impl Into<String>) -> Self {
+        self.metadata["redacted_body"] = serde_json::Value::String(body.into());
+        self
+    }
+
+    /// See [`Self::with_redacted_body`].
+    pub fn redacted_body(&self) -> Option<&str> {
+        self.metadata.get("redacted_body").and_then(|v| v.as_str())
+    }
 }
 
 /// Notification ready for delivery (after preference checks)

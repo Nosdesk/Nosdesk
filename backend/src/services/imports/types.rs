@@ -993,6 +993,11 @@ pub struct ImportOptions {
     /// entries by id, which a cell can't.
     #[serde(skip)]
     pub lookups: ValueAnswers,
+    /// Committed with an API token: its tickets are marked
+    /// [`CSV_IMPORT_BY_TOKEN`](crate::models::CSV_IMPORT_BY_TOKEN). Set by the
+    /// commit from the request, never stored.
+    #[serde(skip)]
+    pub filed_by_token: bool,
 }
 
 impl ImportOptions {

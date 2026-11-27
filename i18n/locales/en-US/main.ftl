@@ -61,6 +61,41 @@ invitation-subject = You've Been Invited to { $app } - Set Up Your Account
 invitation-title = Welcome to { $app }!
 invitation-greeting = Hello <strong>{ $name }</strong>,
 invitation-intro = You've been invited to join <strong>{ $app }</strong> by <strong>{ $by }</strong>.
+# Account mail to an address nobody has confirmed carries no names a
+# workspace or a form supplied: these replace the greeting, the invitation's
+# intro and the plain-text bodies then.
+email-greeting-anonymous = Hello,
+invitation-intro-anonymous = You've been invited to join <strong>{ $app }</strong>.
+invitation-body-text-anonymous =
+    Hello,
+
+    You've been invited to join { $app }.
+
+    To complete your account setup and create your password, open this link in your browser:
+
+    { $link }
+
+    A few things to know:
+      - This invitation will expire in 7 days.
+      - You'll create a password during setup.
+      - Choose a strong password with at least 8 characters.
+      - If you didn't expect this invitation, you can safely ignore this email.
+password-reset-body-text-anonymous =
+    Hello,
+
+    We received a request to reset your password for your { $app } account. If you didn't make this request, you can safely ignore this email.
+
+    To reset your password, open this link in your browser:
+
+    { $link }
+
+    Security notes:
+      - This link will expire in 1 hour.
+      - This link can only be used once.
+      - Never share this link with anyone.
+      - If you didn't request this reset, secure your account.
+
+    If you have any questions, please contact your system administrator.
 invitation-action-prompt = To complete your account setup and create your password, click the button below:
 invitation-cta-label = Set Up Your Account
 invitation-notice-expiry = This invitation link will expire in <strong>7 days</strong>
@@ -98,6 +133,9 @@ verify-email-failed-body = This confirmation link is invalid or has expired.
 verify-email-failed-hint = Confirmation links expire after 24 hours and can be used once. You can send a new one from your profile.
 verify-email-missing-token = This link is missing its confirmation code.
 verify-email-continue = Continue
+verify-email-confirm-title = Confirm this address
+verify-email-confirm-body = Press the button to confirm this address on your account.
+verify-email-confirm-button = Confirm address
 settings-emails-resend = Resend confirmation
 settings-emails-resend-sending = Sending…
 settings-emails-resend-sent = Confirmation sent
@@ -154,7 +192,12 @@ notif-ticket-status-changed = [{ $app }] Status changed: { $title }
 notif-comment-added = [{ $app }] New comment on: { $title }
 notif-mentioned = [{ $app }] { $actor } mentioned you
 notif-ticket-referenced = [{ $app }] { $actor } mentioned your ticket
-notif-ticket-created-requester = [{ $app }] We've received your request: { $title }
+notif-ticket-created-requester = [{ $app }] We've received your request #{ $number }
+# Subject and body of automatic mail that names a request only by its
+# number: a stranger may have filed it, and the requester hasn't confirmed
+# their address since.
+notif-ticket-redacted = [{ $app }] Update on request #{ $number }
+notif-redacted-body = There's an update on request #{ $number }.
 notif-doc-page-updated = [{ $app }] Page updated: { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
 notif-sla-breached = [{ $app }] SLA breached: { $title }
@@ -174,6 +217,8 @@ participant-added-title = You've been added to a request
 participant-added-body = { $adder } added you to request #{ $id }: { $title }.
 participant-added-replies = You'll get the team's replies by email, and you can reply to them.
 participant-added-cta = View request
+participant-added-subject-redacted = [{ $app }] You've been added to request #{ $id }
+participant-added-body-redacted = You've been added to request #{ $id }.
 notif-footer-preferences = You're receiving this because of your notification preferences.
 # Notification digest: one plain-text summary per workspace of the
 # notifications someone chose to get as a digest.
@@ -605,6 +650,7 @@ settings-localization-save-failed = Failed to save preferences
 # Footer on an agent reply sent with no email channel (replies to it are lost).
 reply-email-reply-elsewhere = Replies to this email don't reach us. To reply, open your request:
 reply-email-view-request = View your request
+reply-email-redacted-body = There's a new reply on request #{ $number }.
 
 # Default body for the channel auto-acknowledgement reply when no
 # admin-customised template is set. Picked by the inbound's
@@ -2481,6 +2527,19 @@ admin-channels-email-auto-ack-save = Save auto-ack
 admin-channels-email-auto-ack-success-saved = Auto-acknowledgement updated
 admin-channels-email-auto-ack-elsewhere = Auto-acknowledgement is set on the Email delivery page
 admin-email-auto-ack-error-save = Could not save the auto-acknowledgement. Please try again.
+# Request acknowledgement: the email a requester gets when a request is filed
+# through the portal, the request form or the API.
+admin-requester-ack-heading = Request acknowledgement
+admin-requester-ack-subtitle = When a request is filed through the portal, the request form or the API, email the requester that it arrived.
+admin-requester-ack-toggle-label = Send request acknowledgement
+admin-requester-ack-toggle-description = An integration can skip it for one request by sending acknowledge set to false.
+admin-requester-ack-template-label = Custom message
+admin-requester-ack-template-placeholder = Hi {"{{"}customer_first_name{"}}"}, we've received your request #{"{{"}ticket_id{"}}"} and will be in touch.
+admin-requester-ack-template-hint = Leave blank for the built-in message, which names the request by its number. Plain text only.
+admin-requester-ack-unproven-hint = A request filed through the API, or through the request form without email confirmation, may come from anyone. Until the requester confirms their address, its title shows as its number and the name is left out.
+admin-requester-ack-save = Save acknowledgement
+admin-requester-ack-success-saved = Request acknowledgement updated
+admin-requester-ack-error-save = Could not save the request acknowledgement. Please try again.
 admin-email-security-note-heading = Security note
 admin-email-security-note-subtitle = Add an anti-phishing line to the end of emails from this workspace, replies included, so recipients can tell a genuine message from a spoof.
 admin-email-security-note-toggle-label = Show security note
@@ -8831,6 +8890,9 @@ portal-sign-in-sent = If we have your email on file, a sign-in link is on its wa
 portal-sign-in-use-another = Use a different email
 portal-sign-in-password = Sign in with a password
 portal-sign-in-error = That sign-in link didn't work. It may have expired or already been used. Enter your email for a new one.
+portal-sign-in-link-title = Sign in to { $app }
+portal-sign-in-link-intro = Press Continue to finish signing in. The link works once.
+portal-sign-in-link-continue = Continue
 portal-sso-button = Sign in with { $provider }
 portal-sso-or = or
 portal-sso-error = Sign-in didn't finish. Try again, or enter your email below.

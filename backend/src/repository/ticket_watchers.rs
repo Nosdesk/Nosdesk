@@ -151,7 +151,27 @@ pub fn add_watcher(
     user_uuid: Uuid,
     auto_added: bool,
 ) -> QueryResult<bool> {
-    insert_watcher(conn, ticket_id, user_uuid, auto_added, None)
+    insert_watcher(conn, ticket_id, user_uuid, auto_added, None, None)
+}
+
+/// [`add_watcher`] recording `added_by` as who put them on the ticket rather
+/// than the user the write runs as: inbound mail copying an address in on the
+/// sender's say-so (`services::ticket_mail_redaction`).
+pub fn add_watcher_added_by(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    user_uuid: Uuid,
+    auto_added: bool,
+    added_by: Uuid,
+) -> QueryResult<bool> {
+    insert_watcher(
+        conn,
+        ticket_id,
+        user_uuid,
+        auto_added,
+        None,
+        Some(Some(added_by)),
+    )
 }
 
 /// [`add_watcher`] with the internal-notes setting given rather than the
@@ -169,7 +189,47 @@ pub fn add_watcher_with_notify(
         user_uuid,
         auto_added,
         Some(notify_on_internal_notes),
+        None,
     )
+}
+
+/// [`add_watcher_with_notify`] keeping who put them on a ticket they are
+/// carried over from (a merge moves its sources' watchers), rather than the
+/// user the write runs as. `added_by` decides what mail about the ticket may
+/// show them (`services::ticket_mail_redaction`).
+pub fn add_watcher_carried(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    user_uuid: Uuid,
+    notify_on_internal_notes: bool,
+    added_by: Option<Uuid>,
+) -> QueryResult<bool> {
+    insert_watcher(
+        conn,
+        ticket_id,
+        user_uuid,
+        true,
+        Some(notify_on_internal_notes),
+        Some(added_by),
+    )
+}
+
+// sync-audit-only: added_by is server-side provenance for mail redaction; no client reads it
+/// Record who put `user_uuid` on the ticket (`added_by`) on their existing row.
+/// A merge uses it when a person on a source is already on the destination.
+pub fn set_added_by(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    user_uuid: Uuid,
+    added_by: Option<Uuid>,
+) -> QueryResult<usize> {
+    diesel::update(
+        ticket_watchers::table
+            .filter(ticket_watchers::ticket_id.eq(ticket_id))
+            .filter(ticket_watchers::user_uuid.eq(user_uuid)),
+    )
+    .set(ticket_watchers::added_by.eq(added_by))
+    .execute(conn)
 }
 
 fn insert_watcher(
@@ -178,6 +238,7 @@ fn insert_watcher(
     user_uuid: Uuid,
     auto_added: bool,
     notify_on_internal_notes: Option<bool>,
+    added_by: Option<Option<Uuid>>,
 ) -> QueryResult<bool> {
     conn.transaction::<bool, diesel::result::Error, _>(|conn| {
         // Resolve the parent ticket up front for the sync emit's
@@ -195,12 +256,19 @@ fn insert_watcher(
             user_uuid,
             auto_added,
         };
-        match notify_on_internal_notes {
-            None => diesel::insert_into(ticket_watchers::table)
+        match (notify_on_internal_notes, added_by) {
+            (None, None) => diesel::insert_into(ticket_watchers::table)
                 .values(&row)
                 .execute(conn)?,
-            Some(notify) => diesel::insert_into(ticket_watchers::table)
+            (Some(notify), None) => diesel::insert_into(ticket_watchers::table)
                 .values((&row, ticket_watchers::notify_on_internal_notes.eq(notify)))
+                .execute(conn)?,
+            (notify, Some(by)) => diesel::insert_into(ticket_watchers::table)
+                .values((
+                    &row,
+                    ticket_watchers::notify_on_internal_notes.eq(notify.unwrap_or(true)),
+                    ticket_watchers::added_by.eq(by),
+                ))
                 .execute(conn)?,
         };
         let watchers = watcher_uuids(conn, ticket_id)?;

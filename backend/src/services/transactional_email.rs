@@ -18,6 +18,11 @@
 //! callers that genuinely want fire-and-forget still have the
 //! old methods). Once the migration settles, the old async-send
 //! methods become deprecated.
+//!
+//! Mail about a ticket goes through
+//! [`ticket_mail_redaction`](crate::services::ticket_mail_redaction) before it
+//! is queued: [`enqueue_notification`] and [`enqueue_participant_added`] here,
+//! and the other sites listed on `repository::outbound_emails`.
 
 use diesel::result::Error as DieselError;
 use ring::digest;
@@ -33,13 +38,15 @@ use crate::utils::email::{EmailBranding, EmailService};
 /// Generate a globally-unique Message-ID for a transactional send.
 /// Domain is derived from `SMTP_FROM_EMAIL` (the address the email
 /// will be sent from) so inbound bounce DSNs can correlate via
-/// the same domain. A short random tail keeps the ID unique even
+/// the same domain. A random tail keeps the ID unique even
 /// when the idempotency key collapses a retry — the queue row
 /// stamps the Message-ID at enqueue and reuses it on every send
 /// attempt, so the recipient's MUA dedupes correctly.
 fn make_message_id(prefix: &str, domain: &str) -> String {
-    let random: u32 = rand::random();
-    format!("{prefix}.{random:08x}@{domain}")
+    // 128 random bits: a reply naming it shows its sender received our mail
+    // (`services::ticket_mail_redaction`), so it mustn't be guessable.
+    let random: u128 = rand::random();
+    format!("{prefix}.{random:032x}@{domain}")
 }
 
 /// Extract the domain part of `from_email`. Falls back to
@@ -236,7 +243,9 @@ pub fn prepare_guest_confirmation(
 }
 
 /// Idempotency-key prefix of guest confirmation emails, which the
-/// per-recipient cap counts.
+/// per-recipient cap counts. Also written into
+/// `outbound_emails::count_first_contact_confirmations_since` and its partial
+/// index; change all three together.
 pub const GUEST_CONFIRMATION_KEY_PREFIX: &str = "guest-confirmation:";
 
 /// Condense a bug report's client breadcrumb trail (JSONB array of
@@ -500,14 +509,26 @@ pub fn enqueue_participant_added(
     locale: &unic_langid::LanguageIdentifier,
 ) -> Result<OutboundEmail, DieselError> {
     let ticket_id = ticket.id;
-    let (subject, body_html, body_text) = svc.compose_participant_added(
-        adder_name,
-        ticket.number,
-        &ticket.title,
-        view_url,
-        branding,
-        locale,
-    );
+    // The adder may be the requester: unless the recipient may see the
+    // ticket's text, both their name and the title stay out.
+    let redacted = crate::services::ticket_mail_redaction::ticket_mail_redaction(
+        conn,
+        ticket,
+        crate::services::ticket_mail_redaction::Recipient::User(recipient_uuid),
+    )
+    .is_redacted();
+    let (subject, body_html, body_text) = if redacted {
+        svc.compose_participant_added_redacted(ticket.number, view_url, branding, locale)
+    } else {
+        svc.compose_participant_added(
+            adder_name,
+            ticket.number,
+            &ticket.title,
+            view_url,
+            branding,
+            locale,
+        )
+    };
     let row = NewOutboundEmail {
         channel_id: None,
         ticket_id: Some(ticket_id),
@@ -666,21 +687,34 @@ pub fn prepare_notification(
     }
 }
 
+/// The words of a notification email: its subject, heading, body and the
+/// person it's from (empty for none).
+#[derive(Debug, Clone)]
+pub struct NotificationText {
+    pub subject: String,
+    pub title: String,
+    pub body: String,
+    pub actor_name: String,
+}
+
 /// Enqueue a ticket-activity notification email. The key includes
 /// the recipient so multi-recipient fanout (a comment with N
 /// watchers) produces N rows rather than collapsing; it also
 /// includes the source event id so the same (event, recipient)
 /// pair is exactly-once even across retries.
+///
+/// `redacted` is the same email naming its ticket by number alone, with the
+/// ticket's id. It goes instead of `text` when
+/// [`ticket_mail_redaction`](crate::services::ticket_mail_redaction) says the
+/// recipient may not see the ticket's own text.
 #[allow(clippy::too_many_arguments)]
 pub fn enqueue_notification(
     conn: &mut DbConnection,
     svc: &EmailService,
     branding: &EmailBranding,
     recipient: &str,
-    subject: &str,
-    title: &str,
-    body: &str,
-    actor_name: &str,
+    text: NotificationText,
+    redacted: Option<(i32, NotificationText)>,
     cta_url: &str,
     cta_label: Option<&str>,
     feedback: Option<&crate::utils::email::FeedbackLinks>,
@@ -688,14 +722,29 @@ pub fn enqueue_notification(
     recipient_uuid: &str,
     locale: &unic_langid::LanguageIdentifier,
 ) -> Result<OutboundEmail, DieselError> {
+    use crate::services::ticket_mail_redaction::{ticket_mail_redaction_by_id, Recipient};
+    let text = match redacted {
+        Some((ticket_id, redacted)) => {
+            let to = match uuid::Uuid::parse_str(recipient_uuid) {
+                Ok(uuid) => Recipient::User(uuid),
+                Err(_) => Recipient::Address(recipient),
+            };
+            if ticket_mail_redaction_by_id(conn, ticket_id, to).is_redacted() {
+                redacted
+            } else {
+                text
+            }
+        }
+        None => text,
+    };
     let row = prepare_notification(
         svc,
         branding,
         recipient,
-        subject,
-        title,
-        body,
-        actor_name,
+        &text.subject,
+        &text.title,
+        &text.body,
+        &text.actor_name,
         cta_url,
         cta_label,
         feedback,

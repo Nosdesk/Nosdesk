@@ -123,8 +123,42 @@ impl EmailChannel {
                 ("app", app_name.to_string().into()),
                 ("title", entity_title.into()),
                 ("actor", notification.payload.actor.name.clone().into()),
+                ("number", i64::from(ticket_number(notification)).into()),
             ],
         )
+    }
+
+    /// The subject, title, body and actor for an email about a ticket that
+    /// may not carry the ticket's own text: its number and the workspace's
+    /// wording only (see `services::ticket_mail_redaction`).
+    fn redacted_text(
+        &self,
+        notification: &DeliverableNotification,
+        app_name: &str,
+        locale: &unic_langid::LanguageIdentifier,
+    ) -> crate::services::transactional_email::NotificationText {
+        use crate::utils::i18n::tr_with;
+        let number = i64::from(ticket_number(notification));
+        let args = [
+            ("app", app_name.to_string().into()),
+            ("number", number.into()),
+        ];
+        let key = match notification.payload.notification_type {
+            // Its subject names the request by number already.
+            NotificationTypeCode::TicketCreatedRequester => "notif-ticket-created-requester",
+            _ => "notif-ticket-redacted",
+        };
+        let body = match notification.payload.redacted_body() {
+            Some(body) if !body.is_empty() => body.to_string(),
+            _ => tr_with(locale, "notif-redacted-body", &args),
+        };
+        crate::services::transactional_email::NotificationText {
+            subject: tr_with(locale, key, &args),
+            // Titles are the product's own wording ("Request received").
+            title: notification.payload.title.clone(),
+            body,
+            actor_name: String::new(),
+        }
     }
 
     /// Build the deep link for a notification. `base_url` is the recipient's
@@ -387,6 +421,16 @@ impl NotificationDeliveryChannel for EmailChannel {
             .map_err(|e| ChannelError::DatabaseError(e.to_string()))?;
 
         let subject = self.generate_subject(notification, &branding.app_name, &recipient_locale);
+        // The same email naming the ticket by number alone, for a recipient
+        // outside the team when a stranger may have filed it. Which one goes
+        // is decided where it's queued.
+        let redacted = ticket_id.filter(|id| *id > 0).map(|id| {
+            let mut text = self.redacted_text(notification, &branding.app_name, &recipient_locale);
+            if let Some(note) = &known_issue {
+                text.body = format!("{}\n\n{note}", text.body);
+            }
+            (id, text)
+        });
         let requester_link_used = requester_link.is_some();
         let entity_url =
             requester_link.unwrap_or_else(|| self.generate_entity_url(notification, &base_url));
@@ -452,10 +496,13 @@ impl NotificationDeliveryChannel for EmailChannel {
                     self.email_service.as_ref(),
                     &branding,
                     &recipient_email,
-                    &subject,
-                    &title,
-                    &body_text,
-                    &actor_name,
+                    crate::services::transactional_email::NotificationText {
+                        subject: subject.clone(),
+                        title: title.clone(),
+                        body: body_text.clone(),
+                        actor_name: actor_name.clone(),
+                    },
+                    redacted.clone(),
                     &entity_url,
                     cta_label.as_deref(),
                     feedback.as_ref(),
@@ -567,6 +614,13 @@ impl NotificationDeliveryChannel for EmailChannel {
         // Return true if NOT rate limited (no recent notification found)
         recent.is_none()
     }
+}
+
+/// The number of the ticket a notification is about, its id on a payload
+/// queued before tickets had numbers, 0 with no ticket.
+fn ticket_number(notification: &DeliverableNotification) -> i32 {
+    let entity = &notification.payload.entity;
+    entity.ticket_number().unwrap_or_else(|| entity.ticket_id())
 }
 
 /// Base URL for links in `workspace_id`'s email to `recipient`, chosen by the

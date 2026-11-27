@@ -605,6 +605,7 @@ pub async fn add_comment_to_ticket(
                         ticket_info.clone(),
                         comment.clone(),
                         pool.get_ref().clone(),
+                        crate::extractors::is_api_token(&req),
                     );
                 }
             }

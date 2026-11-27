@@ -55,7 +55,14 @@ pub enum BlankTicket {
 /// if they have one nothing has touched, otherwise a new one, marked blank.
 /// The lock it takes first holds to the end of the transaction, so presses
 /// that arrive together get the same ticket.
-pub fn blank_ticket(db: &mut ActorConn, requester: Uuid) -> diesel::QueryResult<BlankTicket> {
+///
+/// `submitted_via` is how a new one is stamped: `"api"` when an API token
+/// asks (see `services::ticket_mail_redaction`).
+pub fn blank_ticket(
+    db: &mut ActorConn,
+    requester: Uuid,
+    submitted_via: Option<&str>,
+) -> diesel::QueryResult<BlankTicket> {
     db.run(|conn| repository::tickets::lock_blank_ticket(conn, requester))?;
     if let Some(ticket) = db.run(|conn| repository::tickets::blank_ticket_for(conn, requester))? {
         return Ok(BlankTicket::Reused(ticket));
@@ -66,6 +73,7 @@ pub fn blank_ticket(db: &mut ActorConn, requester: Uuid) -> diesel::QueryResult<
         title: "New Ticket".to_string(),
         workflow_state_id: default_state.id,
         requester_uuid: Some(requester),
+        submitted_via: submitted_via.map(str::to_string),
         ..Default::default()
     };
     let ticket = db.run(|conn| repository::create_ticket(conn, new_ticket))?;

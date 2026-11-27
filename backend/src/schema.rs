@@ -1712,6 +1712,8 @@ diesel::table! {
         requester_asset_visibility -> Text,
         #[max_length = 3]
         currency_code -> Nullable<Bpchar>,
+        requester_ack_enabled -> Bool,
+        requester_ack_template -> Nullable<Text>,
     }
 }
 
@@ -1973,6 +1975,7 @@ diesel::table! {
         auto_added -> Bool,
         notify_on_internal_notes -> Bool,
         workspace_id -> Int4,
+        added_by -> Nullable<Uuid>,
     }
 }
 
@@ -2092,6 +2095,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Nullable<Uuid>,
+        proven_at -> Nullable<Timestamptz>,
     }
 }
 

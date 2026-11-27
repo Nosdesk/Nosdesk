@@ -247,7 +247,15 @@ pub fn derive(row: &SyncActionRow) -> Vec<Intent> {
         return intents;
     };
     let ticket_title = str_at(data, "title").unwrap_or_default().to_string();
+    // `created_via.acknowledge: false` is a ticket filed with
+    // `acknowledge: false` (`POST /api/tickets`).
+    let acknowledged = data
+        .get("created_via")
+        .and_then(|c| c.get("acknowledge"))
+        .and_then(Value::as_bool)
+        != Some(false);
     if row.event_type == "ticket.created"
+        && acknowledged
         && data.get("origin_channel_id").is_none_or(Value::is_null)
         && !crate::models::is_imported_via(str_at(data, "submitted_via"))
     {
@@ -295,6 +303,30 @@ pub fn derive(row: &SyncActionRow) -> Vec<Intent> {
     }
 
     intents
+}
+
+/// The requester acknowledgement from the workspace's template
+/// (`site_settings.requester_ack_template`), which takes the email channel
+/// auto-ack's variables.
+fn acknowledgement_from_template(
+    template: &str,
+    number: i32,
+    ticket_title: &str,
+    customer_name: &str,
+    app_name: &str,
+) -> String {
+    let number = number.to_string();
+    let first_name = crate::utils::template_variables::first_name(customer_name);
+    crate::utils::template_variables::substitute(
+        template,
+        &[
+            ("ticket_id", number.as_str()),
+            ("ticket_title", ticket_title),
+            ("customer_name", customer_name),
+            ("customer_first_name", first_name.as_str()),
+            ("app_name", app_name),
+        ],
+    )
 }
 
 /// The notification actor for a row. A human actor is looked up for their
@@ -458,12 +490,52 @@ fn resolve_for_anyone(
             requester,
         } => {
             // Staff file their own tickets from the app; the acknowledgement is
-            // for the people they help.
+            // for the people they help. The workspace may not send one at all.
             let is_staff = staff_among(conn, workspace_id, &[requester])
                 .map(|s| s.contains(&requester))
                 .unwrap_or(true);
-            if !is_staff {
+            let settings = repository::site_settings::get_site_settings(conn).ok();
+            let enabled = settings.as_ref().is_none_or(|s| s.requester_ack_enabled);
+            if !is_staff && enabled {
                 let actor = actor_for(conn, row);
+                let customer_name = repository::users::find_active_by_uuid(&requester, conn)
+                    .map(|u| u.name)
+                    .unwrap_or_default();
+                let template = settings
+                    .as_ref()
+                    .and_then(|s| s.requester_ack_template.as_deref())
+                    .filter(|t| !t.trim().is_empty());
+                let app_name = settings.as_ref().map(|s| s.app_name.as_str()).unwrap_or("");
+                // The redacted body is what the requester gets when a stranger
+                // may have filed the request and they haven't written on it: the
+                // number for the title, no name (services::ticket_mail_redaction).
+                let (body, redacted_body) = match template {
+                    Some(template) => (
+                        acknowledgement_from_template(
+                            template,
+                            number,
+                            &ticket_title,
+                            &customer_name,
+                            app_name,
+                        ),
+                        acknowledgement_from_template(
+                            &crate::utils::template_variables::without_variables(
+                                template,
+                                crate::utils::template_variables::NAME_VARIABLES,
+                            ),
+                            number,
+                            &format!("#{number}"),
+                            "",
+                            app_name,
+                        ),
+                    ),
+                    None => {
+                        let body = format!(
+                            "We've received your request #{number}. The team will reply by email."
+                        );
+                        (body.clone(), body)
+                    }
+                };
                 out.push(
                     NotificationPayload::new(
                         NotificationTypeCode::TicketCreatedRequester,
@@ -477,9 +549,8 @@ fn resolve_for_anyone(
                         workspace_id,
                     )
                     .with_title("Request received")
-                    .with_body(format!(
-                        "We've received your request #{number}: {ticket_title}. The team will reply by email."
-                    ))
+                    .with_body(body)
+                    .with_redacted_body(redacted_body)
                     .from_sync_action(row.sync_id),
                 );
             }
@@ -507,6 +578,7 @@ fn resolve_for_anyone(
                     .with_body(format!(
                         "Request #{number}: {ticket_title} is waiting for your approval."
                     ))
+                    .with_redacted_body(format!("Request #{number} is waiting for your approval."))
                     .from_sync_action(row.sync_id),
                 );
             }
@@ -519,29 +591,27 @@ fn resolve_for_anyone(
             comment,
         } => {
             let actor = actor_for(conn, row);
-            let (title, body) = match state.as_str() {
+            // `named` is how the request is referred to: with its title, or
+            // by number alone for mail that leaves the title out.
+            let decided = |named: &str| match state.as_str() {
                 "declined" => (
                     "Request declined",
                     match comment.as_deref() {
-                        Some(reason) => format!(
-                            "Your request #{number}: {ticket_title} was declined. {reason}"
-                        ),
-                        None => format!("Your request #{number}: {ticket_title} was declined."),
+                        Some(reason) => format!("Your request {named} was declined. {reason}"),
+                        None => format!("Your request {named} was declined."),
                     },
                 ),
                 "skipped" => (
                     "Request can go ahead",
-                    format!(
-                        "Your request #{number}: {ticket_title} can go ahead. The team will take it from here."
-                    ),
+                    format!("Your request {named} can go ahead. The team will take it from here."),
                 ),
                 _ => (
                     "Request approved",
-                    format!(
-                        "Your request #{number}: {ticket_title} was approved. The team will take it from here."
-                    ),
+                    format!("Your request {named} was approved. The team will take it from here."),
                 ),
             };
+            let (title, body) = decided(&format!("#{number}: {ticket_title}"));
+            let (_, redacted_body) = decided(&format!("#{number}"));
             out.push(
                 NotificationPayload::new(
                     NotificationTypeCode::ApprovalDecided,
@@ -556,6 +626,7 @@ fn resolve_for_anyone(
                 )
                 .with_title(title)
                 .with_body(body)
+                .with_redacted_body(redacted_body)
                 .from_sync_action(row.sync_id),
             );
         }
@@ -604,6 +675,7 @@ fn resolve_for_anyone(
                 )
                 .with_title("Your request was updated")
                 .with_body(format!("Request #{number} is now {state_name}."))
+                .with_redacted_body(format!("Request #{number} is now {state_name}."))
                 .from_sync_action(row.sync_id);
                 // Resolved: the email asks whether it's fixed.
                 out.push(if after == "done" {
@@ -980,6 +1052,100 @@ mod tests {
 
         let no_requester = json!({"id": 7, "title": "T", "workflow_state_id": 1});
         assert!(derive(&row("ticket.created", no_requester, Some(B))).is_empty());
+    }
+
+    #[test]
+    fn a_ticket_filed_with_acknowledge_false_tells_its_requester_nothing() {
+        let quiet = json!({"id": 7, "title": "T", "requester_uuid": C, "workflow_state_id": 1,
+                           "created_via": {"source": null, "acknowledge": false}});
+        assert!(derive(&row("ticket.created", quiet, Some(B))).is_empty());
+        let told = json!({"id": 7, "title": "T", "requester_uuid": C, "workflow_state_id": 1,
+                          "created_via": {"source": null}});
+        assert!(matches!(
+            derive(&row("ticket.created", told, Some(B)))[..],
+            [Intent::Created { .. }]
+        ));
+    }
+
+    /// Resolve the acknowledgement of a new ticket titled `title` for a
+    /// requester named `name`.
+    fn acknowledgement(
+        conn: &mut DbConnection,
+        title: &str,
+        name: &str,
+    ) -> (crate::models::Ticket, Vec<NotificationPayload>) {
+        use crate::test_helpers::TestFixtures;
+        let requester = TestFixtures::create_user(conn, name, "user");
+        let ticket = TestFixtures::create_ticket(conn, title, Some(requester.uuid), None);
+        let ticket = TestFixtures::renumber_ticket(conn, ticket);
+        let payloads = resolve(
+            conn,
+            &row("ticket.created", json!({}), None),
+            Intent::Created {
+                ticket_id: ticket.id,
+                ticket_title: ticket.title.clone(),
+                requester: requester.uuid,
+            },
+        )
+        .unwrap();
+        (ticket, payloads)
+    }
+
+    #[test]
+    fn the_acknowledgement_names_the_request_by_number_and_not_its_title() {
+        let mut conn = crate::test_helpers::setup_test_connection();
+        let (ticket, payloads) =
+            acknowledgement(&mut conn, "Claim your prize at evil.example", "Sam");
+        assert_eq!(payloads.len(), 1);
+        let body = payloads[0].body.as_deref().unwrap();
+        assert_eq!(
+            body,
+            format!(
+                "We've received your request #{}. The team will reply by email.",
+                ticket.number
+            )
+        );
+        assert_eq!(payloads[0].redacted_body(), Some(body));
+    }
+
+    #[test]
+    fn a_workspace_that_turned_the_acknowledgement_off_sends_none() {
+        let mut conn = crate::test_helpers::setup_test_connection();
+        crate::repository::site_settings::update_site_settings(
+            &mut conn,
+            crate::models::UpdateSiteSettings {
+                requester_ack_enabled: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let (_, payloads) = acknowledgement(&mut conn, "Printer", "Sam");
+        assert!(payloads.is_empty());
+    }
+
+    #[test]
+    fn the_acknowledgement_template_fills_in_and_its_redacted_copy_leaves_the_title_and_name_out() {
+        let mut conn = crate::test_helpers::setup_test_connection();
+        crate::repository::site_settings::update_site_settings(
+            &mut conn,
+            crate::models::UpdateSiteSettings {
+                requester_ack_template: Some(Some(
+                    "Hi {{customer_first_name}}, {{ticket_title}} is #{{ticket_id}}.".into(),
+                )),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let (ticket, payloads) = acknowledgement(&mut conn, "Printer jammed", "Sam Jones");
+        let n = ticket.number;
+        assert_eq!(
+            payloads[0].body.as_deref(),
+            Some(format!("Hi Sam, Printer jammed is #{n}.").as_str())
+        );
+        assert_eq!(
+            payloads[0].redacted_body(),
+            Some(format!("Hi, #{n} is #{n}.").as_str())
+        );
     }
 
     #[test]

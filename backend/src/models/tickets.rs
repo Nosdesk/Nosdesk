@@ -37,6 +37,12 @@ pub struct TicketWatcher {
     /// than implicit fan-out.
     pub notify_on_internal_notes: bool,
     pub workspace_id: i32,
+    /// Who put them on the request: the acting user the insert ran as, `None`
+    /// for a system write and for rows from before it was recorded. Read by
+    /// `services::ticket_mail_redaction`. Server-side only; `None` inserts the
+    /// column default.
+    #[serde(default, skip_serializing)]
+    pub added_by: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Insertable)]
@@ -374,8 +380,20 @@ pub struct Ticket {
     pub estimate_minutes: Option<i32>,
 }
 
+/// `submitted_via` of a ticket an API token created. The server sets it; a
+/// body can't. See `services::ticket_mail_redaction`.
+pub const SUBMITTED_VIA_API: &str = "api";
+
+/// `submitted_via` of a ticket the anonymous request form created.
+pub const SUBMITTED_VIA_GUEST: &str = "guest";
+
 /// `submitted_via` of a ticket a CSV import made.
 pub const CSV_IMPORT: &str = "csv_import";
+
+/// `submitted_via` of a ticket a CSV import made that an API token committed.
+/// History like any import, and also stranger provenance: a token may be
+/// relaying rows a stranger wrote (`services::ticket_mail_redaction`).
+pub const CSV_IMPORT_BY_TOKEN: &str = "csv_import_api";
 
 /// `submitted_via` of a ticket opened by mail its mailbox held before the
 /// email channel connected (a backlog the admin asked for).
@@ -385,13 +403,54 @@ pub const EMAIL_BACKLOG: &str = "email_backlog";
 /// system (Zendesk, ...). The source is on the id map and the creation event.
 pub const HELPDESK_IMPORT: &str = "import";
 
+/// [`EMAIL_BACKLOG`] after an API token set its title or requester.
+pub const EMAIL_BACKLOG_BY_TOKEN: &str = "email_backlog_api";
+
+/// [`HELPDESK_IMPORT`] after an API token set its title or requester.
+pub const HELPDESK_IMPORT_BY_TOKEN: &str = "import_api";
+
+/// What a ticket that came in `submitted_via` this way becomes once an API
+/// token sets its title or requester: an import keeps being history, as its
+/// token variant, and anything else becomes [`SUBMITTED_VIA_API`].
+pub fn by_token(submitted_via: Option<&str>) -> &'static str {
+    match submitted_via {
+        Some(CSV_IMPORT | CSV_IMPORT_BY_TOKEN) => CSV_IMPORT_BY_TOKEN,
+        Some(EMAIL_BACKLOG | EMAIL_BACKLOG_BY_TOKEN) => EMAIL_BACKLOG_BY_TOKEN,
+        Some(HELPDESK_IMPORT | HELPDESK_IMPORT_BY_TOKEN) => HELPDESK_IMPORT_BY_TOKEN,
+        _ => SUBMITTED_VIA_API,
+    }
+}
+
+/// Whether an API token filed a ticket that came in `submitted_via` this way,
+/// or set its title or requester: stranger provenance
+/// (`services::ticket_mail_redaction`), since a token may be relaying what a
+/// stranger wrote.
+pub fn is_by_token(submitted_via: Option<&str>) -> bool {
+    matches!(
+        submitted_via,
+        Some(
+            SUBMITTED_VIA_API
+                | CSV_IMPORT_BY_TOKEN
+                | EMAIL_BACKLOG_BY_TOKEN
+                | HELPDESK_IMPORT_BY_TOKEN
+        )
+    )
+}
+
 /// Whether a ticket that came in `submitted_via` this way is imported
 /// history ([`Ticket::is_imported`]). For readers that have the value but
 /// not the ticket, such as an event's data.
 pub fn is_imported_via(submitted_via: Option<&str>) -> bool {
     matches!(
         submitted_via,
-        Some(CSV_IMPORT | EMAIL_BACKLOG | HELPDESK_IMPORT)
+        Some(
+            CSV_IMPORT
+                | CSV_IMPORT_BY_TOKEN
+                | EMAIL_BACKLOG
+                | EMAIL_BACKLOG_BY_TOKEN
+                | HELPDESK_IMPORT
+                | HELPDESK_IMPORT_BY_TOKEN
+        )
     )
 }
 
@@ -525,6 +584,11 @@ pub struct NewTicket {
     )]
     pub start_time: Option<NaiveTime>,
     pub estimate_minutes: Option<i32>,
+    /// `false` on `POST /api/tickets` files the ticket without the
+    /// requester's acknowledgement. Not a column, and never serialized.
+    #[serde(default, skip_serializing)]
+    #[diesel(skip_insertion)]
+    pub acknowledge: Option<bool>,
 }
 
 /// The columns of a ticket a client sets, split from a `NewTicket` by
@@ -577,6 +641,7 @@ impl NewTicket {
             due_time,
             start_time,
             estimate_minutes,
+            acknowledge: _,
         } = self;
         ClientTicketColumns {
             title,
@@ -1424,6 +1489,7 @@ mod new_ticket_write_tests {
             due_time: None,
             start_time: None,
             estimate_minutes: None,
+            acknowledge: Some(false),
         }
     }
 
@@ -1450,6 +1516,7 @@ mod new_ticket_write_tests {
             due_time: existing.due_time,
             start_time: existing.start_time,
             estimate_minutes: existing.estimate_minutes,
+            acknowledge: None,
         }
     }
 

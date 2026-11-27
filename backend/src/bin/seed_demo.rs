@@ -485,6 +485,7 @@ fn seed(
             due_time: None,
             start_time: None,
             estimate_minutes: None,
+            acknowledge: None,
         };
 
         let project_id = match &dt.project {
@@ -741,6 +742,7 @@ fn seed_history(
                 due_time: None,
                 start_time: None,
                 estimate_minutes: None,
+                acknowledge: None,
             };
             let ticket = repository::tickets::create_ticket(conn, new_ticket)?;
 

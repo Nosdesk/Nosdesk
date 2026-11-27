@@ -312,6 +312,23 @@ fn ticket_created_data(
     Ok(data)
 }
 
+// sync-audit-only: provenance for mail redaction on the server; the ticket's next emit carries it
+/// Stamp `ticket_id` as a token's after an API token set its title or
+/// requester: its text may now be a website relaying a stranger's form
+/// (`services::ticket_mail_redaction`). An imported ticket takes its import's
+/// token variant ([`crate::models::by_token`]), so it stays history for rule
+/// clocks and acknowledgements; anything else becomes `"api"`.
+pub fn mark_filed_by_token(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<usize> {
+    let via: Option<String> = tickets::table
+        .find(ticket_id)
+        .select(tickets::submitted_via)
+        .for_no_key_update()
+        .first(conn)?;
+    diesel::update(tickets::table.find(ticket_id))
+        .set(tickets::submitted_via.eq(crate::models::by_token(via.as_deref())))
+        .execute(conn)
+}
+
 /// Bare create — UI handlers, the import binary, and any caller
 /// without specific channel/portal context land here.
 pub fn create_ticket(conn: &mut DbConnection, new_ticket: NewTicket) -> QueryResult<Ticket> {
@@ -388,6 +405,20 @@ pub fn create_ticket_with_annotation(
     annotation: TicketCreationAnnotation,
     link_project_id: Option<i32>,
 ) -> QueryResult<Ticket> {
+    create_ticket_acknowledged(conn, new_ticket, annotation, link_project_id, true)
+}
+
+/// [`create_ticket_with_annotation`], saying whether the requester hears
+/// "we've received your request". `false` stamps `created_via.acknowledge`,
+/// which the notification deriver reads; the workspace's own setting
+/// (`site_settings.requester_ack_enabled`) applies on top.
+pub fn create_ticket_acknowledged(
+    conn: &mut DbConnection,
+    new_ticket: NewTicket,
+    annotation: TicketCreationAnnotation,
+    link_project_id: Option<i32>,
+    acknowledge: bool,
+) -> QueryResult<Ticket> {
     conn.transaction(|conn| {
         let ticket: Ticket = diesel::insert_into(tickets::table)
             .values(&new_ticket)
@@ -426,12 +457,15 @@ pub fn create_ticket_with_annotation(
         // and friends when present. Always emitted (even when all
         // annotation fields are None) so the renderer can rely on a
         // stable shape rather than probing for missing keys.
-        let created_via = json!({
+        let mut created_via = json!({
             "source": annotation.source,
             "from_email": annotation.from_email,
             "from_name": annotation.from_name,
             "subject": annotation.subject,
         });
+        if !acknowledge {
+            created_via["acknowledge"] = json!(false);
+        }
         let data = ticket_created_data(conn, &ticket, created_via)?;
         emit::record(
             conn,
@@ -572,13 +606,35 @@ pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult
         .first(conn)
 }
 
-/// Flip every `verification_state = 'pending'` ticket requested by the given
-/// user over to `'verified'` and return the newly-released tickets.
+/// The requester's newest pending request in `workspace_id` written within
+/// `window` before or at `minted_at`: the one a guest confirmation minted then,
+/// from before tokens named their tickets, was sent for. Pinned to the
+/// workspace by the caller.
+pub fn pending_ticket_filed_before(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    workspace_id: i32,
+    minted_at: chrono::DateTime<chrono::Utc>,
+    window: chrono::Duration,
+) -> QueryResult<Option<i32>> {
+    tickets::table
+        .filter(tickets::workspace_id.eq(workspace_id))
+        .filter(tickets::requester_uuid.eq(Some(user_uuid)))
+        .filter(tickets::verification_state.eq(groups::PENDING_VERIFICATION))
+        .filter(tickets::created_at.le(minted_at))
+        .filter(tickets::created_at.ge(minted_at - window))
+        .order((tickets::created_at.desc(), tickets::id.desc()))
+        .select(tickets::id)
+        .first(conn)
+        .optional()
+}
+
+/// Flip the given user's `verification_state = 'pending'` tickets among
+/// `ticket_ids` over to `'verified'` and return the newly-released tickets.
 ///
-/// Called by the accept-invitation flow: once the submitter has proven they
-/// own the email they gave us, every guest ticket they've filed (potentially
-/// more than one within the 7-day invitation window) is released into the
-/// tech queue at the same time.
+/// Called by the request form's confirmation with the tickets its token names.
+/// Only those: another pending ticket naming the same address may be a
+/// stranger's, and confirming your own request mustn't vouch for it.
 ///
 /// While pending, a ticket's events were held (no workspace audience; see
 /// `groups::for_ticket`), so this is where the workspace first hears of it:
@@ -588,15 +644,43 @@ pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult
 pub fn verify_pending_tickets_for_user(
     conn: &mut DbConnection,
     user_uuid: Uuid,
+    ticket_ids: &[i32],
 ) -> QueryResult<Vec<Ticket>> {
+    release_pending_tickets(conn, user_uuid, ticket_ids, Some("verified"))
+}
+
+/// [`verify_pending_tickets_for_user`] for requests that rode along on a
+/// confirmation sent for another (`reset_tokens::name_ticket_on_outstanding_confirmation`):
+/// released, so live, but with no verification state, since the click proves
+/// the mailbox, not that its holder wrote them. A request-form ticket with no
+/// state is stranger provenance (`services::ticket_mail_redaction`), so mail
+/// about it stays redacted until they write on it.
+pub fn release_unconfirmed_tickets_for_user(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    ticket_ids: &[i32],
+) -> QueryResult<Vec<Ticket>> {
+    release_pending_tickets(conn, user_uuid, ticket_ids, None)
+}
+
+fn release_pending_tickets(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    ticket_ids: &[i32],
+    state: Option<&str>,
+) -> QueryResult<Vec<Ticket>> {
+    if ticket_ids.is_empty() {
+        return Ok(Vec::new());
+    }
     conn.transaction(|conn| {
         let released: Vec<Ticket> = diesel::update(
             tickets::table
+                .filter(tickets::id.eq_any(ticket_ids))
                 .filter(tickets::requester_uuid.eq(Some(user_uuid)))
                 .filter(tickets::verification_state.eq(groups::PENDING_VERIFICATION)),
         )
         .set((
-            tickets::verification_state.eq("verified"),
+            tickets::verification_state.eq(state),
             tickets::updated_at.eq(chrono::Utc::now().naive_utc()),
         ))
         .get_results(conn)?;
@@ -1136,6 +1220,22 @@ fn create_next_occurrence(
             estimate_minutes: closed.estimate_minutes,
             recurrence_rule: Some(rule.to_string()),
             recurrence_template_id: Some(template_id),
+            // Its text is the closed ticket's, so it keeps where that came
+            // from (services::ticket_mail_redaction), but not an import's
+            // mark: a recurrence is a new request, not history. Anything a
+            // token filed or wrote comes back as a token's ticket.
+            submitted_via: match closed.submitted_via.as_deref() {
+                via if crate::models::is_by_token(via) => {
+                    Some(crate::models::SUBMITTED_VIA_API.to_string())
+                }
+                via => via
+                    .filter(|via| !crate::models::is_imported_via(Some(via)))
+                    .map(str::to_string),
+            },
+            verification_state: closed
+                .verification_state
+                .clone()
+                .filter(|state| state == "verified"),
             ..Default::default()
         },
     )?;
@@ -1462,9 +1562,12 @@ pub fn get_complete_ticket(
 
 // Import from JSON. The assignee is checked like a CSV import's: one who
 // can't work tickets in this workspace fails the ticket's import.
+///
+/// `submitted_via` stamps the new ticket: `"api"` for an API token.
 pub fn import_ticket_from_json(
     conn: &mut DbConnection,
     ticket_json: &TicketJson,
+    submitted_via: Option<&str>,
 ) -> Result<Ticket, TicketWriteError> {
     // The import format carries a coarse status string from the source
     // system. Map it to a workflow-state category and pick that category's
@@ -1499,6 +1602,7 @@ pub fn import_ticket_from_json(
         priority,
         requester_uuid: Some(requester),
         assignee_uuid,
+        submitted_via: submitted_via.map(str::to_string),
         ..Default::default()
     };
 
@@ -2080,22 +2184,28 @@ mod tests {
     }
 
     #[test]
-    fn verify_pending_flips_only_requesters_pending_tickets() {
+    fn verify_pending_flips_only_the_named_pending_tickets_of_the_requester() {
         let mut conn = setup_test_connection();
         let alice = TestFixtures::create_user(&mut conn, "Alice", "user");
         let bob = TestFixtures::create_user(&mut conn, "Bob", "user");
 
-        // Alice has two pending + one already-verified + one nullable
-        // (authenticated) ticket. Bob has one pending. Only Alice's two
-        // pending tickets should flip.
+        // Alice has three pending + one already-verified + one nullable
+        // (authenticated) ticket. Bob has one pending. Only the two of
+        // Alice's pending tickets the confirmation names flip: the third may
+        // be a stranger's, filed under her address.
         let alice_pending_1 = insert_ticket_with_state(&mut conn, alice.uuid, Some("pending"));
         let alice_pending_2 = insert_ticket_with_state(&mut conn, alice.uuid, Some("pending"));
+        let strangers = insert_ticket_with_state(&mut conn, alice.uuid, Some("pending"));
         let alice_verified = insert_ticket_with_state(&mut conn, alice.uuid, Some("verified"));
         let alice_null = insert_ticket_with_state(&mut conn, alice.uuid, None);
         let bob_pending = insert_ticket_with_state(&mut conn, bob.uuid, Some("pending"));
 
-        let released =
-            verify_pending_tickets_for_user(&mut conn, alice.uuid).expect("verify returns");
+        let released = verify_pending_tickets_for_user(
+            &mut conn,
+            alice.uuid,
+            &[alice_pending_1.id, alice_pending_2.id, bob_pending.id],
+        )
+        .expect("verify returns");
 
         let released_ids: Vec<i32> = released.iter().map(|t| t.id).collect();
         assert_eq!(released_ids.len(), 2);
@@ -2109,17 +2219,16 @@ mod tests {
             Some("verified")
         );
         assert_eq!(fetch(alice_null.id).verification_state, None);
-        assert_eq!(
-            fetch(bob_pending.id).verification_state.as_deref(),
-            Some("pending")
-        );
+        for held in [bob_pending.id, strangers.id] {
+            assert_eq!(fetch(held).verification_state.as_deref(), Some("pending"));
+        }
     }
 
     #[test]
     fn verify_pending_noop_when_user_has_no_pending() {
         let mut conn = setup_test_connection();
         let user = TestFixtures::create_user(&mut conn, "NoPending", "user");
-        let released = verify_pending_tickets_for_user(&mut conn, user.uuid).unwrap();
+        let released = verify_pending_tickets_for_user(&mut conn, user.uuid, &[1, 2]).unwrap();
         assert!(released.is_empty());
     }
 

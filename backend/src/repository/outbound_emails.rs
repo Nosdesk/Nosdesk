@@ -18,6 +18,25 @@
 //! `pending` (or `failed` for backoff). Combined with the deterministic
 //! `Message-ID` persisted at enqueue, this is at-least-once delivery
 //! with consumer-side dedupe (the receiving MTA / customer MUA).
+//!
+//! # Mail about a ticket
+//!
+//! Every producer of mail about a ticket asks
+//! [`ticket_mail_redaction`](crate::services::ticket_mail_redaction) what the
+//! recipient may see before it composes, so a ticket's text reaches someone
+//! outside the team only when they have a reason to see it. The producers
+//! that do:
+//! notification email (`transactional_email::enqueue_notification`), the
+//! participant-added notice (`transactional_email::enqueue_participant_added`),
+//! the rules engine's `notify` and automated `reply` steps
+//! (`repository::rules`), merge notices (`ticket_merge::enqueue_merge_notifications`)
+//! and staff replies (`channels::outbound::enqueue_for_comment`: the subject,
+//! and the body of a reply an API token wrote).
+//! Producers that don't, and why: the email channel's auto-ack is a direct
+//! send replying to a mail's own sender with its own subject; the request
+//! form's confirmation is fixed text; account mail, the digest and the
+//! bug-report alert carry no ticket text. A new producer of mail about a
+//! ticket calls the check, or says here why not.
 
 use crate::db::DbConnection;
 use crate::models::{outbound_email_status, NewOutboundEmail, OutboundEmail};
@@ -34,6 +53,9 @@ pub const DEFAULT_BATCH_SIZE: i64 = 10;
 // sync-audit-only: internal worker queue; delivery state surfaced via admin queue view
 /// Insert a new row in the queue. The trigger fires `pg_notify` so the
 /// listener wakes immediately.
+///
+/// A row about a ticket must have been composed from
+/// `services::ticket_mail_redaction` (see the module docs).
 pub fn enqueue(
     conn: &mut DbConnection,
     new_row: NewOutboundEmail,
@@ -60,6 +82,9 @@ pub fn enqueue(
 /// Returns the row in whichever state it ended up:
 ///   * Fresh insert → newly-pending row, ready for the worker.
 ///   * Conflict     → the previously-enqueued row, unchanged.
+///
+/// A row about a ticket must have been composed from
+/// `services::ticket_mail_redaction` (see the module docs).
 pub fn enqueue_idempotent(
     conn: &mut DbConnection,
     new_row: NewOutboundEmail,
@@ -119,6 +144,9 @@ pub fn enqueue_idempotent(
 ///
 /// Returns the row in its final state (either pending or
 /// suppressed) so the caller can log + report without a refetch.
+///
+/// A row about a ticket must have been composed from
+/// `services::ticket_mail_redaction` (see the module docs).
 pub fn enqueue_or_suppress(
     conn: &mut DbConnection,
     new_row: NewOutboundEmail,
@@ -681,6 +709,108 @@ pub fn count_recent_to(
         .filter(o::created_at.ge(since))
         .count()
         .get_result(conn)
+}
+
+/// Emails queued to `recipient` since `since` whose idempotency key starts
+/// with `key_prefix`, in every workspace on the deployment. A cap on one kind
+/// of mail to one address has to count all of them, or each workspace adds
+/// its own allowance. Case-insensitive on the address; every status counts.
+///
+/// Reads through the bypass role inside a savepoint that is then rolled back
+/// (as `user_helpers::is_staff_anywhere` does), so the caller's transaction
+/// carries on with its own role, actor and pin. Returns only a count.
+pub fn count_recent_to_anywhere(
+    conn: &mut DbConnection,
+    recipient: &str,
+    key_prefix: &str,
+    since: chrono::DateTime<chrono::Utc>,
+) -> QueryResult<i64> {
+    use diesel::Connection;
+    let mut count = None;
+    let outcome = conn.transaction::<(), DieselError, _>(|conn| {
+        let actor = crate::sync::actor::ActorContext::system("repository:count_recent_to_anywhere");
+        // cross-tenant: how many of one kind of mail one address got from every workspace, for a cap that must hold across them; a count only, and rolled back with the savepoint.
+        let n = crate::sync::session::with_actor_bypass_context(conn, &actor, |conn| {
+            count_recent_to(conn, recipient, key_prefix, since)
+        })?;
+        count = Some(n);
+        Err(DieselError::RollbackTransaction)
+    });
+    match (count, outcome) {
+        (Some(n), _) => Ok(n),
+        (None, Err(e)) => Err(e),
+        (None, Ok(())) => Err(DieselError::NotFound),
+    }
+}
+
+// sync-audit-only: takes a lock and writes nothing
+/// Hold, to the end of the transaction, the lock on the request form's
+/// confirmation allowance for `recipient` (case-insensitive), or with
+/// `workspace_id` the one on that workspace's ceiling. The allowances are a
+/// count then an insert, so two requests at the limit would both pass without
+/// it. The order is fixed on every path, so two requests can't wait on each
+/// other: the request form's per-address submission lock
+/// (`tickets::lock_guest_submissions_for`) first, then this address lock,
+/// then the workspace's. Nothing takes the workspace's before an address's.
+pub fn lock_confirmation_allowance(
+    conn: &mut DbConnection,
+    recipient: &str,
+    workspace_id: Option<i32>,
+) -> QueryResult<()> {
+    let key = match workspace_id {
+        None => format!(
+            "guest-confirmation:address:{}",
+            recipient.trim().to_lowercase()
+        ),
+        Some(ws) => format!("guest-confirmation:workspace:{ws}"),
+    };
+    diesel::sql_query("SELECT pg_advisory_xact_lock(hashtext($1))")
+        .bind::<Text, _>(key)
+        .execute(conn)
+        .map(|_| ())
+}
+
+/// Whether this workspace has queued any mail to `recipient`, in any status.
+/// Case-insensitive. `conn` must be pinned: row security scopes it.
+pub fn has_mailed(conn: &mut DbConnection, recipient: &str) -> QueryResult<bool> {
+    use crate::schema::outbound_emails::dsl as o;
+    diesel::select(diesel::dsl::exists(
+        o::outbound_emails.filter(
+            diesel::dsl::sql::<diesel::sql_types::Bool>("lower(recipient) = ")
+                .bind::<Text, _>(recipient.trim().to_lowercase()),
+        ),
+    ))
+    .get_result(conn)
+}
+
+// sync-audit-only: a read-only scan (raw SELECT), no write
+/// The request form's confirmations queued since `since` that were this
+/// workspace's first mail to their address: how many addresses it began
+/// mailing that way. The key prefix is written into the query, not bound, so
+/// the partial index on confirmations (`outbound_emails_guest_confirmation_idx`)
+/// serves it. `conn` must be pinned: row security scopes both reads to the
+/// workspace.
+pub fn count_first_contact_confirmations_since(
+    conn: &mut DbConnection,
+    since: chrono::DateTime<chrono::Utc>,
+) -> QueryResult<i64> {
+    #[derive(QueryableByName)]
+    struct Count {
+        #[diesel(sql_type = BigInt)]
+        n: i64,
+    }
+    diesel::sql_query(
+        "SELECT count(*) AS n FROM outbound_emails o \
+         WHERE o.idempotency_key LIKE 'guest-confirmation:%' AND o.created_at >= $1 \
+           AND o.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
+           AND NOT EXISTS (SELECT 1 FROM outbound_emails p \
+                           WHERE p.workspace_id = o.workspace_id \
+                             AND lower(p.recipient) = lower(o.recipient) \
+                             AND (p.created_at, p.id) < (o.created_at, o.id))",
+    )
+    .bind::<Timestamptz, _>(since)
+    .get_result::<Count>(conn)
+    .map(|c| c.n)
 }
 
 /// The Message-IDs of the latest `limit` emails in `recipient`'s thread about

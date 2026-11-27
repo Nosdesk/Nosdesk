@@ -101,7 +101,8 @@ fn a_pending_guest_ticket_is_held_until_its_submitter_confirms() {
         .is_empty());
 
     // Confirmed: one ticket.created to the workspace, as submitted.
-    let released = tickets::verify_pending_tickets_for_user(&mut conn, guest.uuid).expect("verify");
+    let released = tickets::verify_pending_tickets_for_user(&mut conn, guest.uuid, &[ticket.id])
+        .expect("verify");
     assert_eq!(released.len(), 1);
     let events = created_events(&mut conn, ticket.id);
     assert_eq!(events.len(), 2);
@@ -128,8 +129,9 @@ fn a_guest_ticket_without_confirmation_reaches_the_workspace_at_once() {
     assert!(can_view_ticket(&mut conn, &staff(agent.uuid), ticket.id).expect("can view"));
 }
 
-/// Mint a guest-confirmation (or plain invitation) token as the send path does.
-fn invitation_token(conn: &mut DbConnection, user: uuid::Uuid, guest: bool) -> String {
+/// Mint a guest-confirmation token for `ticket` (or a plain invitation token
+/// with `None`) as the send path does.
+fn invitation_token(conn: &mut DbConnection, user: uuid::Uuid, guest: Option<i32>) -> String {
     use backend::utils::reset_tokens::{ResetTokenUtils, TokenType};
     let issued = ResetTokenUtils::create_reset_token(user, TokenType::Invitation);
     backend::repository::reset_tokens::create_reset_token(
@@ -140,7 +142,9 @@ fn invitation_token(conn: &mut DbConnection, user: uuid::Uuid, guest: bool) -> S
         None,
         None,
         issued.expires_at,
-        guest.then(|| serde_json::json!({ "source": "guest_ticket_submission" })),
+        guest.map(|ticket| {
+            serde_json::json!({ "source": "guest_ticket_submission", "ticket_ids": [ticket] })
+        }),
     )
     .expect("mint token");
     issued.raw_token
@@ -184,8 +188,8 @@ async fn the_confirmation_link_releases_a_held_ticket_without_a_password() {
         .execute(&mut conn)
         .expect("membership");
     let ticket = guest_ticket(&mut conn, guest.uuid, true);
-    let plain = invitation_token(&mut conn, guest.uuid, false);
-    let token = invitation_token(&mut conn, guest.uuid, true);
+    let plain = invitation_token(&mut conn, guest.uuid, None);
+    let token = invitation_token(&mut conn, guest.uuid, Some(ticket.id));
 
     let srv = confirm_server(&pool);
     let client = awc::Client::new();
@@ -315,7 +319,7 @@ fn confirming_a_guest_ticket_sends_its_held_reply_and_files() {
     // Held: nothing reaches the integration.
     assert!(drain_webhook_events(&mut conn, webhook.id).is_empty());
 
-    tickets::verify_pending_tickets_for_user(&mut conn, guest.uuid).expect("verify");
+    tickets::verify_pending_tickets_for_user(&mut conn, guest.uuid, &[ticket.id]).expect("verify");
 
     for (event_type, id) in [
         ("comment.created", reply.id),
@@ -331,7 +335,8 @@ fn confirming_a_guest_ticket_sends_its_held_reply_and_files() {
     raised.sort();
     assert_eq!(raised, ["attachment.added", "comment.added"]);
     // Confirming once more sends nothing again.
-    tickets::verify_pending_tickets_for_user(&mut conn, guest.uuid).expect("verify again");
+    tickets::verify_pending_tickets_for_user(&mut conn, guest.uuid, &[ticket.id])
+        .expect("verify again");
     assert!(drain_webhook_events(&mut conn, webhook.id).is_empty());
 }
 
@@ -365,7 +370,8 @@ fn a_held_event_is_released_once_and_only_for_its_ticket() {
     let reply = reply_on(ticket.id, guest.uuid);
     let held_reply = reply_on(elsewhere.id, other.uuid);
 
-    let released = tickets::verify_pending_tickets_for_user(&mut conn, guest.uuid).expect("verify");
+    let released = tickets::verify_pending_tickets_for_user(&mut conn, guest.uuid, &[ticket.id])
+        .expect("verify");
     let ticket = released.into_iter().next().expect("released ticket");
 
     let reply_rows = |conn: &mut DbConnection| -> Vec<(uuid::Uuid, Option<uuid::Uuid>)> {

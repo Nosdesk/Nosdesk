@@ -208,7 +208,7 @@ async fn a_guest_of_another_workspace_who_mails_in_can_open_their_request() {
     );
 }
 
-/// Redeeming a link in A verifies the address, so their next mail to B takes
+/// Signing in from A verifies the address, so their next mail to B takes
 /// the verified-sender branch instead of the guest reuse.
 #[actix_web::test]
 async fn a_requester_verified_in_another_workspace_who_mails_in_can_open_their_request() {
@@ -354,6 +354,7 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
             guest,
             "held@guest.example",
             b,
+            created.ticket.id,
         );
         Ok(())
     })
@@ -363,9 +364,18 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
         .select(rt::metadata)
         .first(&mut seed_conn(&inbox))
         .expect("token");
-    assert_eq!(metadata.expect("metadata")["workspace_id"], b);
+    let metadata = metadata.expect("metadata");
+    assert_eq!(metadata["workspace_id"], b);
+    assert_eq!(
+        metadata["ticket_ids"],
+        serde_json::json!([created.ticket.id])
+    );
 
-    // Confirming with such a token releases the request in B.
+    // Another request held under the same address: a stranger may have
+    // filed it, so confirming this one mustn't release it.
+    let other = submit_form(&inbox, "held@guest.example", true);
+
+    // Confirming with such a token releases the request in B, and only it.
     let issued = ResetTokenUtils::create_reset_token(guest, TokenType::Invitation);
     backend::repository::reset_tokens::create_reset_token(
         &mut seed_conn(&inbox),
@@ -375,7 +385,12 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
         None,
         None,
         issued.expires_at,
-        Some(serde_json::json!({ "source": "guest_ticket_submission", "workspace_id": b })),
+        Some(serde_json::json!({
+            "source": "guest_ticket_submission",
+            "workspace_id": b,
+            "ticket_ids": [created.ticket.id],
+            "sent_to": "held@guest.example",
+        })),
     )
     .expect("mint token");
     let (_dir, search) = search(&inbox.pool);
@@ -407,6 +422,80 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
         view_request(&inbox, guest, created.ticket.id).await,
         ticket_path(created.ticket.number)
     );
+    assert_eq!(
+        inbox.ticket(other.ticket.id).verification_state.as_deref(),
+        Some("pending"),
+        "the other held request stays held"
+    );
+    // The confirmation POST proved the address it was mailed to.
+    let proven: Option<chrono::DateTime<Utc>> = backend::schema::user_emails::table
+        .filter(backend::schema::user_emails::user_uuid.eq(guest))
+        .filter(backend::schema::user_emails::email.eq("held@guest.example"))
+        .select(backend::schema::user_emails::proven_at)
+        .first(&mut seed_conn(&inbox))
+        .expect("address");
+    assert!(proven.is_some());
+}
+
+/// A confirmation minted before tokens named their tickets releases the
+/// request filed with it, and not one filed for the same address an hour
+/// earlier. It seats the account but proves no address.
+#[actix_web::test]
+async fn a_confirmation_from_before_tokens_named_tickets_releases_only_its_own() {
+    let (inbox, a) = inbox_on_b();
+    let b = inbox.ws.workspace_id;
+    let guest = guest_of(&inbox.pool, a, "older@guest.example");
+    let earlier = submit_form(&inbox, "older@guest.example", true);
+    let actor = ActorContext::system("test:backdate").with_workspace(b);
+    with_actor_context::<_, diesel::result::Error>(&mut conn(&inbox.pool), &actor, |c| {
+        diesel::sql_query("UPDATE tickets SET created_at = now() - interval '1 hour' WHERE id = $1")
+            .bind::<diesel::sql_types::Integer, _>(earlier.ticket.id)
+            .execute(c)
+    })
+    .expect("backdate");
+    let created = submit_form(&inbox, "older@guest.example", true);
+
+    // As the form minted it then: no ticket_ids, no sent_to.
+    let raw = invitation_token(
+        &inbox,
+        guest,
+        serde_json::json!({ "source": "guest_ticket_submission", "workspace_id": b }),
+        Utc::now() + chrono::Duration::days(7),
+    );
+    let (_dir, search) = search(&inbox.pool);
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(web::Data::new(inbox.pool.clone()))
+            .app_data(web::Data::new(search))
+            .route(
+                "/confirm-guest",
+                web::post().to(backend::handlers::invitation::confirm_guest_submission),
+            ),
+    )
+    .await;
+    let req = actix_web::test::TestRequest::post()
+        .uri("/confirm-guest")
+        .set_json(serde_json::json!({ "token": raw }))
+        .to_request();
+    assert_eq!(actix_web::test::call_service(&app, req).await.status(), 200);
+    assert_eq!(
+        state_of(&inbox, created.ticket.id).as_deref(),
+        Some("verified")
+    );
+    assert_eq!(
+        state_of(&inbox, earlier.ticket.id).as_deref(),
+        Some("pending"),
+        "the request filed an hour earlier stays held"
+    );
+    // Seated, but no address proven: it went to whatever the form was given.
+    assert_eq!(role_in(&inbox.pool, b, guest).as_deref(), Some("member"));
+    let proven: Vec<Option<chrono::DateTime<Utc>>> = backend::schema::user_emails::table
+        .filter(backend::schema::user_emails::user_uuid.eq(guest))
+        .select(backend::schema::user_emails::proven_at)
+        .load(&mut seed_conn(&inbox))
+        .expect("addresses");
+    assert!(proven.iter().all(Option::is_none), "{proven:?}");
+    assert!(!address_verified(&inbox, guest));
 }
 
 /// No seat anywhere: they may have been removed here before removal kept the
@@ -514,8 +603,15 @@ fn state_of(inbox: &Inbox, ticket: i32) -> Option<String> {
         .expect("ticket")
 }
 
-/// A guest confirmation for `user` naming `ws`, as the form mints one.
-fn guest_confirmation(inbox: &Inbox, user: uuid::Uuid, ws: i32) -> String {
+/// A guest confirmation for `user` naming `ws` and the held `ticket`, sent to
+/// `address`, as the form mints one.
+fn guest_confirmation(
+    inbox: &Inbox,
+    user: uuid::Uuid,
+    ws: i32,
+    ticket: i32,
+    address: &str,
+) -> String {
     use backend::utils::reset_tokens::{ResetTokenUtils, TokenType};
     let issued = ResetTokenUtils::create_reset_token(user, TokenType::Invitation);
     backend::repository::reset_tokens::create_reset_token(
@@ -526,7 +622,12 @@ fn guest_confirmation(inbox: &Inbox, user: uuid::Uuid, ws: i32) -> String {
         None,
         None,
         issued.expires_at,
-        Some(serde_json::json!({ "source": "guest_ticket_submission", "workspace_id": ws })),
+        Some(serde_json::json!({
+            "source": "guest_ticket_submission",
+            "workspace_id": ws,
+            "ticket_ids": [ticket],
+            "sent_to": address,
+        })),
     )
     .expect("mint token");
     issued.raw_token
@@ -600,7 +701,13 @@ async fn accepting_with_a_password_releases_the_request_where_it_was_held() {
     let created = submit_form(&inbox, "password@guest.example", true);
     assert_eq!(role_in(&inbox.pool, b, guest), None);
 
-    let raw = guest_confirmation(&inbox, guest, b);
+    let raw = guest_confirmation(
+        &inbox,
+        guest,
+        b,
+        created.ticket.id,
+        "password@guest.example",
+    );
     assert_eq!(accept_with_password(&inbox, &raw).await, 200);
     assert_eq!(
         state_of(&inbox, created.ticket.id).as_deref(),
@@ -618,7 +725,7 @@ async fn a_failed_seat_leaves_the_request_recoverable() {
     let b = inbox.ws.workspace_id;
     let guest = guest_of(&inbox.pool, a, "fault@guest.example");
     let created = submit_form(&inbox, "fault@guest.example", true);
-    let raw = guest_confirmation(&inbox, guest, b);
+    let raw = guest_confirmation(&inbox, guest, b, created.ticket.id, "fault@guest.example");
 
     diesel::sql_query(
         "CREATE FUNCTION test_refuse_seat() RETURNS trigger LANGUAGE plpgsql AS \
@@ -702,7 +809,13 @@ async fn a_confirmation_on_another_workspaces_origin_is_refused() {
     let b = inbox.ws.workspace_id;
     let guest = guest_of(&inbox.pool, a, "elsewhere@guest.example");
     let created = submit_form(&inbox, "elsewhere@guest.example", true);
-    let raw = guest_confirmation(&inbox, guest, b);
+    let raw = guest_confirmation(
+        &inbox,
+        guest,
+        b,
+        created.ticket.id,
+        "elsewhere@guest.example",
+    );
     let (_dir, search) = search(&inbox.pool);
     let app = actix_web::test::init_service(
         App::new()

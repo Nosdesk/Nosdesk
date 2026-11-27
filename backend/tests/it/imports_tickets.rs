@@ -147,3 +147,29 @@ fn row_errors_name_the_line_the_row_starts_on() {
     assert_eq!(errors, vec![(4, Some("due_date"))], "{:?}", summary.errors);
     assert_eq!(summary.would_create, 1);
 }
+
+/// A CSV import an API token commits marks its tickets as a token's import:
+/// history like any import, and stranger provenance, since a token may be
+/// relaying rows a stranger wrote.
+#[test]
+fn a_token_committed_import_marks_its_tickets_as_a_tokens() {
+    let db = TestDb::new();
+    let mut conn = db.conn();
+    seed_user_prerequisites(&mut conn);
+    let parsed = csv_parser::parse_file(&fixture_path("imports/tickets_valid.csv")).expect("parse");
+    let mut ctx = import_ctx();
+    ctx.options.filed_by_token = true;
+    imports::commit(&mut conn, ImportType::Tickets, &parsed, &ctx).expect("commit");
+    let tickets: Vec<backend::models::Ticket> = backend::schema::tickets::table
+        .filter(backend::schema::tickets::title.eq("Onboarding kit for new hire"))
+        .load(&mut conn)
+        .expect("tickets");
+    assert_eq!(tickets.len(), 1);
+    let ticket = &tickets[0];
+    assert_eq!(
+        ticket.submitted_via.as_deref(),
+        Some(backend::models::CSV_IMPORT_BY_TOKEN)
+    );
+    assert!(ticket.is_imported());
+    assert!(backend::services::ticket_mail_redaction::stranger_provenance(ticket));
+}

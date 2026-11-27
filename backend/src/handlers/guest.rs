@@ -431,6 +431,10 @@ pub enum CreateError {
     /// A held request's confirmation couldn't be queued, so it was not
     /// filed either.
     ConfirmationNotQueued,
+    /// A held request's confirmation was held (the address's daily cap, its
+    /// stop link, the workspace's ceiling on new addresses) and no earlier
+    /// link to the address is outstanding, so it was not filed either.
+    ConfirmationHeld,
     Internal,
 }
 
@@ -852,6 +856,9 @@ pub enum Filed {
     Claimed,
     /// The address has too many requests awaiting confirmation.
     TooManyPending,
+    /// Its confirmation was held and no earlier link could carry it, so
+    /// nothing was filed.
+    Held,
 }
 
 /// File a submission answered already with [`submission_answer`]: find or
@@ -904,9 +911,23 @@ pub async fn file_guest_submission(
             session::with_actor_context::<_, CreateError>(&mut conn, &actor, |conn| {
                 let created = create_guest_submission(conn, workspace_id, &search, &submission)?;
                 if verification_required || created.is_new_guest {
-                    match queue_confirmation(conn, &origin, &created, &filing.email, workspace_id) {
+                    match queue_confirmation(
+                        conn,
+                        &origin,
+                        &created,
+                        &filing.email,
+                        workspace_id,
+                        verification_required,
+                    ) {
                         Ok(()) => {}
-                        Err(why) if verification_required => {
+                        Err(Unqueued::Held) => {
+                            warn!(
+                                ticket_id = created.ticket.id,
+                                "Guest confirmation held and no earlier link is outstanding; the request is not filed"
+                            );
+                            return Err(CreateError::ConfirmationHeld);
+                        }
+                        Err(Unqueued::Failed(why)) if verification_required => {
                             warn!(
                                 ticket_id = created.ticket.id,
                                 result = %why,
@@ -914,7 +935,7 @@ pub async fn file_guest_submission(
                             );
                             return Err(CreateError::ConfirmationNotQueued);
                         }
-                        Err(why) => warn!(
+                        Err(Unqueued::Failed(why)) => warn!(
                             ticket_id = created.ticket.id,
                             result = %why,
                             "Failed to send guest ticket confirmation email"
@@ -937,6 +958,7 @@ pub async fn file_guest_submission(
             return Ok(Filed::Claimed);
         }
         Err(CreateError::TooManyPending) => return Ok(Filed::TooManyPending),
+        Err(CreateError::ConfirmationHeld) => return Ok(Filed::Held),
         Err(CreateError::ConfirmationNotQueued) => {
             return Err(ApiError::Internal(
                 "The confirmation could not be queued".into(),
@@ -1035,19 +1057,26 @@ pub async fn file_guest_submission(
 ///
 /// The email itself is framed as "confirm your ticket submission" rather than
 /// the generic "welcome / invitation" copy; see
-/// EmailService::send_guest_ticket_confirmation_email. At its daily allowance
-/// nothing more is sent, which still counts as queued: the earlier link works.
+/// EmailService::send_guest_ticket_confirmation_email. When the confirmation
+/// is held (the address's daily cap, its stop link, the workspace's ceiling on
+/// new addresses) nothing more is sent. A held request is then named on the
+/// newest link still outstanding to the address from this workspace, so that
+/// earlier link releases it too; with none, [`Unqueued::Held`]. With
+/// confirmation off the request is live, so a hold only skips the courtesy
+/// mail.
 fn queue_confirmation(
     conn: &mut DbConnection,
     origin: &RequestOrigin,
     created: &CreatedSubmission,
     email: &str,
     workspace_id: i32,
-) -> Result<(), String> {
+    verification_required: bool,
+) -> Result<(), Unqueued> {
     use crate::handlers::users::SendInvitationResult;
     enum NotQueued {
         Db(diesel::result::Error),
         Refused(String),
+        Held,
     }
     impl From<diesel::result::Error> for NotQueued {
         fn from(e: diesel::result::Error) -> Self {
@@ -1061,16 +1090,39 @@ fn queue_confirmation(
             created.user.uuid,
             email,
             workspace_id,
+            created.ticket.id,
         ) {
+            SendInvitationResult::Capped if verification_required => {
+                if repository::reset_tokens::name_ticket_on_outstanding_confirmation(
+                    c,
+                    created.user.uuid,
+                    workspace_id,
+                    email,
+                    created.ticket.id,
+                )? {
+                    Ok(())
+                } else {
+                    Err(NotQueued::Held)
+                }
+            }
             SendInvitationResult::Success | SendInvitationResult::Capped => Ok(()),
             other => Err(NotQueued::Refused(other.to_string())),
         }
     });
     match outcome {
         Ok(()) => Ok(()),
-        Err(NotQueued::Db(e)) => Err(e.to_string()),
-        Err(NotQueued::Refused(why)) => Err(why),
+        Err(NotQueued::Db(e)) => Err(Unqueued::Failed(e.to_string())),
+        Err(NotQueued::Refused(why)) => Err(Unqueued::Failed(why)),
+        Err(NotQueued::Held) => Err(Unqueued::Held),
     }
+}
+
+/// Why [`queue_confirmation`] queued nothing.
+enum Unqueued {
+    /// The confirmation was held and no earlier link could carry the request.
+    Held,
+    /// It failed, for this reason.
+    Failed(String),
 }
 
 // ---------- Guest ticket status lookup ----------

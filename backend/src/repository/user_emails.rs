@@ -232,8 +232,10 @@ pub fn set_primary(
 }
 
 // sync-audit-only: user_emails is a contact-detail table with no audit trigger and no sync aggregate; nothing subscribes to email add/update/remove
-/// Mark a user's primary email as verified. Used on invitation accept,
-/// where receiving the invite proves ownership of that address.
+/// Mark a user's primary email as verified, for a source that vouches for it
+/// without its mailbox proving anything: the workspace's own sign-in, a
+/// directory. Sets `is_verified` (the inbound-mail sender guard) and leaves
+/// `proven_at` alone; see [`mark_primary_proven`].
 pub fn mark_primary_verified(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
@@ -244,6 +246,37 @@ pub fn mark_primary_verified(
             .filter(user_emails::is_primary.eq(true)),
     )
     .set(user_emails::is_verified.eq(true))
+    .execute(conn)
+}
+
+/// The database's clock, for `proven_at`.
+fn db_now(
+) -> diesel::expression::SqlLiteral<diesel::sql_types::Nullable<diesel::sql_types::Timestamptz>> {
+    diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::Timestamptz>>("now()")
+}
+
+// sync-audit-only: user_emails is a contact-detail table with no audit trigger and no sync aggregate; nothing subscribes to email add/update/remove
+/// Mark a user's primary email verified and proven now: its mailbox answered.
+/// Only for a step a mail scanner can't take: a single-use sign-in link
+/// confirmed with a POST, a sign-in code, or an invitation or request
+/// confirmation (a POST). A multi-use link in an email ("View request",
+/// "Review request") proves nothing, and neither does a directory or a
+/// workspace's own sign-in; those don't call this. `proven_at` decides whether
+/// platform-sender mail to the address carries the workspace's own branding
+/// (`utils::email_branding::instance_mail_for`).
+pub fn mark_primary_proven(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+) -> Result<usize, diesel::result::Error> {
+    diesel::update(
+        user_emails::table
+            .filter(user_emails::user_uuid.eq(user_uuid))
+            .filter(user_emails::is_primary.eq(true)),
+    )
+    .set((
+        user_emails::is_verified.eq(true),
+        user_emails::proven_at.eq(db_now()),
+    ))
     .execute(conn)
 }
 
@@ -262,6 +295,27 @@ pub fn mark_address_verified(
             .filter(lower(user_emails::email).eq(address.trim().to_lowercase())),
     )
     .set(user_emails::is_verified.eq(true))
+    .execute(conn)
+}
+
+// sync-audit-only: user_emails is a contact-detail table with no audit trigger and no sync aggregate; nothing subscribes to email add/update/remove
+/// [`mark_address_verified`] and proven now (`proven_at`, the database's
+/// clock): the mailbox at `address` answered a single-use sign-in link's POST
+/// or code, or a confirmation. See [`mark_primary_proven`].
+pub fn mark_address_proven(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+    address: &str,
+) -> Result<usize, diesel::result::Error> {
+    diesel::update(
+        user_emails::table
+            .filter(user_emails::user_uuid.eq(user_uuid))
+            .filter(lower(user_emails::email).eq(address.trim().to_lowercase())),
+    )
+    .set((
+        user_emails::is_verified.eq(true),
+        user_emails::proven_at.eq(db_now()),
+    ))
     .execute(conn)
 }
 
@@ -291,7 +345,10 @@ pub fn mark_verified_if_matches(
             .filter(user_emails::user_uuid.eq(user_uuid))
             .filter(user_emails::email.eq(address)),
     )
-    .set(user_emails::is_verified.eq(true))
+    .set((
+        user_emails::is_verified.eq(true),
+        user_emails::proven_at.eq(db_now()),
+    ))
     .execute(conn)
 }
 

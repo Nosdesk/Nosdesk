@@ -22,6 +22,39 @@ invitation-subject = U bent uitgenodigd voor { $app } - Account instellen
 invitation-title = Welkom bij { $app }!
 invitation-greeting = Hallo <strong>{ $name }</strong>,
 invitation-intro = U bent uitgenodigd voor <strong>{ $app }</strong> door <strong>{ $by }</strong>.
+# MACHINE TRANSLATION, pending native review
+email-greeting-anonymous = Hallo,
+invitation-intro-anonymous = U bent uitgenodigd voor <strong>{ $app }</strong>.
+invitation-body-text-anonymous =
+    Hallo,
+
+    U bent uitgenodigd voor { $app }.
+
+    Open deze link in uw browser om uw account in te stellen en een wachtwoord aan te maken:
+
+    { $link }
+
+    Een paar punten om te weten:
+      - Deze uitnodiging verloopt over 7 dagen.
+      - U maakt tijdens het instellen een wachtwoord aan.
+      - Kies een sterk wachtwoord van minstens 8 tekens.
+      - Als u deze uitnodiging niet verwachtte, kunt u deze e-mail negeren.
+password-reset-body-text-anonymous =
+    Hallo,
+
+    We hebben een verzoek ontvangen om het wachtwoord van uw { $app }-account opnieuw in te stellen. Als u dit verzoek niet hebt ingediend, kunt u deze e-mail negeren.
+
+    Open deze link in uw browser om uw wachtwoord opnieuw in te stellen:
+
+    { $link }
+
+    Beveiligingsopmerkingen:
+      - Deze link verloopt over 1 uur.
+      - Deze link kan slechts één keer worden gebruikt.
+      - Deel deze link nooit met iemand.
+      - Als u dit verzoek niet hebt gedaan, beveilig dan uw account.
+
+    Neem voor vragen contact op met uw systeembeheerder.
 invitation-action-prompt = Klik op de knop hieronder om uw account in te stellen en een wachtwoord aan te maken:
 invitation-cta-label = Account instellen
 invitation-notice-expiry = Deze uitnodigingslink verloopt over <strong>7 dagen</strong>
@@ -57,6 +90,10 @@ verify-email-failed-body = Deze bevestigingslink is ongeldig of verlopen.
 verify-email-failed-hint = Bevestigingslinks verlopen na 24 uur en zijn eenmalig te gebruiken. Je kunt vanuit je profiel een nieuwe sturen.
 verify-email-missing-token = In deze link ontbreekt de bevestigingscode.
 verify-email-continue = Doorgaan
+# MACHINE TRANSLATION, pending native review
+verify-email-confirm-title = Dit adres bevestigen
+verify-email-confirm-body = Druk op de knop om dit adres op uw account te bevestigen.
+verify-email-confirm-button = Adres bevestigen
 settings-emails-resend = Bevestiging opnieuw sturen
 settings-emails-resend-sending = Versturen…
 settings-emails-resend-sent = Bevestiging verstuurd
@@ -110,7 +147,10 @@ notif-ticket-status-changed = [{ $app }] Status gewijzigd: { $title }
 notif-comment-added = [{ $app }] Nieuwe reactie: { $title }
 notif-mentioned = [{ $app }] { $actor } heeft u genoemd
 notif-ticket-referenced = [{ $app }] { $actor } heeft uw ticket vermeld
-notif-ticket-created-requester = [{ $app }] We hebben je verzoek ontvangen: { $title }
+# MACHINE TRANSLATION, pending native review
+notif-ticket-created-requester = [{ $app }] We hebben uw verzoek #{ $number } ontvangen
+notif-ticket-redacted = [{ $app }] Update over verzoek #{ $number }
+notif-redacted-body = Er is een update over verzoek #{ $number }.
 notif-doc-page-updated = [{ $app }] Pagina bijgewerkt: { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
 # MACHINE TRANSLATION, pending native review
@@ -130,6 +170,9 @@ participant-added-title = Je bent toegevoegd aan een aanvraag
 participant-added-body = { $adder } heeft je toegevoegd aan aanvraag #{ $id }: { $title }.
 participant-added-replies = Je ontvangt de antwoorden van het team per e-mail en kunt erop reageren.
 participant-added-cta = Aanvraag bekijken
+# MACHINE TRANSLATION, pending native review
+participant-added-subject-redacted = [{ $app }] U bent toegevoegd aan aanvraag #{ $id }
+participant-added-body-redacted = U bent toegevoegd aan aanvraag #{ $id }.
 notif-footer-preferences = U ontvangt deze e-mail vanwege uw meldingsvoorkeuren.
 # Notification digest (machine, pending native review)
 notif-digest-subject = [{ $app }] { $count ->
@@ -580,6 +623,8 @@ settings-localization-save-failed = Opslaan van voorkeuren mislukt
 # Footer on an agent reply sent with no email channel (replies to it are lost).
 reply-email-reply-elsewhere = Antwoorden op deze e-mail komen niet bij ons aan. Open je verzoek om te antwoorden:
 reply-email-view-request = Je verzoek bekijken
+# MACHINE TRANSLATION, pending native review
+reply-email-redacted-body = Er is een nieuw antwoord op verzoek #{ $number }.
 
 # Channel auto-acknowledgement.
 auto-ack-default-template = Uw verzoek (#{ $ticket_id }) is ontvangen en wordt beoordeeld door ons supportteam. Antwoord op deze e-mail om aanvullende opmerkingen toe te voegen.
@@ -2587,6 +2632,18 @@ admin-channels-email-auto-ack-success-saved = Ontvangstbevestiging bijgewerkt
 # Verplaatste ontvangstbevestiging (machine, na te kijken door een moedertaalspreker).
 admin-channels-email-auto-ack-elsewhere = De automatische ontvangstbevestiging stel je in op de pagina E-mailbezorging
 admin-email-auto-ack-error-save = Opslaan van de automatische ontvangstbevestiging mislukt. Probeer het opnieuw.
+# MACHINE TRANSLATION, pending native review
+admin-requester-ack-heading = Ontvangstbevestiging van verzoeken
+admin-requester-ack-subtitle = Laat de aanvrager per e-mail weten dat een verzoek is aangekomen wanneer het via het portaal, het aanvraagformulier of de API wordt ingediend.
+admin-requester-ack-toggle-label = Ontvangstbevestiging versturen
+admin-requester-ack-toggle-description = Een integratie kan deze voor één verzoek overslaan door acknowledge op false te zetten.
+admin-requester-ack-template-label = Aangepast bericht
+admin-requester-ack-template-placeholder = Hallo {"{{"}customer_first_name{"}}"}, we hebben uw verzoek #{"{{"}ticket_id{"}}"} ontvangen en nemen contact met u op.
+admin-requester-ack-template-hint = Laat leeg voor het standaardbericht, dat het verzoek bij zijn nummer noemt. Alleen platte tekst.
+admin-requester-ack-unproven-hint = Een verzoek via de API, of via het aanvraagformulier zonder e-mailbevestiging, kan van iedereen komen. Zolang de aanvrager het adres niet heeft bevestigd, toont de titel alleen het nummer en wordt de naam weggelaten.
+admin-requester-ack-save = Ontvangstbevestiging opslaan
+admin-requester-ack-success-saved = Ontvangstbevestiging van verzoeken bijgewerkt
+admin-requester-ack-error-save = Opslaan van de ontvangstbevestiging van verzoeken mislukt. Probeer het opnieuw.
 # Beveiligingsnotitie (machine, na te kijken door een moedertaalspreker).
 admin-email-security-note-heading = Beveiligingsnotitie
 # Machine, nog na te kijken door moedertaalspreker.
@@ -9761,6 +9818,10 @@ portal-sign-in-use-another = Een ander e-mailadres gebruiken
 # MACHINE TRANSLATION, pending native review
 portal-sign-in-password = Inloggen met een wachtwoord
 portal-sign-in-error = Die inloglink werkte niet. Hij is misschien verlopen of al gebruikt. Vul je e-mailadres in voor een nieuwe.
+# MACHINE TRANSLATION, pending native review
+portal-sign-in-link-title = Inloggen bij { $app }
+portal-sign-in-link-intro = Druk op Doorgaan om het inloggen af te ronden. De link werkt één keer.
+portal-sign-in-link-continue = Doorgaan
 # Machinevertaling, te controleren door moedertaalspreker.
 portal-sso-button = Aanmelden met { $provider }
 portal-sso-or = of

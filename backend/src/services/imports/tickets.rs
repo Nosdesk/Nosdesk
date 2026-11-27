@@ -207,7 +207,14 @@ impl Importer for TicketImporter {
                 requester_uuid: resolved.requester_uuid,
                 assignee_uuid: resolved.assignee_uuid,
                 category_id: resolved.category_id,
-                submitted_via: Some(crate::models::CSV_IMPORT.to_string()),
+                submitted_via: Some(
+                    if ctx.options.filed_by_token {
+                        crate::models::CSV_IMPORT_BY_TOKEN
+                    } else {
+                        crate::models::CSV_IMPORT
+                    }
+                    .to_string(),
+                ),
                 guest_lookup_token: None,
                 verification_state: None,
                 origin_channel_id: None,
@@ -221,6 +228,7 @@ impl Importer for TicketImporter {
                 due_time: None,
                 start_time: None,
                 estimate_minutes: None,
+                acknowledge: None,
             };
             // create_ticket emits the ticket.created sync event in the
             // transaction, so imported tickets reach the activity feed,

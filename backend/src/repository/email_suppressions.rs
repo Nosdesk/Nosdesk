@@ -46,11 +46,52 @@ pub fn upsert(
         .on_conflict((email_suppressions::workspace_id, email_suppressions::email))
         .do_update()
         .set((
-            email_suppressions::bounce_count.eq(email_suppressions::bounce_count + 1),
+            // A chosen reason (a stop link, an admin, a complaint) replacing
+            // a hard bounce keeps that bounce's count and diagnostic; any
+            // other repeat counts and records its own.
+            email_suppressions::bounce_count.eq(diesel::dsl::sql::<diesel::sql_types::Integer>(
+                "CASE WHEN email_suppressions.reason = 'hard_bounce' \
+                   AND EXCLUDED.reason <> 'hard_bounce' \
+                 THEN email_suppressions.bounce_count \
+                 ELSE email_suppressions.bounce_count + 1 END",
+            )),
             email_suppressions::last_seen_at.eq(diesel::dsl::now),
-            email_suppressions::bounce_diagnostic.eq(&normalized.bounce_diagnostic),
+            email_suppressions::bounce_diagnostic.eq(diesel::dsl::sql::<
+                diesel::sql_types::Nullable<diesel::sql_types::Text>,
+            >(
+                "CASE WHEN email_suppressions.reason = 'hard_bounce' \
+                   AND EXCLUDED.reason <> 'hard_bounce' \
+                 THEN email_suppressions.bounce_diagnostic \
+                 ELSE EXCLUDED.bounce_diagnostic END",
+            )),
+            // A reason the address or the workspace chose (a stop link, an
+            // admin, a complaint) replaces a hard bounce, which a forged DSN
+            // can add; a bounce never replaces a chosen reason.
+            email_suppressions::reason.eq(diesel::dsl::sql::<diesel::sql_types::Text>(
+                "CASE WHEN email_suppressions.reason = 'hard_bounce' \
+                 THEN EXCLUDED.reason ELSE email_suppressions.reason END",
+            )),
         ))
         .get_result(conn)
+}
+
+/// [`is_suppressed`], counting only entries made for one of `reasons`.
+pub fn is_suppressed_for(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    email: &str,
+    reasons: &[&str],
+) -> Result<bool, diesel::result::Error> {
+    use diesel::dsl::exists;
+    use diesel::select;
+    let normalized = email.trim().to_ascii_lowercase();
+    select(exists(
+        email_suppressions::table
+            .filter(email_suppressions::workspace_id.eq(workspace_id))
+            .filter(email_suppressions::email.eq(&normalized))
+            .filter(email_suppressions::reason.eq_any(reasons)),
+    ))
+    .get_result(conn)
 }
 
 /// Is the given address on the suppression list? Case-insensitive

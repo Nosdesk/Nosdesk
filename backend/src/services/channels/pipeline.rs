@@ -518,7 +518,14 @@ pub async fn process_event(
             // the request. Best effort, in a savepoint so a failure here can't
             // abort the ingest.
             if let Err(e) = conn.transaction(|c| {
-                add_copied_participants(c, &ticket, &msg.recipients, sender_uuid, &sender_email)
+                add_copied_participants(
+                    c,
+                    &ticket,
+                    &msg.recipients,
+                    sender_uuid,
+                    &sender_email,
+                    msg.from_verdict() == crate::services::channels::SenderAuth::Pass,
+                )
             }) {
                 tracing::warn!(error = ?e, ticket_id = ticket.id, "inbound: could not add copied participants");
             }
@@ -692,7 +699,31 @@ fn add_copied_participants(
     recipients: &[String],
     sender_uuid: uuid::Uuid,
     sender_email: &str,
+    sender_auth_passed: bool,
 ) -> Result<(), diesel::result::Error> {
+    let domain_of = |address: &str| {
+        address
+            .rsplit_once('@')
+            .map(|(_, d)| d.trim().to_ascii_lowercase())
+    };
+    // The organisation domains the workspace already knows: those its
+    // requester sign-in provider lists (`workspace_identity_providers`), which
+    // never include a free-mail provider.
+    let org_domains: Vec<String> = crate::repository::workspace_identity_providers::get(conn)?
+        .filter(|p| p.enabled)
+        .map(|p| {
+            p.allowed_domains
+                .into_iter()
+                .flatten()
+                .map(|d| d.trim().to_ascii_lowercase())
+                .collect()
+        })
+        .unwrap_or_default();
+    // The sender's domain stands for colleagues only when it is one of those
+    // and not a shared mail provider, whatever an admin listed.
+    let colleague_domain = domain_of(sender_email).filter(|d| {
+        org_domains.iter().any(|org| org == d) && !crate::utils::free_mail::is_free_mail(d)
+    });
     for address in recipients {
         let address = address.trim();
         if address.is_empty() || address.eq_ignore_ascii_case(sender_email) {
@@ -709,7 +740,27 @@ fn add_copied_participants(
         {
             continue;
         }
-        crate::repository::ticket_watchers::add_watcher(conn, ticket.id, user.uuid, true)?;
+        // An address copied on a message that passed DMARC counts as the
+        // team's choice (a system write, NULL added_by, full text) only when
+        // it is on the sender's own domain and that domain is an organisation
+        // domain the workspace knows (not a shared mail provider). Any other
+        // is recorded as added by the sender, so mail about the ticket names
+        // it only by number, with no names and no quoted history, until that
+        // person writes on it; staff replies still reach them.
+        let colleague = colleague_domain
+            .as_deref()
+            .is_some_and(|sender| domain_of(address).as_deref() == Some(sender));
+        if sender_auth_passed && colleague {
+            crate::repository::ticket_watchers::add_watcher(conn, ticket.id, user.uuid, true)?;
+        } else {
+            crate::repository::ticket_watchers::add_watcher_added_by(
+                conn,
+                ticket.id,
+                user.uuid,
+                true,
+                sender_uuid,
+            )?;
+        }
     }
     Ok(())
 }
@@ -841,6 +892,13 @@ fn insert_inbound_comment(
     if msg.spam_suspected {
         metadata["spam_suspected"] = json!(true);
     }
+    // The DMARC verdict: a reply counts as its sender writing on the ticket
+    // (services::ticket_mail_redaction) only when it passed.
+    metadata["sender_auth"] = json!(match msg.from_verdict() {
+        super::SenderAuth::Pass => "pass",
+        super::SenderAuth::Fail => "fail",
+        super::SenderAuth::Unknown => "unknown",
+    });
     // Mail from before the channel connected is history: stamped on the
     // comment itself, so readers of the table (the time-elapsed rule clocks)
     // can tell, as readers of its event do from `created_via`.
@@ -1318,6 +1376,7 @@ mod tests {
             source_ref: None,
             spam_suspected: false,
             sender_auth: SenderAuth::Unknown,
+            from_ambiguous: false,
         }
     }
 

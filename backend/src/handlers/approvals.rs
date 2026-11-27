@@ -129,9 +129,8 @@ pub async fn approval_link_callback(
     let Ok(user) = crate::repository::users::find_active_by_uuid(&approver, &mut conn) else {
         return Ok(failed());
     };
-    if let Err(e) = crate::repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
-        tracing::warn!(error = ?e, "approval link: could not mark email verified");
-    }
+    // Like the View request link, a multi-use link a mail scanner may have
+    // opened: it signs in, but doesn't verify the address.
     let session = mint_portal_session(
         &user,
         ctx.workspace_uuid,

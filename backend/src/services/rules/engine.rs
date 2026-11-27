@@ -236,7 +236,7 @@ pub fn relay_reply(
     if comment.is_internal || !public {
         return Ok(());
     }
-    crate::services::channels::outbound::enqueue_for_comment(ticket, comment, pool.clone());
+    crate::services::channels::outbound::enqueue_for_comment(ticket, comment, pool.clone(), false);
     debug!(comment_id, "rule reply enqueued for channel relay");
     Ok(())
 }

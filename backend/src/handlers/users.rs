@@ -466,10 +466,19 @@ pub async fn send_user_invitation(
     // with backoff and respects the suppression list, so an SMTP
     // hiccup mid-onboarding doesn't lose the invitation.
     let locale = crate::repository::user_locale::resolve_effective_locale(conn, user_uuid);
+    // Hosted, under the platform's sender: an address nobody has proven gets
+    // the workspace's name in a short plain slot, and no names at all.
+    let mail =
+        crate::utils::email_branding::instance_mail_for(conn, &prep.branding.base_url, user_email);
+    let (user_name, admin_name) = if mail.names {
+        (user_name, admin_name)
+    } else {
+        ("", "")
+    };
     match crate::services::transactional_email::enqueue_invitation(
         conn,
         &prep.email_service,
-        &prep.branding,
+        &mail.branding,
         user_email,
         user_name,
         &prep.raw_token,
@@ -481,26 +490,89 @@ pub async fn send_user_invitation(
     }
 }
 
-/// Confirmation emails one address gets from the request form in a day.
-/// Enough for someone who submits a few requests before confirming; a form
-/// can't be used to keep mailing an address beyond it.
+/// Confirmation emails one address gets from request forms in a day, across
+/// every workspace on the deployment. Enough for someone who submits a few
+/// requests before confirming; forms can't be used to keep mailing an address
+/// beyond it.
 pub const GUEST_CONFIRMATIONS_PER_DAY: i64 = 3;
 
-/// Queue the request form's confirmation email: the same invitation token and
-/// accept flow as [`send_user_invitation`], fixed submission-themed copy, and a
-/// "stop these emails" link. At most [`GUEST_CONFIRMATIONS_PER_DAY`] per
-/// address; beyond that nothing is sent (the caller answers the same way).
-/// Queued, so the suppression list applies. `conn` must be pinned to the
-/// workspace.
-pub fn send_guest_ticket_confirmation(
+/// Confirmations a workspace's request form may send in a day to addresses
+/// the workspace has never mailed, by default.
+/// `NOSDESK_NEW_ADDRESS_CONFIRMATIONS_PER_DAY` sets it.
+pub const NEW_ADDRESS_CONFIRMATIONS_PER_DAY: i64 = 50;
+
+/// [`NEW_ADDRESS_CONFIRMATIONS_PER_DAY`] for a hosted workspace with a paid
+/// subscription. `NOSDESK_NEW_ADDRESS_CONFIRMATIONS_PER_DAY_PAID` sets it.
+pub const NEW_ADDRESS_CONFIRMATIONS_PER_DAY_PAID: i64 = 500;
+
+/// The day's ceiling on confirmations to new addresses for `workspace_id`, on
+/// a hosted deployment.
+/// A workspace is paid when the control plane last reported its
+/// subscription active or past due (`workspaces.billing_status`); a trial, a
+/// cancelled one and every self-hosted workspace (no billing) get the base.
+fn new_address_ceiling(conn: &mut DbConnection, workspace_id: i32) -> i64 {
+    let paid = repository::workspaces::find_by_id(conn, workspace_id)
+        .ok()
+        .flatten()
+        .and_then(|ws| ws.billing_status)
+        .is_some_and(|status| matches!(status.as_str(), "active" | "past_due"));
+    let (var, default) = if paid {
+        (
+            "NOSDESK_NEW_ADDRESS_CONFIRMATIONS_PER_DAY_PAID",
+            NEW_ADDRESS_CONFIRMATIONS_PER_DAY_PAID,
+        )
+    } else {
+        (
+            "NOSDESK_NEW_ADDRESS_CONFIRMATIONS_PER_DAY",
+            NEW_ADDRESS_CONFIRMATIONS_PER_DAY,
+        )
+    };
+    std::env::var(var)
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|n| *n >= 0)
+        .unwrap_or(default)
+}
+
+/// Why the request form's confirmation to `user_email` from `workspace_id`
+/// isn't sent, if it isn't: `"suppressed"` (the address asked to stop),
+/// `"per_address"` ([`GUEST_CONFIRMATIONS_PER_DAY`] across the deployment) or
+/// `"new_addresses"` (hosted, the workspace's day's ceiling on addresses it
+/// has never mailed). A read that fails holds it.
+///
+/// The counts are checked then the row is inserted, so concurrent requests
+/// are serialised on advisory locks for the address and the workspace, held
+/// to the end of the caller's transaction, which must also queue the email.
+pub fn confirmation_hold(
     conn: &mut DbConnection,
-    origin: &crate::utils::client_ip::RequestOrigin,
-    user_uuid: Uuid,
     user_email: &str,
     workspace_id: i32,
-) -> SendInvitationResult {
+) -> Option<&'static str> {
+    // Transactional mail skips the list at send time, so this one checks it
+    // here, for the reasons the address or the workspace chose: a stop link,
+    // an admin's entry, a complaint. Not a hard bounce, which a forged DSN can
+    // add, as the queue worker reasons.
+    if repository::email_suppressions::is_suppressed_for(
+        conn,
+        workspace_id,
+        user_email,
+        &[
+            crate::models::email_suppression_reason::REQUESTED,
+            crate::models::email_suppression_reason::MANUAL,
+            crate::models::email_suppression_reason::COMPLAINT,
+        ],
+    )
+    .unwrap_or(true)
+    {
+        return Some("suppressed");
+    }
+    if repository::outbound_emails::lock_confirmation_allowance(conn, user_email, None).is_err() {
+        return Some("per_address");
+    }
+    // Counted across every workspace on the deployment: an address gets the
+    // allowance once, however many workspaces' forms name it.
     let since = chrono::Utc::now() - chrono::Duration::hours(24);
-    let sent_today = repository::outbound_emails::count_recent_to(
+    let sent_today = repository::outbound_emails::count_recent_to_anywhere(
         conn,
         user_email,
         crate::services::transactional_email::GUEST_CONFIRMATION_KEY_PREFIX,
@@ -508,6 +580,60 @@ pub fn send_guest_ticket_confirmation(
     )
     .unwrap_or(i64::MAX);
     if sent_today >= GUEST_CONFIRMATIONS_PER_DAY {
+        return Some("per_address");
+    }
+    // Hosted, a workspace begins mailing only so many new addresses a day this
+    // way under the platform's sender, whatever its form is fed. An address it
+    // has mailed before isn't held. Self-hosted sends under the operator's own.
+    if !crate::middleware::workspace_context::is_hosted() {
+        return None;
+    }
+    let first_contact = !repository::outbound_emails::has_mailed(conn, user_email).unwrap_or(false);
+    if first_contact {
+        if repository::outbound_emails::lock_confirmation_allowance(
+            conn,
+            user_email,
+            Some(workspace_id),
+        )
+        .is_err()
+        {
+            return Some("new_addresses");
+        }
+        let begun =
+            repository::outbound_emails::count_first_contact_confirmations_since(conn, since)
+                .unwrap_or(i64::MAX);
+        if begun >= new_address_ceiling(conn, workspace_id) {
+            return Some("new_addresses");
+        }
+    }
+    None
+}
+
+/// Queue the request form's confirmation email: the same invitation token and
+/// accept flow as [`send_user_invitation`], fixed submission-themed copy, and a
+/// "stop these emails" link. Nothing is sent (the caller answers the same way)
+/// to an address on the workspace's suppression list, which the stop link and
+/// its `List-Unsubscribe` one-click add it to, beyond
+/// [`GUEST_CONFIRMATIONS_PER_DAY`] for the address, or to an address the
+/// workspace has never mailed once it has reached its day's ceiling on those
+/// ([`NEW_ADDRESS_CONFIRMATIONS_PER_DAY`], hosted only). Every check runs
+/// before a token is stored. `conn` must be pinned to the workspace, in the
+/// transaction that queues the email.
+pub fn send_guest_ticket_confirmation(
+    conn: &mut DbConnection,
+    origin: &crate::utils::client_ip::RequestOrigin,
+    user_uuid: Uuid,
+    user_email: &str,
+    workspace_id: i32,
+    ticket_id: i32,
+) -> SendInvitationResult {
+    // The submitter's answer is the same either way; the log is the operator's.
+    if let Some(hold) = confirmation_hold(conn, user_email, workspace_id) {
+        tracing::warn!(
+            workspace_id,
+            hold,
+            "guest confirmation not sent: the request stays unconfirmed"
+        );
         return SendInvitationResult::Capped;
     }
     let prep = match prepare_invitation_from(
@@ -516,18 +642,27 @@ pub fn send_guest_ticket_confirmation(
         user_uuid,
         // The workspace rides along so confirming releases the request held
         // here, whatever other workspaces the account belongs to.
+        // The ticket rides along so confirming releases this request and no
+        // other pending one naming the address, which may be a stranger's.
         Some(serde_json::json!({
             "source": "guest_ticket_submission",
             "workspace_id": workspace_id,
+            "ticket_ids": [ticket_id],
+            // Confirming proves this address, which may not be the primary.
+            "sent_to": user_email,
         })),
     ) {
         Ok(p) => p,
         Err(result) => return result,
     };
     let stop_url = crate::utils::email_stop_link::url(conn, workspace_id, user_email);
+    // It goes to an address nobody has proven: hosted, under the platform's
+    // sender, the workspace is its name in a short plain slot, nothing more.
+    let branding =
+        crate::utils::email_branding::guest_confirmation_branding(conn, &prep.branding.base_url);
     let row = crate::services::transactional_email::prepare_guest_confirmation(
         &prep.email_service,
-        &prep.branding,
+        &branding,
         user_email,
         &prep.raw_token,
         stop_url.as_deref(),

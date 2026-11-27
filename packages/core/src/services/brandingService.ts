@@ -44,6 +44,16 @@ export interface AdminBrandingConfig extends BrandingConfig {
    * localized default. Empty string is sent to clear back to `null`.
    */
   email_security_note_template: string | null
+  /**
+   * Whether a requester hears "we've received your request" when one is
+   * filed for them (the portal, the request form, the API).
+   */
+  requester_ack_enabled: boolean
+  /**
+   * Admin-written acknowledgement body, with the auto-ack's variables.
+   * `null` = the built-in wording. Empty string is sent to clear it.
+   */
+  requester_ack_template: string | null
 }
 
 export interface EmailPreview {
@@ -59,6 +69,8 @@ export interface UpdateBrandingRequest {
   channel_auto_ack_template?: string | null
   email_security_note_enabled?: boolean
   email_security_note_template?: string | null
+  requester_ack_enabled?: boolean
+  requester_ack_template?: string | null
 }
 
 class BrandingService {
