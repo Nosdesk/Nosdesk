@@ -190,3 +190,96 @@ async fn a_request_with_no_key_is_not_counted() {
         200
     );
 }
+
+/// The public limiter's shape: a bucket per workspace and client, and a
+/// looser one per client across every workspace. One client spending its
+/// quota at one tenant still reaches another, until the shared bucket is
+/// spent too.
+#[actix_web::test]
+async fn one_workspace_spending_its_quota_leaves_another_reachable() {
+    use backend::middleware::rate_limit::{client_key, workspace_client_key};
+
+    let Ok(url) = std::env::var("TEST_REDIS_URL") else {
+        return;
+    };
+    let prefix = format!("wstest{}", uuid::Uuid::new_v4().simple());
+    let (ws_prefix, ip_prefix) = (prefix.clone(), prefix);
+    let limiter = RequestLimiter::build("ws-test", &url, 1, Duration::from_secs(60), move |req| {
+        workspace_client_key(&ws_prefix, req)
+    })
+    .and_then(|l| {
+        l.with_bucket(&url, 3, Duration::from_secs(60), move |req| {
+            client_key(&ip_prefix, req)
+        })
+    })
+    .expect("limiter");
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(limiter))
+            .wrap(RateLimit)
+            .wrap(actix_web::middleware::from_fn(resolve_workspace))
+            .route("/", web::post().to(HttpResponse::Ok)),
+    )
+    .await;
+    let to = |ws: Option<i32>| {
+        let req = post();
+        match ws {
+            Some(ws) => req.insert_header(("x-ws", ws.to_string())),
+            None => req,
+        }
+        .to_request()
+    };
+
+    assert_eq!(test::call_service(&app, to(Some(1))).await.status(), 200);
+    assert_eq!(
+        test::call_service(&app, to(Some(1))).await.status(),
+        429,
+        "workspace 1's quota is spent"
+    );
+    assert_eq!(
+        test::call_service(&app, to(Some(2))).await.status(),
+        200,
+        "workspace 2 has its own"
+    );
+    assert_eq!(
+        test::call_service(&app, to(None)).await.status(),
+        200,
+        "no workspace: a bucket of its own"
+    );
+    assert_eq!(
+        test::call_service(&app, to(None)).await.status(),
+        429,
+        "no workspace is still counted at the per-workspace limit"
+    );
+    assert_eq!(
+        test::call_service(&app, to(Some(3))).await.status(),
+        429,
+        "the shared bucket is spent"
+    );
+}
+
+/// Stands in for the workspace-context middleware: the workspace a request is
+/// for, named by a header.
+async fn resolve_workspace(
+    req: actix_web::dev::ServiceRequest,
+    next: actix_web::middleware::Next<impl actix_web::body::MessageBody>,
+) -> Result<actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>, actix_web::Error> {
+    use actix_web::HttpMessage as _;
+    if let Some(id) = req
+        .headers()
+        .get("x-ws")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<i32>().ok())
+    {
+        req.extensions_mut()
+            .insert(backend::extractors::WorkspaceContext {
+                workspace_id: id,
+                workspace_uuid: uuid::Uuid::new_v4(),
+                slug: format!("ws{id}"),
+                name: format!("Workspace {id}"),
+                custom_domain: None,
+                organisation_id: None,
+            });
+    }
+    next.call(req).await
+}

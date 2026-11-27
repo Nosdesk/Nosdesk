@@ -19,8 +19,7 @@ mod common;
 use actix_web::dev::ServiceRequest;
 use actix_web::{http::StatusCode, test, App};
 use backend::config::Config;
-use backend::middleware::RequestLimiter;
-use backend::startup::{build_state, configure_app};
+use backend::startup::{build_request_limiters, build_state, configure_app};
 
 fn test_redis() -> String {
     std::env::var("TEST_REDIS_URL").expect(
@@ -29,18 +28,61 @@ fn test_redis() -> String {
     )
 }
 
-/// A permissive limiter for the smoke test; the real per-IP keying is exercised
-/// elsewhere. Just needs to be a live limiter so `configure_app` can register
-/// the `web::Data<RequestLimiter>` the scopes resolve by type.
-fn limiter(redis: &str, prefix: &'static str) -> RequestLimiter {
-    RequestLimiter::build(
-        prefix,
-        redis,
-        10_000,
-        std::time::Duration::from_secs(60),
-        move |_: &ServiceRequest| Some(format!("{prefix}:smoke")),
-    )
-    .expect("build test limiter")
+/// Stands in for the app-level workspace-context middleware, which
+/// `init_service` on the route tree skips: the workspace a request's origin
+/// resolved, named by a header.
+async fn resolve_workspace(
+    req: ServiceRequest,
+    next: actix_web::middleware::Next<impl actix_web::body::MessageBody + 'static>,
+) -> Result<actix_web::dev::ServiceResponse, actix_web::Error> {
+    use actix_web::HttpMessage as _;
+    if let Some(id) = req
+        .headers()
+        .get("x-test-ws")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<i32>().ok())
+    {
+        req.extensions_mut()
+            .insert(backend::extractors::WorkspaceContext {
+                workspace_id: id,
+                workspace_uuid: uuid::Uuid::new_v4(),
+                slug: format!("ws{id}"),
+                name: format!("Workspace {id}"),
+                custom_domain: None,
+                organisation_id: None,
+            });
+    }
+    next.call(req)
+        .await
+        .map(actix_web::dev::ServiceResponse::map_into_boxed_body)
+}
+
+/// A client address no earlier run has counted: a fresh IPv6 /64.
+fn fresh_client() -> std::net::SocketAddr {
+    let n = uuid::Uuid::new_v4().as_u128();
+    let ip = std::net::Ipv6Addr::new(0x2001, 0x0db8, (n >> 16) as u16, n as u16, 0, 0, 0, 1);
+    std::net::SocketAddr::new(ip.into(), 4000)
+}
+
+/// Statuses of `count` GETs to `path` from `client`, each for the workspace
+/// `ws(i)` names (none when `None`).
+macro_rules! statuses {
+    ($app:expr, $path:expr, $client:expr, $count:expr, $ws:expr) => {{
+        let ws: &dyn Fn(usize) -> Option<i32> = &$ws;
+        let mut out: Vec<u16> = Vec::new();
+        for i in 0..$count {
+            let mut req = test::TestRequest::get().uri($path).peer_addr($client);
+            if let Some(id) = ws(i) {
+                req = req.insert_header(("x-test-ws", id.to_string()));
+            }
+            let status = match test::try_call_service($app, req.to_request()).await {
+                Ok(r) => r.status(),
+                Err(e) => e.as_response_error().status_code(),
+            };
+            out.push(status.as_u16());
+        }
+        out
+    }};
 }
 
 #[actix_web::test]
@@ -64,6 +106,8 @@ async fn boot_wires_state_and_routes() {
         "ENVIRONMENT" => Some("development".to_string()),
         "JWT_SECRET" => Some("0123456789abcdef0123456789abcdef01".to_string()),
         "REDIS_URL" => Some(redis.clone()),
+        // The floor, so the limiter checks below stay short.
+        "RATE_LIMIT_PER_MINUTE" => Some("30".to_string()),
         _ => None,
     })
     .expect("test config builds");
@@ -73,15 +117,12 @@ async fn boot_wires_state_and_routes() {
         std::env::temp_dir().join(format!("nosdesk-smoke-search-{}", std::process::id()));
     std::env::set_var("SEARCH_INDEX_PATH", &search_dir);
 
-    let (state, _background_tasks) = build_state(
-        &config,
-        pool.clone(),
-        limiter(&redis, "public"),
-        limiter(&redis, "auth"),
-        limiter(&redis, "felogs"),
-        limiter(&redis, "clienterr"),
-    )
-    .expect("build_state succeeds");
+    // The real limiters, as `build_server` builds them. A request with no
+    // client address (every request below until the limiter checks) is not
+    // counted.
+    let limiters = build_request_limiters(&config).expect("limiters build");
+    let (state, _background_tasks) =
+        build_state(&config, pool.clone(), limiters).expect("build_state succeeds");
 
     // Stop the periodic scheduler before any job's first tick so nothing runs
     // against the sandbox DB for the life of the test.
@@ -91,7 +132,9 @@ async fn boot_wires_state_and_routes() {
         .expect("workspace context initialises (sandbox has the bootstrap workspace)");
 
     let app = test::init_service(
-        App::new().configure(|cfg| configure_app(cfg, &state, &pool, &ws, &config)),
+        App::new()
+            .configure(|cfg| configure_app(cfg, &state, &pool, &ws, &config))
+            .wrap(actix_web::middleware::from_fn(resolve_workspace)),
     )
     .await;
 
@@ -257,4 +300,47 @@ async fn boot_wires_state_and_routes() {
         assert!(json["error"].is_string(), "{what}: {json}");
         assert_eq!(json["code"], code, "{what}: {json}");
     }
+
+    // The limiters each scope is wired to, at the configured 30 a minute (the
+    // per client bucket across workspaces is 120).
+    let limited = |s: &[u16]| s.iter().filter(|&&c| c == 429).count();
+
+    // `/api/auth` is one bucket per client, whatever workspace a request is
+    // for: sign-in targets accounts, which span workspaces.
+    let client = fresh_client();
+    let auth = statuses!(&app, "/api/auth/no-such-route", client, 31, |i| {
+        Some(if i % 2 == 0 { 1 } else { 2 })
+    });
+    assert_eq!(limited(&auth[..30]), 0, "{auth:?}");
+    assert_eq!(auth[30], 429, "the 31st across two workspaces: {auth:?}");
+
+    // So is the agent app's host, which resolves no workspace.
+    let client = fresh_client();
+    let auth = statuses!(&app, "/api/auth/no-such-route", client, 31, |_| None);
+    assert_eq!(auth[30], 429, "{auth:?}");
+
+    // The account routes and the portal's sign-in share that strict bucket
+    // per client: thirty across them, whichever workspace.
+    let client = fresh_client();
+    let account = statuses!(&app, "/api/account/no-such-route", client, 15, |_| Some(1));
+    let portal = statuses!(&app, "/api/portal/auth/no-such-route", client, 16, |_| {
+        Some(2)
+    });
+    assert_eq!(limited(&account), 0, "{account:?}");
+    assert_eq!(limited(&portal[..15]), 0, "{portal:?}");
+    assert_eq!(portal[15], 429, "the 31st across both: {portal:?}");
+
+    // `/api/public` is split per workspace: one tenant spent leaves another.
+    let client = fresh_client();
+    let form = statuses!(&app, "/api/public/no-such-route", client, 31, |_| Some(1));
+    assert_eq!(limited(&form[..30]), 0, "{form:?}");
+    assert_eq!(form[30], 429, "{form:?}");
+    let other = statuses!(&app, "/api/public/no-such-route", client, 1, |_| Some(2));
+    assert_eq!(other, [404], "another workspace has its own quota");
+
+    // With no workspace resolved, `/api/public` still counts at 30, not 120.
+    let client = fresh_client();
+    let form = statuses!(&app, "/api/public/no-such-route", client, 31, |_| None);
+    assert_eq!(limited(&form[..30]), 0, "{form:?}");
+    assert_eq!(form[30], 429, "{form:?}");
 }

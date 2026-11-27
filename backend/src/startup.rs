@@ -50,6 +50,8 @@ pub struct AppState {
     pub yjs_app_state: web::Data<crate::handlers::collaboration::YjsAppState>,
     pub system_state: web::Data<crate::handlers::system::SystemState>,
     pub public_limiter_data: web::Data<RequestLimiter>,
+    /// The request forms' limiter (`/api/public`), split per workspace.
+    pub public_form_limiter_data: web::Data<RequestLimiter>,
     pub auth_limiter_data: web::Data<RequestLimiter>,
     pub frontend_logs_limiter_data: web::Data<RequestLimiter>,
     pub client_errors_limiter_data: web::Data<RequestLimiter>,
@@ -66,10 +68,7 @@ pub struct AppState {
 pub fn build_state(
     config: &Config,
     pool: Pool,
-    public_limiter: RequestLimiter,
-    auth_limiter: RequestLimiter,
-    frontend_logs_limiter: RequestLimiter,
-    client_errors_limiter: RequestLimiter,
+    limiters: RequestLimiters,
 ) -> Result<(AppState, Vec<tokio::task::JoinHandle<()>>), std::io::Error> {
     // Owned copies so the lifted body reads these by their original names.
     let redis_url = config.redis_url.clone();
@@ -488,10 +487,11 @@ pub fn build_state(
     let system_state = web::Data::new(crate::handlers::system::SystemState::new());
 
     // Share the limiters across all app instances
-    let public_limiter_data = web::Data::new(public_limiter);
-    let auth_limiter_data = web::Data::new(auth_limiter);
-    let frontend_logs_limiter_data = web::Data::new(frontend_logs_limiter);
-    let client_errors_limiter_data = web::Data::new(client_errors_limiter);
+    let public_limiter_data = web::Data::new(limiters.public);
+    let public_form_limiter_data = web::Data::new(limiters.public_form);
+    let auth_limiter_data = web::Data::new(limiters.auth);
+    let frontend_logs_limiter_data = web::Data::new(limiters.frontend_logs);
+    let client_errors_limiter_data = web::Data::new(limiters.client_errors);
 
     if host == "0.0.0.0" {
         warn!("Server bound to all interfaces (0.0.0.0)");
@@ -588,6 +588,7 @@ pub fn build_state(
             yjs_app_state,
             system_state,
             public_limiter_data,
+            public_form_limiter_data,
             auth_limiter_data,
             frontend_logs_limiter_data,
             client_errors_limiter_data,
@@ -915,7 +916,8 @@ pub fn configure_app(
                 web::scope("/api/public")
                     .default_service(web::to(crate::errors::api_route_not_found))
                     .app_data(crate::errors::json_config(32 * 1024))
-                    .app_data(state.public_limiter_data.clone())
+                    // Split per workspace: see `build_request_limiters`.
+                    .app_data(state.public_form_limiter_data.clone())
                     .wrap(crate::middleware::RateLimit)
                     .configure(crate::handlers::guest::config)
                     // Address confirmation is redeemed from a mail client, so
@@ -1493,6 +1495,140 @@ pub struct BuiltServer {
     background_tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
+/// The request limiters every scope resolves by type, built from `config`.
+pub struct RequestLimiters {
+    /// One bucket per client: sign-in and account routes, the CSP intake.
+    pub public: RequestLimiter,
+    /// Per workspace and client, plus a looser per client bucket: the
+    /// request forms and widget under `/api/public`.
+    pub public_form: RequestLimiter,
+    pub auth: RequestLimiter,
+    pub frontend_logs: RequestLimiter,
+    pub client_errors: RequestLimiter,
+}
+
+/// Build [`RequestLimiters`] without contacting Redis. Fails only on a
+/// malformed `REDIS_URL`.
+pub fn build_request_limiters(config: &Config) -> std::io::Result<RequestLimiters> {
+    // Rate-limit keying goes through the trusted-proxy-aware client_ip
+    // helper. Behind a reverse proxy (the standard production shape) per-IP
+    // limits track the real client; on a direct connection X-Forwarded-For
+    // is ignored so an attacker can't rotate spoofed headers to bypass the
+    // limit. A build failure (a malformed REDIS_URL) is fatal everywhere:
+    // there's no in-memory fallback to silently degrade to. Redis going
+    // away at runtime lets requests through instead (middleware::rate_limit).
+    //
+    // The strict public bucket: one per client, whichever workspace the
+    // request is for. Sign-in, codes, password resets and invitations
+    // (`/api/auth`, `/api/account`, `/api/portal/auth`) target accounts, which
+    // span workspaces, and the agent app's host resolves none, so they are
+    // never split by workspace.
+    let public = RequestLimiter::build(
+        "public",
+        &config.redis_url,
+        config.rate_limit_per_minute as usize,
+        Duration::from_secs(60),
+        |req: &actix_web::dev::ServiceRequest| {
+            crate::middleware::rate_limit::client_key("public", req)
+        },
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to build the public rate limiter (check REDIS_URL)");
+        std::io::Error::other("Public rate limiter initialization failed")
+    })?;
+
+    // The tenant request forms and widget (`/api/public`): two buckets. One
+    // per workspace and client at the public rate, so on Cloud one tenant's
+    // visitors (a busy office behind one address, a form under attack) spend
+    // only that tenant's quota; a request whose origin resolved no workspace
+    // is counted there too, under a key of its own. And a looser one per
+    // client across every workspace, so one address can't spray every tenant
+    // at the full rate.
+    let public_form = RequestLimiter::build(
+        "public-form",
+        &config.redis_url,
+        config.rate_limit_per_minute as usize,
+        Duration::from_secs(60),
+        |req: &actix_web::dev::ServiceRequest| {
+            crate::middleware::rate_limit::workspace_client_key("pubform", req)
+        },
+    )
+    .and_then(|limiter| {
+        limiter.with_bucket(
+            &config.redis_url,
+            config.global_rate_limit_per_minute as usize,
+            Duration::from_secs(60),
+            |req: &actix_web::dev::ServiceRequest| {
+                crate::middleware::rate_limit::client_key("pubform", req)
+            },
+        )
+    })
+    .map_err(|e| {
+        error!(error = %e, "Failed to build the request-form rate limiter (check REDIS_URL)");
+        std::io::Error::other("Request-form rate limiter initialization failed")
+    })?;
+
+    let auth = RequestLimiter::build(
+        "auth",
+        &config.redis_url,
+        config.auth_rate_limit_per_minute as usize,
+        Duration::from_secs(60),
+        |req: &actix_web::dev::ServiceRequest| {
+            crate::utils::client_ip::from_service_request(req)
+                .map(|ip| format!("auth:{}", crate::utils::client_ip::limit_bucket(ip)))
+        },
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to build the auth rate limiter (check REDIS_URL)");
+        std::io::Error::other("Auth rate limiter initialization failed")
+    })?;
+
+    // Forwarded browser-console logs get their OWN per-IP bucket
+    // (`felogs:{ip}`), separate from the `public:`/`auth:` quotas that
+    // gate login and MFA. A chatty or looping client (e.g. the frontend
+    // remote logger retrying against a disabled endpoint) can then only
+    // exhaust this bucket, never lock a user out of auth. See the MFA-429
+    // incident where a log storm on the shared public limiter 429'd
+    // /api/auth/mfa-setup-login.
+    let frontend_logs = RequestLimiter::build(
+        "frontend-logs",
+        &config.redis_url,
+        config.rate_limit_per_minute as usize,
+        Duration::from_secs(60),
+        |req: &actix_web::dev::ServiceRequest| {
+            crate::utils::client_ip::from_service_request(req)
+                .map(|ip| format!("felogs:{}", crate::utils::client_ip::limit_bucket(ip)))
+        },
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to build the frontend-logs rate limiter (check REDIS_URL)");
+        std::io::Error::other("Frontend-logs rate limiter initialization failed")
+    })?;
+
+    // Browser error reports get their own per-IP bucket (`clienterr:{ip}`)
+    // for the same reason: a page stuck in an error loop can only exhaust
+    // this bucket, never the quotas that gate sign-in.
+    let client_errors = RequestLimiter::build(
+        "client-errors",
+        &config.redis_url,
+        config.rate_limit_per_minute as usize,
+        Duration::from_secs(60),
+        crate::handlers::client_errors::rate_limit_key,
+    )
+    .map_err(|e| {
+        error!(error = %e, "Failed to build the client-errors rate limiter (check REDIS_URL)");
+        std::io::Error::other("Client-errors rate limiter initialization failed")
+    })?;
+
+    Ok(RequestLimiters {
+        public,
+        public_form,
+        auth,
+        frontend_logs,
+        client_errors,
+    })
+}
+
 /// Build everything from a validated [`Config`] up to a bound, un-awaited
 /// server: keyring, database, background workers, shared state, and the App
 /// factory bound to `listener`. Taking a pre-bound listener (rather than
@@ -1506,9 +1642,6 @@ pub async fn build_server(
     // Rebind the values downstream setup still reads by their old names;
     // build_state / configure_app take `&config` directly.
     let environment = config.environment.clone();
-    let rate_limit_per_minute = config.rate_limit_per_minute;
-    let auth_rate_limit_per_minute = config.auth_rate_limit_per_minute;
-    let redis_url = config.redis_url.clone();
     let frontend_url = config.frontend_url.clone();
     // Read before `config` moves into the factory closure below.
     let shutdown_timeout_secs = config.shutdown_timeout_secs;
@@ -1566,79 +1699,7 @@ pub async fn build_server(
     // unset; never fatal.
     crate::utils::geoip::init_from_env();
 
-    // Rate-limit keying goes through the trusted-proxy-aware client_ip
-    // helper. Behind a reverse proxy (the standard production shape) per-IP
-    // limits track the real client; on a direct connection X-Forwarded-For
-    // is ignored so an attacker can't rotate spoofed headers to bypass the
-    // limit. A build failure (a malformed REDIS_URL) is fatal everywhere —
-    // there's no in-memory fallback to silently degrade to. Redis going
-    // away at runtime lets requests through instead (middleware::rate_limit).
-    let public_limiter = RequestLimiter::build(
-        "public",
-        &redis_url,
-        rate_limit_per_minute as usize,
-        Duration::from_secs(60),
-        |req: &actix_web::dev::ServiceRequest| {
-            crate::utils::client_ip::from_service_request(req)
-                .map(|ip| format!("public:{}", crate::utils::client_ip::limit_bucket(ip)))
-        },
-    )
-    .map_err(|e| {
-        error!(error = %e, "Failed to build the public rate limiter (check REDIS_URL)");
-        std::io::Error::other("Public rate limiter initialization failed")
-    })?;
-
-    let auth_limiter = RequestLimiter::build(
-        "auth",
-        &redis_url,
-        auth_rate_limit_per_minute as usize,
-        Duration::from_secs(60),
-        |req: &actix_web::dev::ServiceRequest| {
-            crate::utils::client_ip::from_service_request(req)
-                .map(|ip| format!("auth:{}", crate::utils::client_ip::limit_bucket(ip)))
-        },
-    )
-    .map_err(|e| {
-        error!(error = %e, "Failed to build the auth rate limiter (check REDIS_URL)");
-        std::io::Error::other("Auth rate limiter initialization failed")
-    })?;
-
-    // Forwarded browser-console logs get their OWN per-IP bucket
-    // (`felogs:{ip}`), separate from the `public:`/`auth:` quotas that
-    // gate login and MFA. A chatty or looping client (e.g. the frontend
-    // remote logger retrying against a disabled endpoint) can then only
-    // exhaust this bucket, never lock a user out of auth. See the MFA-429
-    // incident where a log storm on the shared public limiter 429'd
-    // /api/auth/mfa-setup-login.
-    let frontend_logs_limiter = RequestLimiter::build(
-        "frontend-logs",
-        &redis_url,
-        rate_limit_per_minute as usize,
-        Duration::from_secs(60),
-        |req: &actix_web::dev::ServiceRequest| {
-            crate::utils::client_ip::from_service_request(req)
-                .map(|ip| format!("felogs:{}", crate::utils::client_ip::limit_bucket(ip)))
-        },
-    )
-    .map_err(|e| {
-        error!(error = %e, "Failed to build the frontend-logs rate limiter (check REDIS_URL)");
-        std::io::Error::other("Frontend-logs rate limiter initialization failed")
-    })?;
-
-    // Browser error reports get their own per-IP bucket (`clienterr:{ip}`)
-    // for the same reason: a page stuck in an error loop can only exhaust
-    // this bucket, never the quotas that gate sign-in.
-    let client_errors_limiter = RequestLimiter::build(
-        "client-errors",
-        &redis_url,
-        rate_limit_per_minute as usize,
-        Duration::from_secs(60),
-        crate::handlers::client_errors::rate_limit_key,
-    )
-    .map_err(|e| {
-        error!(error = %e, "Failed to build the client-errors rate limiter (check REDIS_URL)");
-        std::io::Error::other("Client-errors rate limiter initialization failed")
-    })?;
+    let limiters = build_request_limiters(&config)?;
 
     // Set up database connection pool
     let pool = match std::panic::catch_unwind(crate::db::establish_connection_pool) {
@@ -1898,14 +1959,7 @@ pub async fn build_server(
     }
     crate::services::seed::name_hosted_workspaces(&pool);
 
-    let (state, background_tasks) = build_state(
-        &config,
-        pool.clone(),
-        public_limiter,
-        auth_limiter,
-        frontend_logs_limiter,
-        client_errors_limiter,
-    )?;
+    let (state, background_tasks) = build_state(&config, pool.clone(), limiters)?;
 
     // Pre-create the static-asset directories so `Files::new` can
     // canonicalize them at startup. Without this, if the backend

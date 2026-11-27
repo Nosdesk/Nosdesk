@@ -79,6 +79,12 @@ pub fn required_scope(method: &Method, path: &str) -> ScopeRequirement {
     if rest.starts_with("search/rebuild") {
         return ScopeRequirement::Capability(Domain::Admin, Action::Write);
     }
+    // Staging a reply or note attachment: the upload is a draft only its
+    // uploader can attach, and only to a comment, so it is a ticket write.
+    // This exact route only; other uploads (files, sync, events) stay full.
+    if *method == Method::POST && rest == "upload" {
+        return ScopeRequirement::Capability(Domain::Tickets, Action::Write);
+    }
 
     let action = action_for(method, rest);
     let segment = rest.split(['/', '?']).next().unwrap_or("");
@@ -133,7 +139,8 @@ pub fn required_scope(method: &Method, path: &str) -> ScopeRequirement {
         "audit" => (Domain::Audit, Domain::Audit),
 
         // sync (whole-workspace data plane), files, image-proxy, events,
-        // uploads, and anything unrecognised: require full (fail-closed).
+        // anything else under `upload`, and anything unrecognised: require
+        // full (fail-closed).
         _ => return ScopeRequirement::Full,
     };
 
@@ -531,6 +538,32 @@ mod tests {
                 ScopeRequirement::Full,
                 "{p} should require full"
             );
+        }
+    }
+
+    #[test]
+    fn staging_an_attachment_is_a_ticket_write() {
+        assert_eq!(
+            req(Method::POST, "/api/upload"),
+            Capability(Domain::Tickets, Action::Write)
+        );
+        let write = claims_scoped("tickets:write");
+        assert!(claims_may_call(&write, &Method::POST, "/api/upload"));
+        assert!(!claims_may_call(
+            &claims_scoped("tickets:read"),
+            &Method::POST,
+            "/api/upload"
+        ));
+        // Only that route: other uploads and other methods stay full.
+        for (m, p) in [
+            (Method::GET, "/api/upload"),
+            (Method::POST, "/api/upload/x"),
+            (Method::POST, "/api/files/token"),
+            (Method::POST, "/api/sync/push"),
+            (Method::POST, "/api/events/stream"),
+        ] {
+            assert_eq!(req(m.clone(), p), ScopeRequirement::Full, "{m} {p}");
+            assert!(!claims_may_call(&write, &m, p), "{m} {p}");
         }
     }
 
