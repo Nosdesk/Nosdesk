@@ -107,6 +107,16 @@ pub fn is_host_allowlisted(host: &str) -> bool {
         .any(|allowed| allowed == host_lower)
 }
 
+/// Held by every lib test that sets `NOSDESK_OUTBOUND_ALLOWED_HOSTS`, and by
+/// every lib test that asserts `localhost` is refused. The var is
+/// process-wide, so without one shared lock a test sets or clears it under
+/// another's request. Lib tests only ever allowlist `localhost`; a test that
+/// asserts an IP literal such as 127.0.0.1 is refused needs no lock, since
+/// the allowlist matches hosts exactly. A test that has to reach a stand-in
+/// on 127.0.0.1 trusts it directly instead of allowlisting it.
+#[cfg(test)]
+pub(crate) static TEST_ALLOWLIST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 // =============================================================================
 // Routability helpers
 // =============================================================================
@@ -282,12 +292,11 @@ mod tests {
 
     // The allowlist reads a process-global env var, so the reject-vs-allow
     // assertions for the same host (localhost) are serialized into one
-    // test under a lock. Run separately they race the var against each
-    // other under cargo's parallel harness.
+    // test under the shared lock. Run separately they race the var against
+    // each other under cargo's parallel harness.
     #[tokio::test]
     async fn resolve_and_validate_localhost_reject_then_allowlist() {
-        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = TEST_ALLOWLIST_LOCK.lock().await;
 
         // No allowlist: localhost (loopback) is rejected.
         std::env::remove_var("NOSDESK_OUTBOUND_ALLOWED_HOSTS");

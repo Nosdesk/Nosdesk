@@ -9,6 +9,7 @@
 //! manifest.json   Manifest: source, scope, counts, notes
 //! state.json      FetchState: how far a connector got, so a fetch resumes
 //! people.jsonl    one Person per line
+//! organizations.jsonl  one Organization per line (absent in older bundles)
 //! tickets.jsonl   one Ticket per line, its conversation embedded
 //! files/<id>      attachment bytes, named by the attachment's source id
 //! ```
@@ -33,9 +34,17 @@ pub const FORMAT_VERSION: u32 = 1;
 pub const MANIFEST: &str = "manifest.json";
 pub const STATE: &str = "state.json";
 pub const PEOPLE: &str = "people.jsonl";
+pub const ORGANIZATIONS: &str = "organizations.jsonl";
 pub const TICKETS: &str = "tickets.jsonl";
 pub const FILES: &str = "files";
 pub const LOCK: &str = ".lock";
+
+/// What a bundle's people records carry, recorded in the manifest as
+/// `person_detail`. 2: `deleted` is apart from `suspended`, and
+/// `limited_staff`, `custom_role`, `phone` and `organization_id` are read. A
+/// bundle without the marker predates them: its people read as not deleted
+/// and not limited staff whatever they were at the source.
+pub const PERSON_DETAIL: u32 = 2;
 
 /// The bundle's lock, held until dropped (closing the file releases it).
 pub struct BundleLock {
@@ -69,6 +78,155 @@ pub struct Manifest {
     /// bundle".
     #[serde(default)]
     pub people_source: Option<PeopleSource>,
+    /// [`PERSON_DETAIL`] when the people records carry it; 0 for a bundle
+    /// written before.
+    #[serde(default)]
+    pub person_detail: u32,
+    /// What the bundle was read from, so a rerun given other inputs is
+    /// refused rather than silently reusing this copy. None for a bundle
+    /// written before this was recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inputs: Option<InputSet>,
+    /// What asking the source's API for what an export lacked came to.
+    /// None when no fill ran (no credential, the fill was turned off, or
+    /// the bundle came from the API itself).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<Fill>,
+}
+
+/// The files and access a bundle was read from.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InputSet {
+    /// Each export zip, in the order given. Empty for an API fetch.
+    #[serde(default)]
+    pub zips: Vec<InputFile>,
+    /// A credential was given.
+    #[serde(default)]
+    pub credential: bool,
+    /// The API filled what the exports lacked (a credential was given and
+    /// the fill wasn't turned off).
+    #[serde(default)]
+    pub api_fill: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InputFile {
+    pub path: String,
+    pub size: u64,
+    /// Lower-case hex.
+    pub sha256: String,
+}
+
+impl InputSet {
+    /// The set for these zips, each hashed (read once, streamed).
+    pub fn of(zips: &[PathBuf], credential: bool, api_fill: bool) -> io::Result<Self> {
+        use sha2::{Digest, Sha256};
+        let mut files = Vec::with_capacity(zips.len());
+        for path in zips {
+            let mut f = File::open(path)?;
+            let mut hash = Sha256::new();
+            let size = io::copy(&mut f, &mut hash)?;
+            files.push(InputFile {
+                path: path.display().to_string(),
+                size,
+                sha256: hex::encode(hash.finalize()),
+            });
+        }
+        Ok(InputSet {
+            zips: files,
+            credential,
+            // A fill is what an export lacks: an API fetch has no fill.
+            api_fill: api_fill && credential && !zips.is_empty(),
+        })
+    }
+
+    /// Whether `other` reads the same data: the same zips by content (a
+    /// moved file is the same file), and the same access.
+    pub fn same_as(&self, other: &InputSet) -> bool {
+        let key = |s: &InputSet| {
+            let mut z: Vec<(u64, String)> =
+                s.zips.iter().map(|f| (f.size, f.sha256.clone())).collect();
+            z.sort();
+            z
+        };
+        key(self) == key(other)
+            && self.credential == other.credential
+            && self.api_fill == other.api_fill
+    }
+
+    /// The zips' file names, for the plan ("tickets.zip, users.zip").
+    pub fn names(&self) -> Vec<String> {
+        self.zips
+            .iter()
+            .map(|f| {
+                Path::new(&f.path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| f.path.clone())
+            })
+            .collect()
+    }
+}
+
+/// What the API fill fetched, and what it was asked for and didn't return.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Fill {
+    /// People the tickets name that the exports lacked, asked for by id.
+    #[serde(default)]
+    pub people_asked: u64,
+    /// Of those, the ones the source returned (deleted ones included).
+    #[serde(default)]
+    pub people_returned: u64,
+    /// Ids asked for in a request that succeeded and not returned: gone at
+    /// the source. Ids a failed request asked for are not here; they stay
+    /// "not in the export".
+    #[serde(default)]
+    pub gone: Vec<String>,
+    #[serde(default)]
+    pub organizations: u64,
+    /// Tickets the export sent without their conversation (over 1 MB)
+    /// whose comments the fill fetched.
+    #[serde(default)]
+    pub conversations: u64,
+    /// Of those, the ones whose comments couldn't be fetched: each keeps
+    /// its description as its first comment, with a line in its note.
+    #[serde(default)]
+    pub conversations_failed: u64,
+    /// Whether the source's answers can say who is gone: the credential is
+    /// an admin's, who sees every user. When false, `gone` is empty and
+    /// people the fill didn't get back stay "not in the export".
+    #[serde(default)]
+    pub absence_confirmed: bool,
+    /// Requests that failed without stopping the fill, in words, the first
+    /// [`FILL_ERRORS_KEPT`] of them. What each asked for is as the exports
+    /// left it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+    /// How many requests failed without stopping the fill, all of them.
+    #[serde(default)]
+    pub errors_total: u64,
+    /// Why the fill stopped, when it did (a refused credential, the
+    /// outbound policy, a throttle past the retry budget). What it hadn't
+    /// fetched by then is as the exports left it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed: Option<String>,
+}
+
+/// The manifest count of the people the export zips held themselves, not
+/// counting what the API fill added. Absent from an API fetch's manifest.
+pub const PEOPLE_IN_EXPORT: &str = "people_in_export";
+
+/// Request failures a fill keeps in words; past this many, a count.
+pub const FILL_ERRORS_KEPT: usize = 20;
+
+impl Fill {
+    /// Records a request that failed without stopping the fill.
+    pub fn error(&mut self, why: String) {
+        self.errors_total += 1;
+        if self.errors.len() < FILL_ERRORS_KEPT {
+            self.errors.push(why);
+        }
+    }
 }
 
 /// Where a bundle's people came from.
@@ -113,11 +271,52 @@ pub struct Person {
     /// real), never given access.
     #[serde(default = "yes")]
     pub active: bool,
-    /// The person's organisation or company at the source, by name.
+    /// Deleted at the source (often an erasure request): their history keeps
+    /// their name and nothing else is stored. Read only from bundles with
+    /// [`PERSON_DETAIL`]; before, deleted people read as suspended.
+    #[serde(default)]
+    pub deleted: bool,
+    /// Staff with partial access at the source (a light agent, a chat-only
+    /// agent, a contributor, another account's agent): never seated as an
+    /// agent unless the operator maps them.
+    #[serde(default)]
+    pub limited_staff: bool,
+    /// An agent on a custom role at the source, listed in the plan for the
+    /// operator to check.
+    #[serde(default)]
+    pub custom_role: bool,
+    /// The person's organisation or company at the source, by name. None
+    /// when it was deleted there.
     #[serde(default)]
     pub organization: Option<String>,
+    /// Their default organization's source id.
+    #[serde(default)]
+    pub organization_id: Option<String>,
+    /// Their primary phone. None for a deleted person or a shared number.
+    #[serde(default)]
+    pub phone: Option<String>,
+    /// Their phone is a shared one (a switchboard), so it isn't carried.
+    #[serde(default)]
+    pub shared_phone: bool,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
+}
+
+/// An organization at the source, as much as the plan reports on.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Organization {
+    pub source_id: String,
+    pub name: String,
+    /// Shown in the plan, never written: not to sign-in domains, not to any
+    /// membership, not used to match an account.
+    #[serde(default)]
+    pub domain_names: Vec<String>,
+    /// Its members saw each other's tickets at the source.
+    #[serde(default)]
+    pub shared_tickets: bool,
+    /// Deleted at the source: nobody's organization.
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 fn yes() -> bool {
@@ -251,6 +450,10 @@ pub struct Ticket {
     /// When it was solved or closed, if the source records it.
     #[serde(default)]
     pub solved_at: Option<DateTime<Utc>>,
+    /// The ticket's organization's source id, for the plan's count of
+    /// tickets portal sharing by domain would show to colleagues.
+    #[serde(default)]
+    pub organization_id: Option<String>,
     /// Source fields Nosdesk has no column for, as label → value. Written
     /// to one internal note on the ticket.
     #[serde(default)]
@@ -270,6 +473,10 @@ pub struct FetchState {
     /// recorded: the manifest then says unknown.
     #[serde(default)]
     pub people_source: Option<PeopleSource>,
+    /// The [`PERSON_DETAIL`] of whoever wrote people.jsonl; 0 in a state
+    /// saved before it was recorded.
+    #[serde(default)]
+    pub person_detail: u32,
     /// The source's cursor for people changed since the people were fetched,
     /// so the people the tickets fetched later name can be fetched too.
     #[serde(default)]
@@ -411,6 +618,23 @@ impl Bundle {
 
     pub fn people(&self) -> io::Result<JsonlReader<Person>> {
         JsonlReader::open(&self.root.join(PEOPLE))
+    }
+
+    /// Starts organizations.jsonl over.
+    pub fn organizations_writer(&self) -> io::Result<JsonlWriter> {
+        JsonlWriter::open(&self.root.join(ORGANIZATIONS), true, 0)
+    }
+
+    /// The bundle's organizations; none for a bundle written before they
+    /// were kept. A line that can't be read is skipped.
+    pub fn organizations(&self) -> io::Result<Vec<Organization>> {
+        let path = self.root.join(ORGANIZATIONS);
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        Ok(JsonlReader::<Organization>::open(&path)?
+            .filter_map(Result::ok)
+            .collect())
     }
 
     pub fn tickets(&self) -> io::Result<JsonlReader<Ticket>> {
@@ -671,6 +895,7 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             solved_at: None,
+            organization_id: None,
             fields: BTreeMap::new(),
             comments: vec![Comment {
                 source_id: format!("c{id}"),
@@ -725,6 +950,9 @@ mod tests {
             counts: BTreeMap::new(),
             notes: vec![],
             people_source: Some(PeopleSource::Export),
+            person_detail: PERSON_DETAIL,
+            inputs: None,
+            fill: None,
         };
         b.write_manifest(&m).expect("write");
         assert_eq!(b.read_manifest().expect("read"), m);

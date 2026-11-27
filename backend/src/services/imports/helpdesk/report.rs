@@ -3,11 +3,23 @@
 
 use std::fmt::Write;
 
-use super::loader::{counted, LoadReport, MissingPeople, Plan};
+use super::loader::{counted, LoadReport, MissingPeople, PeopleDetail, Plan};
+use super::people::{source_title, ProfileTally};
 
 pub fn render_plan(plan: &Plan) -> String {
     let mut s = String::new();
+    let title = source_title(&plan.source);
+    let title = title.as_str();
     let _ = writeln!(s, "Source: {} ({})", plan.source, plan.scope);
+    if let Some(inputs) = &plan.inputs {
+        let mut from = inputs.names().join(", ");
+        if from.is_empty() {
+            from = format!("the {title} API");
+        } else if inputs.api_fill {
+            from.push_str(" (+ API fill)");
+        }
+        let _ = writeln!(s, "Read from: {from}");
+    }
     let _ = writeln!(
         s,
         "Tickets: {} ({} imported already, {} to write)",
@@ -43,15 +55,71 @@ pub fn render_plan(plan: &Plan) -> String {
             let _ = writeln!(s, "  {from:<20} -> {to}  ({n})");
         }
     }
-    let _ = writeln!(s, "\nPeople the tickets mention:");
+    let d = &plan.people_detail;
+    let _ = writeln!(s, "\nPeople the tickets mention: {}", d.mentioned);
     for (outcome, n) in &plan.people {
         let _ = writeln!(s, "  {outcome:<40} {n}");
     }
     missing_people(&mut s, plan.missing_people.as_ref(), 40);
+    if let Some(g) = &plan.gone_people {
+        let _ = writeln!(
+            s,
+            "  Gone at {title} (asked, not returned): {}, on {} and {};\n    credited to the placeholder, named in the note",
+            g.people,
+            counted(g.tickets, "ticket", "tickets"),
+            counted(g.replies, "reply", "replies"),
+        );
+    }
+    people_lines(&mut s, d, title);
     if !plan.staff.is_empty() {
         let _ = writeln!(s, "\nSource staff:");
         for (who, target, outcome) in &plan.staff {
             let _ = writeln!(s, "  {who:<40} -> {target}  ({outcome})");
+        }
+    }
+    organization_lines(&mut s, d, title);
+    if !d.changed_at_source.is_empty() {
+        let _ = writeln!(
+            s,
+            "Changed at {title} since they were imported: {} (not applied)",
+            counted(d.changed_at_source.len() as u64, "person", "people")
+        );
+    }
+    let _ = writeln!(
+        s,
+        "Not read: other addresses, user fields, notes, tags, photos, external ids, locale"
+    );
+    if let Some(f) = &plan.fill {
+        let _ = writeln!(
+            s,
+            "Filled from the API: {}, {}, {} over 1 MB",
+            counted(f.people_returned, "person", "people"),
+            counted(f.organizations, "organization", "organizations"),
+            counted(f.conversations, "conversation", "conversations"),
+        );
+        if f.conversations_failed > 0 {
+            let _ = writeln!(
+                s,
+                "  Conversations it couldn't fetch: {}; each keeps its description, with a note",
+                f.conversations_failed
+            );
+        }
+        if f.people_asked > 0 && !f.absence_confirmed {
+            let _ = writeln!(
+                s,
+                "  Who is gone isn't confirmed: the credential isn't an admin's. Use an admin \
+                 credential to confirm who is gone"
+            );
+        }
+        if f.errors_total > 0 {
+            let _ = writeln!(
+                s,
+                "  Requests that failed and were passed over: {}",
+                f.errors_total
+            );
+        }
+        if let Some(why) = &f.failed {
+            let _ = writeln!(s, "  The fill stopped: {why}");
         }
     }
     if !plan.notes.is_empty() {
@@ -89,17 +157,29 @@ pub fn render_report(r: &LoadReport) -> String {
     }
     let _ = writeln!(s, "Replies written: {}", r.comments_written);
     let _ = writeln!(s, "Files attached: {}", r.attachments_written);
-    if !r.people.is_empty() || r.missing_people.is_some() {
+    if !r.people.is_empty() || r.missing_people.is_some() || r.gone_people.is_some() {
         let _ = writeln!(s, "People:");
         for (outcome, n) in &r.people {
             let _ = writeln!(s, "  {outcome:<40} {n}");
         }
         missing_people(&mut s, r.missing_people.as_ref(), 40);
+        missing_people(&mut s, r.gone_people.as_ref(), 40);
     }
+    profile_lines(&mut s, &r.profile);
     list(
         &mut s,
         "People not brought across as planned",
         &r.people_problems,
+    );
+    list(
+        &mut s,
+        "People whose organization or phone couldn't be written",
+        &r.profile_problems,
+    );
+    list(
+        &mut s,
+        "People changed at the source since they were imported, not applied",
+        &r.changed_at_source,
     );
     list(
         &mut s,
@@ -126,6 +206,116 @@ pub fn render_report(r: &LoadReport) -> String {
         );
     }
     s
+}
+
+/// What the plan says about the people beyond their outcomes.
+fn people_lines(s: &mut String, d: &PeopleDetail, title: &str) {
+    if d.deleted > 0 {
+        let _ = writeln!(
+            s,
+            "  Deleted at {title}: {}, history kept under their name, no address stored",
+            d.deleted
+        );
+    }
+    if d.shared_addresses > 0 {
+        let _ = writeln!(
+            s,
+            "  Shared addresses: {} used by {} {title} users, one account each",
+            counted(d.shared_addresses, "address", "addresses"),
+            d.shared_address_people
+        );
+    }
+    if d.limited_staff > 0 {
+        let _ = writeln!(
+            s,
+            "  Limited staff (light agents, chat only, contributors): {}, no seat unless mapped",
+            d.limited_staff
+        );
+    }
+    if !d.custom_role_agents.is_empty() {
+        let _ = writeln!(
+            s,
+            "  Custom-role agents: {} (check with --map-agent): {}",
+            d.custom_role_agents.len(),
+            d.custom_role_agents.join(", ")
+        );
+    }
+}
+
+/// Organizations, phones and what portal sharing would show.
+fn organization_lines(s: &mut String, d: &PeopleDetail, title: &str) {
+    let p = &d.profile;
+    let _ = writeln!(
+        s,
+        "\nOrganizations with someone brought across: {}",
+        d.organizations
+    );
+    let _ = writeln!(
+        s,
+        "  As the person's organization: {} (already set here: {}; directory-synced: {})",
+        p.organizations, p.organizations_kept, p.directory_synced
+    );
+    if d.organizations_missing > 0 {
+        let _ = writeln!(
+            s,
+            "  Named but not in the bundle, so no organization: {}",
+            counted(d.organizations_missing, "person", "people")
+        );
+    }
+    let domains = if d.organizations_with_domains > 0 {
+        format!(
+            "domain names ({}), ",
+            counted(
+                d.organizations_with_domains,
+                "organization",
+                "organizations"
+            )
+        )
+    } else {
+        String::new()
+    };
+    let _ = writeln!(s, "  Not carried: {domains}notes, details, fields, tags");
+    if let Some(sh) = &d.sharing {
+        let at = format!(
+            "At {} non-free-mail {}, {} from organizations that didn't share at {title}",
+            sh.domains,
+            if sh.domains == 1 { "domain" } else { "domains" },
+            counted(sh.tickets, "ticket", "tickets"),
+        );
+        if sh.on {
+            let _ = writeln!(
+                s,
+                "  Portal sharing by domain is on. {at} become visible to colleagues as each side verifies their address"
+            );
+        } else {
+            let _ = writeln!(
+                s,
+                "  Portal sharing by domain is off. {at} would be shared if it were turned on"
+            );
+        }
+    }
+    let _ = writeln!(
+        s,
+        "Phones: {} (already one here: {}; shared numbers skipped: {})",
+        p.phones, p.phones_kept, d.shared_phones
+    );
+}
+
+/// The profile fill's counts, for the report.
+fn profile_lines(s: &mut String, p: &ProfileTally) {
+    if *p == ProfileTally::default() {
+        return;
+    }
+    let _ = writeln!(
+        s,
+        "Organizations written: {} (already set here: {}; directory-synced: {})",
+        p.organizations, p.organizations_kept, p.directory_synced
+    );
+    let _ = writeln!(
+        s,
+        "Phones added: {} (already one here: {})",
+        p.phones, p.phones_kept
+    );
 }
 
 /// The people the tickets name and the bundle lacks, as a line of the

@@ -48,7 +48,12 @@ export interface Comment {
   /** True = tech-to-tech note. Never shown to requesters; never relayed back through the originating channel. */
   is_internal?: boolean
   /** Set when the comment originated from a channel (email Message-ID, Slack thread_ts, etc). */
-  channel_metadata?: { forwarded_by_user_uuid?: string; [key: string]: unknown } | null
+  channel_metadata?: {
+    forwarded_by_user_uuid?: string
+    /** Set on a reply brought across by a helpdesk import: who wrote it at the source. */
+    import?: { source?: string; author_name?: string | null; [key: string]: unknown }
+    [key: string]: unknown
+  } | null
   /** Sender's external address (email for IMAP, equivalent identifier
    *  for chat channels). Sourced from `channel_messages.from_address`;
    *  `undefined` for comments authored through the helpdesk UI. */

@@ -67,6 +67,45 @@ pub struct OrganizationsPage {
     pub meta: Meta,
 }
 
+/// `GET /api/v2/users/show_many.json?ids=...`. The list must be there: an
+/// answer without it says nothing about who is gone, so it doesn't read.
+#[derive(Debug, Deserialize)]
+pub struct UsersList {
+    pub users: Vec<User>,
+}
+
+/// `GET /api/v2/organizations/show_many.json?ids=...`
+#[derive(Debug, Deserialize)]
+pub struct OrganizationsList {
+    pub organizations: Vec<Organization>,
+}
+
+/// `GET /api/v2/groups.json`
+#[derive(Debug, Deserialize)]
+pub struct GroupsPage {
+    #[serde(default, deserialize_with = "null_default")]
+    pub groups: Vec<Named>,
+    #[serde(default, deserialize_with = "null_default")]
+    pub meta: Meta,
+}
+
+/// `GET /api/v2/brands.json`
+#[derive(Debug, Deserialize)]
+pub struct BrandsPage {
+    #[serde(default, deserialize_with = "null_default")]
+    pub brands: Vec<Named>,
+    #[serde(default, deserialize_with = "null_default")]
+    pub meta: Meta,
+}
+
+/// A group or brand: its name is all the import note needs.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Named {
+    pub id: i64,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TicketFieldsPage {
     #[serde(default, deserialize_with = "null_default")]
@@ -98,6 +137,19 @@ pub struct User {
     pub suspended: bool,
     #[serde(default)]
     pub organization_id: Option<i64>,
+    /// 0 custom agent, 1 light agent, 2 chat agent, 3 chat agent added as a
+    /// contributor, 4 admin, 5 billing admin; null for anyone else.
+    #[serde(default)]
+    pub role_type: Option<i64>,
+    #[serde(default, deserialize_with = "null_default")]
+    pub only_private_comments: bool,
+    /// An agent of another Zendesk account, through ticket sharing.
+    #[serde(default, deserialize_with = "null_default")]
+    pub shared_agent: bool,
+    #[serde(default)]
+    pub phone: Option<String>,
+    #[serde(default, deserialize_with = "null_default")]
+    pub shared_phone_number: bool,
     #[serde(default)]
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -113,6 +165,19 @@ pub struct Organization {
     pub id: i64,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default, deserialize_with = "null_default")]
+    pub domain_names: Vec<String>,
+    /// Being replaced by `ticket_restriction`, which wins when present.
+    #[serde(default)]
+    pub shared_tickets: Option<bool>,
+    /// `organization` (members see each other's tickets) or `restricted`.
+    #[serde(default)]
+    pub ticket_restriction: Option<String>,
+    /// Set in the JSON export for a deleted organization.
+    #[serde(default)]
+    pub deleted_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -166,6 +231,12 @@ pub struct Ticket {
     pub submitter_id: Option<i64>,
     #[serde(default)]
     pub assignee_id: Option<i64>,
+    #[serde(default)]
+    pub organization_id: Option<i64>,
+    #[serde(default)]
+    pub group_id: Option<i64>,
+    #[serde(default)]
+    pub brand_id: Option<i64>,
     #[serde(default, deserialize_with = "null_default")]
     pub collaborator_ids: Vec<i64>,
     #[serde(default, deserialize_with = "null_default")]

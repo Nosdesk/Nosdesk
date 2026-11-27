@@ -1288,6 +1288,30 @@ pub struct CustomerAttachment {
     pub mime_type: Option<String>,
 }
 
+/// The name an imported reply's author had at the source, from what the
+/// import kept on it. A name that is an address (an older import named
+/// nameless people after theirs) is never shown: the author is named by
+/// their source id instead.
+fn imported_author_name(metadata: Option<&serde_json::Value>) -> Option<String> {
+    let import = metadata?.get("import")?;
+    let text = |k: &str| import.get(k).and_then(|v| v.as_str()).map(str::trim);
+    let email = text("author_email").filter(|e| !e.is_empty());
+    match text("author_name").filter(|n| !n.is_empty()) {
+        Some(name)
+            if !name.contains('@') && email.is_none_or(|e| !e.eq_ignore_ascii_case(name)) =>
+        {
+            Some(name.chars().take(255).collect())
+        }
+        _ => {
+            let id = text("author").filter(|id| !id.is_empty())?;
+            let source = crate::services::imports::helpdesk::people::source_title(
+                text("source").unwrap_or_default(),
+            );
+            Some(format!("{source} user {id}"))
+        }
+    }
+}
+
 /// The ticket's public thread, oldest first, with authors (workspace persona
 /// names, so an agent alias shows) and attachments.
 fn customer_thread(
@@ -1305,15 +1329,33 @@ fn customer_thread(
     authors.dedup();
     let users = crate::repository::users::get_user_map_by_uuids_with_persona(&authors, conn)?;
     let roles = crate::repository::user_helpers::workspace_roles_batch(&authors, conn);
+    // A reply an import credited to its placeholder author shows who wrote
+    // it at the source, by name only, never their address.
+    let placeholders = crate::repository::import_source_ids::placeholders_among(conn, &authors)?;
     Ok(comments
         .into_iter()
         .map(|c| {
             let user = users.get(&c.user_uuid);
+            let on_placeholder = placeholders.contains(&c.user_uuid);
+            let source_name = on_placeholder
+                .then(|| imported_author_name(c.channel_metadata.as_ref()))
+                .flatten();
+            // The placeholder holds no seat: a reply credited to it is a
+            // staff reply when its author was staff at the source.
+            let source_staff = on_placeholder.then(|| {
+                c.channel_metadata
+                    .as_ref()
+                    .and_then(|m| m.get("import")?.get("author_role")?.as_str())
+                    == Some("staff")
+            });
             CustomerComment {
                 author: CustomerAuthor {
-                    name: user.map(|u| u.name.clone()).unwrap_or_default(),
+                    name: source_name
+                        .or_else(|| user.map(|u| u.name.clone()))
+                        .unwrap_or_default(),
                     avatar_url: user.and_then(|u| u.avatar_thumb.clone().or(u.avatar_url.clone())),
-                    is_staff: roles.get(&c.user_uuid).is_some_and(|r| r.is_staff()),
+                    is_staff: source_staff
+                        .unwrap_or_else(|| roles.get(&c.user_uuid).is_some_and(|r| r.is_staff())),
                     is_you: c.user_uuid == viewer,
                 },
                 attachments: attachments

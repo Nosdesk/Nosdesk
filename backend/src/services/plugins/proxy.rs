@@ -1203,8 +1203,10 @@ mod tests {
     /// resolver will dial loopback at all. That is process-global, so two of
     /// them in parallel will clear it out from under each other mid-request and
     /// the second fails with "resolves to non-routable address" rather than for
-    /// any reason to do with the code under test.
-    static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    /// any reason to do with the code under test. The lock is the crate-wide
+    /// one, so the egress and safe_http tests that clear or set the same var
+    /// wait for these too.
+    use crate::utils::egress::TEST_ALLOWLIST_LOCK as ENV_LOCK;
 
     /// Minimal one-shot HTTP server on an ephemeral localhost port. Returns the
     /// bound port and a handle; the task serves exactly `responses.len()`

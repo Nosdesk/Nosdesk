@@ -24,6 +24,13 @@ pub enum Entity {
     Comment,
     Attachment,
     Category,
+    /// A person's profile fill (organization, phone) was done: source id the
+    /// person, target their account. Done once, so a value cleared here
+    /// stays cleared.
+    Profile,
+    /// The phone a profile fill added: source id the person, target the
+    /// phone row.
+    Phone,
 }
 
 impl Entity {
@@ -34,9 +41,14 @@ impl Entity {
             Entity::Comment => "comment",
             Entity::Attachment => "attachment",
             Entity::Category => "category",
+            Entity::Profile => "profile",
+            Entity::Phone => "phone",
         }
     }
 }
+
+/// The entities that hang off a person's mapping and go with it.
+const PERSON_ENTITIES: [Entity; 3] = [Entity::Person, Entity::Profile, Entity::Phone];
 
 /// Which source instance a lookup is about, in which workspace:
 /// `("zendesk", "acme")` brought into workspace 3. Every read and write
@@ -261,13 +273,99 @@ pub fn touch_ticket(
 /// the account is being purged, so a rerun brings the person across again
 /// rather than finding a mapping to nothing. Run on the purge's bypass
 /// connection, which sees every workspace's rows.
+/// The person's profile and phone entries go too: a phone entry names its
+/// row, not the account, so it is found through the person entries first.
 pub fn forget_account(conn: &mut DbConnection, user_uuid: Uuid) -> QueryResult<usize> {
-    diesel::delete(
+    let phones = diesel::sql_query(
+        "DELETE FROM import_source_ids p USING import_source_ids m \
+         WHERE m.entity = 'person' AND m.target_id = $1 \
+           AND p.workspace_id = m.workspace_id AND p.source = m.source \
+           AND p.source_scope = m.source_scope AND p.source_id = m.source_id \
+           AND p.entity = 'phone'",
+    )
+    .bind::<diesel::sql_types::Text, _>(user_uuid.to_string())
+    .execute(conn)?;
+    let mapped = diesel::delete(
         import_source_ids::table
-            .filter(import_source_ids::entity.eq(Entity::Person.as_str()))
+            .filter(
+                import_source_ids::entity
+                    .eq_any([Entity::Person.as_str(), Entity::Profile.as_str()]),
+            )
             .filter(import_source_ids::target_id.eq(user_uuid.to_string())),
     )
+    .execute(conn)?;
+    Ok(phones + mapped)
+}
+
+// sync-audit-only: import bookkeeping no client reads; the mapped rows are synced and audited as they are written, and the job row records who ran the import
+/// Forget a person's mapping whose account is no longer one of the
+/// workspace's people, with their profile and phone entries, so they are
+/// brought across again whole.
+pub fn forget_person(
+    conn: &mut DbConnection,
+    scope: Scope<'_>,
+    source_id: &str,
+) -> QueryResult<()> {
+    diesel::delete(
+        import_source_ids::table
+            .filter(import_source_ids::workspace_id.eq(scope.workspace_id))
+            .filter(import_source_ids::source.eq(scope.source))
+            .filter(import_source_ids::source_scope.eq(scope.instance))
+            .filter(import_source_ids::entity.eq_any(PERSON_ENTITIES.map(Entity::as_str)))
+            .filter(import_source_ids::source_id.eq(source_id)),
+    )
     .execute(conn)
+    .map(|_| ())
+}
+
+/// When the source last changed each of `source_ids` as of the import that
+/// mapped it, keyed by source id: the mapped ones only, None when the
+/// source didn't say.
+pub fn source_updated_at_of(
+    conn: &mut DbConnection,
+    scope: Scope<'_>,
+    entity: Entity,
+    source_ids: &[String],
+) -> QueryResult<HashMap<String, Option<NaiveDateTime>>> {
+    if source_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(String, Option<NaiveDateTime>)> = import_source_ids::table
+        .filter(import_source_ids::workspace_id.eq(scope.workspace_id))
+        .filter(import_source_ids::source.eq(scope.source))
+        .filter(import_source_ids::source_scope.eq(scope.instance))
+        .filter(import_source_ids::entity.eq(entity.as_str()))
+        .filter(import_source_ids::source_id.eq_any(source_ids))
+        .select((
+            import_source_ids::source_id,
+            import_source_ids::source_updated_at,
+        ))
+        .load(conn)?;
+    Ok(rows.into_iter().collect())
+}
+
+/// Those of `user_uuids` that are an import's placeholder author in the
+/// active workspace: the account replies are credited to when their author
+/// couldn't be brought across. No one signs in as one.
+pub fn placeholders_among(
+    conn: &mut DbConnection,
+    user_uuids: &[Uuid],
+) -> QueryResult<std::collections::HashSet<Uuid>> {
+    if user_uuids.is_empty() {
+        return Ok(Default::default());
+    }
+    let targets: Vec<String> = user_uuids.iter().map(Uuid::to_string).collect();
+    let rows: Vec<String> = import_source_ids::table
+        .filter(import_source_ids::workspace_id.eq(crate::repository::pinned_workspace()))
+        .filter(import_source_ids::entity.eq(Entity::Person.as_str()))
+        .filter(import_source_ids::source_id.eq(PLACEHOLDER_PERSON))
+        .filter(import_source_ids::target_id.eq_any(&targets))
+        .select(import_source_ids::target_id)
+        .load(conn)?;
+    Ok(rows
+        .iter()
+        .filter_map(|t| Uuid::parse_str(t).ok())
+        .collect())
 }
 
 // sync-audit-only: takes a lock and writes nothing
