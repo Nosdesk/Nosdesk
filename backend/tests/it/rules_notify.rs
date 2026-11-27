@@ -391,9 +391,16 @@ async fn an_event_reply_posts_as_its_agent_and_goes_to_the_relay() {
     });
     assert_eq!(author, agent);
     assert!(content.contains("Sam here"), "{content}");
-    assert_eq!(
-        metadata,
-        Some(json!({ "kind": "rule_reply", "visibility": "public", "rule_id": rule }))
+    let metadata = metadata.expect("metadata");
+    assert_eq!(metadata["kind"], "rule_reply");
+    assert_eq!(metadata["visibility"], "public");
+    assert_eq!(metadata["rule_id"], rule);
+    // The render a copy that may not name the ticket takes.
+    assert!(
+        metadata["redacted_html"]
+            .as_str()
+            .is_some_and(|h| h.contains("Thanks,")),
+        "{metadata}"
     );
 
     // The relay queues the reply off the run, so wait for it.
@@ -629,16 +636,34 @@ async fn rule_mail_names_the_ticket_once_proven(via: &str) {
         notified.body_text
     );
 
-    // The requester writes on the ticket: from then on its mail to them names it.
+    // The requester adds someone, then writes on the ticket: from then on its
+    // mail to them names it. The person they added hasn't written on it, so
+    // their copy of the same reply still names it by number.
+    let pat = member(&h, a, "Pat Participant", "member");
+    email(&h, pat, "participant@example.com");
+    let requester = backend::sync::actor::ActorContext::user(a.member_uuid, None)
+        .with_workspace(a.workspace_id);
+    backend::sync::session::with_actor_context(&mut h.pool.get().expect("conn"), &requester, |c| {
+        backend::repository::ticket_watchers::add_watcher(c, ticket, pat, false)
+    })
+    .expect("add a participant");
     h.reply(a, ticket, a.member_uuid);
     h.set_priority(a, ticket, backend::models::TicketPriority::High);
     h.drain().await;
-    let sent = mail_settled(&h, a, ticket, 4).await;
-    assert!(sent.len() >= 4, "{sent:?}");
+    let sent = mail_settled(&h, a, ticket, 5).await;
+    assert!(sent.len() >= 5, "{sent:?}");
+    let mut participant_copies = 0;
     for m in &sent[2..] {
-        assert!(
-            m.subject.contains(STRANGER_TITLE) || m.body_text.contains(STRANGER_TITLE),
-            "named once they wrote: {m:?}"
-        );
+        if m.recipient == "participant@example.com" {
+            participant_copies += 1;
+            assert!(!names_the_ticket(m), "the participant's copy: {m:?}");
+            assert!(m.body_text.contains("Hi, about #"), "{}", m.body_text);
+        } else {
+            assert!(
+                m.subject.contains(STRANGER_TITLE) || m.body_text.contains(STRANGER_TITLE),
+                "named once they wrote: {m:?}"
+            );
+        }
     }
+    assert!(participant_copies >= 1, "{sent:?}");
 }

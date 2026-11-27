@@ -151,7 +151,7 @@ pub fn add_watcher(
     user_uuid: Uuid,
     auto_added: bool,
 ) -> QueryResult<bool> {
-    insert_watcher(conn, ticket_id, user_uuid, auto_added, None)
+    insert_watcher(conn, ticket_id, user_uuid, auto_added, None, None)
 }
 
 /// [`add_watcher`] with the internal-notes setting given rather than the
@@ -169,6 +169,28 @@ pub fn add_watcher_with_notify(
         user_uuid,
         auto_added,
         Some(notify_on_internal_notes),
+        None,
+    )
+}
+
+/// [`add_watcher_with_notify`] keeping who put them on a ticket they are
+/// carried over from (a merge moves its sources' watchers), rather than the
+/// user the write runs as. `added_by` decides what mail about the ticket may
+/// show them (`services::ticket_mail_redaction`).
+pub fn add_watcher_carried(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    user_uuid: Uuid,
+    notify_on_internal_notes: bool,
+    added_by: Option<Uuid>,
+) -> QueryResult<bool> {
+    insert_watcher(
+        conn,
+        ticket_id,
+        user_uuid,
+        true,
+        Some(notify_on_internal_notes),
+        Some(added_by),
     )
 }
 
@@ -178,6 +200,7 @@ fn insert_watcher(
     user_uuid: Uuid,
     auto_added: bool,
     notify_on_internal_notes: Option<bool>,
+    added_by: Option<Option<Uuid>>,
 ) -> QueryResult<bool> {
     conn.transaction::<bool, diesel::result::Error, _>(|conn| {
         // Resolve the parent ticket up front for the sync emit's
@@ -195,12 +218,19 @@ fn insert_watcher(
             user_uuid,
             auto_added,
         };
-        match notify_on_internal_notes {
-            None => diesel::insert_into(ticket_watchers::table)
+        match (notify_on_internal_notes, added_by) {
+            (None, None) => diesel::insert_into(ticket_watchers::table)
                 .values(&row)
                 .execute(conn)?,
-            Some(notify) => diesel::insert_into(ticket_watchers::table)
+            (Some(notify), None) => diesel::insert_into(ticket_watchers::table)
                 .values((&row, ticket_watchers::notify_on_internal_notes.eq(notify)))
+                .execute(conn)?,
+            (notify, Some(by)) => diesel::insert_into(ticket_watchers::table)
+                .values((
+                    &row,
+                    ticket_watchers::notify_on_internal_notes.eq(notify.unwrap_or(true)),
+                    ticket_watchers::added_by.eq(by),
+                ))
                 .execute(conn)?,
         };
         let watchers = watcher_uuids(conn, ticket_id)?;

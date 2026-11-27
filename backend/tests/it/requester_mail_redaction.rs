@@ -118,6 +118,80 @@ impl Desk {
         });
     }
 
+    /// The requester adds `address` to `ticket` from the portal, as the
+    /// request page's "Add someone" does (`POST .../participants`).
+    async fn portal_add(&self, ticket: &Ticket, address: &str) {
+        use actix_web::dev::Service as _;
+        use actix_web::{test as http_test, web, App, HttpMessage as _};
+        let workspace = context_of(&mut self.pool.get().expect("conn"), self.ws.workspace_id);
+        let portal = backend::handlers::portal::PortalContext {
+            user_uuid: self.requester,
+            workspace_id: self.ws.workspace_id,
+            workspace_uuid: self.ws.workspace_uuid,
+            scope: backend::handlers::portal::PortalScope::Full,
+        };
+        let corr = Uuid::now_v7();
+        let actor = backend::sync::actor::ActorContext::user(self.requester, Some(corr))
+            .with_workspace(self.ws.workspace_id);
+        let app = http_test::init_service(
+            App::new()
+                .app_data(web::Data::new(self.pool.clone()))
+                .wrap_fn(move |req, srv| {
+                    req.extensions_mut().insert(workspace.clone());
+                    req.extensions_mut().insert(portal.clone());
+                    req.extensions_mut()
+                        .insert(backend::middleware::RequestContext::new(
+                            corr,
+                            actor.clone(),
+                        ));
+                    srv.call(req)
+                })
+                .route(
+                    "/api/portal/tickets/{id}/participants",
+                    web::post().to(backend::handlers::portal::add_participant),
+                ),
+        )
+        .await;
+        let resp = http_test::call_service(
+            &app,
+            http_test::TestRequest::post()
+                .uri(&format!("/api/portal/tickets/{}/participants", ticket.id))
+                .set_json(serde_json::json!({ "email": address }))
+                .to_request(),
+        )
+        .await;
+        assert!(resp.status().is_success(), "add: {}", resp.status());
+    }
+
+    /// The watcher row's `added_by` for `person` on `ticket`.
+    fn added_by(&self, ticket: i32, person: Uuid) -> Option<Uuid> {
+        use backend::schema::ticket_watchers as w;
+        w::table
+            .filter(w::ticket_id.eq(ticket))
+            .filter(w::user_uuid.eq(person))
+            .select(w::added_by)
+            .first(&mut self.db.conn())
+            .expect("watcher row")
+    }
+
+    /// The participant notice to `person`, composed afresh (the notice goes
+    /// once per person, so an earlier one is cleared).
+    fn fresh_participant_added(
+        &self,
+        ticket: &Ticket,
+        person: Uuid,
+        address: &str,
+    ) -> OutboundEmail {
+        let key = format!("participant_added:{}:{person}", ticket.id);
+        diesel::delete(
+            backend::schema::outbound_emails::table
+                .filter(backend::schema::outbound_emails::idempotency_key.eq(key)),
+        )
+        .execute(&mut self.db.conn())
+        .expect("clear the notice");
+        self.participant_added(ticket, person, address)
+    }
+
     /// Put `person` on `ticket` as `by` would (the acting user is recorded).
     fn add(&self, ticket: &Ticket, person: Uuid, by: Uuid) {
         let actor =
@@ -336,10 +410,11 @@ async fn people_a_requester_adds_get_the_number_until_they_write() {
     let ticket = d.ticket("portal", None);
     let victim = d.outsider("Victim", "victim@example.com");
     let colleague = d.outsider("Colleague", "colleague@example.com");
-    d.add(&ticket, victim, d.requester);
+    d.portal_add(&ticket, "victim@example.com").await;
+    assert_eq!(d.added_by(ticket.id, victim), Some(d.requester));
     d.add(&ticket, colleague, d.ws.admin_uuid);
 
-    let to_victim = d.participant_added(&ticket, victim, "victim@example.com");
+    let to_victim = d.fresh_participant_added(&ticket, victim, "victim@example.com");
     assert!(!names_the_ticket(&to_victim), "{to_victim:?}");
     let to_colleague = d.participant_added(&ticket, colleague, "colleague@example.com");
     assert!(
@@ -349,11 +424,7 @@ async fn people_a_requester_adds_get_the_number_until_they_write() {
     );
 
     d.reply(&ticket, victim);
-    // The notice goes once per person; clear it to compose it again.
-    diesel::delete(backend::schema::outbound_emails::table.find(to_victim.id))
-        .execute(&mut d.db.conn())
-        .expect("clear the notice");
-    let again = d.participant_added(&ticket, victim, "victim@example.com");
+    let again = d.fresh_participant_added(&ticket, victim, "victim@example.com");
     assert!(
         again.subject.contains(TITLE),
         "after writing: {}",
@@ -498,4 +569,94 @@ async fn a_token_written_reply_reaches_an_unengaged_requester_as_a_notice() {
     let by_team = settle(sent_for(false)).await;
     assert!(by_team.body_text.contains(WORDS), "{}", by_team.body_text);
     assert_eq!(by_team.subject, format!("Re: [#{}]", ticket.number));
+}
+
+/// A merge moves its sources' participants onto the destination keeping who
+/// put them there: someone the requester added stays held, not upgraded to
+/// the merging agent's choice.
+#[actix_rt::test]
+async fn a_merge_keeps_who_added_a_participant() {
+    let d = desk();
+    let destination = d.ticket("portal", None);
+    let source = d.ticket("portal", None);
+    let victim = d.outsider("Victim", "victim@example.com");
+    d.portal_add(&source, "victim@example.com").await;
+    let agent = backend::sync::actor::ActorContext::user(d.ws.admin_uuid, None)
+        .with_workspace(d.ws.workspace_id);
+    backend::sync::session::with_actor_context::<_, backend::repository::ticket_merge::MergeError>(
+        &mut d.pool.get().expect("conn"),
+        &agent,
+        |c| {
+            backend::repository::ticket_merge::execute_merge(
+                c,
+                backend::repository::ticket_merge::MergeInput {
+                    destination_ticket_id: destination.id,
+                    source_ticket_ids: vec![source.id],
+                    reason: None,
+                    notify_customer: false,
+                    expected_state: Vec::new(),
+                    marker_body: None,
+                },
+                &agent,
+            )
+        },
+    )
+    .expect("merge");
+    assert_eq!(d.added_by(destination.id, victim), Some(d.requester));
+    let notice = d.fresh_participant_added(&destination, victim, "victim@example.com");
+    assert!(!names_the_ticket(&notice), "{notice:?}");
+}
+
+/// Someone who put themselves on a request (following it) isn't someone else
+/// choosing to mail them: on a ticket the requester filed, they get its text.
+/// A stranger's ticket still names itself by number only.
+#[actix_rt::test]
+async fn a_follower_who_added_themselves_gets_the_ticket() {
+    let d = desk();
+    let follower = d.outsider("Follower", "follower@example.com");
+    let ticket = d.ticket("portal", None);
+    d.add(&ticket, follower, follower);
+    let notice = d.fresh_participant_added(&ticket, follower, "follower@example.com");
+    assert!(notice.subject.contains(TITLE), "{}", notice.subject);
+
+    let strangers = d.ticket("api", None);
+    d.add(&strangers, follower, follower);
+    let notice = d.fresh_participant_added(&strangers, follower, "follower@example.com");
+    assert!(!names_the_ticket(&notice), "{notice:?}");
+}
+
+/// A reply that came in by email counts as its sender writing on the ticket
+/// only when it passed DMARC: a forged From must not stand for the address it
+/// names. A portal reply counts as it is.
+#[actix_rt::test]
+async fn an_emailed_reply_counts_only_when_it_passed_dmarc() {
+    let d = desk();
+    let ticket = d.ticket("api", None);
+    let emailed = |verdict: &str| {
+        d.run(|c| {
+            backend::repository::comments::create_comment(
+                c,
+                backend::models::NewComment {
+                    content: "Still broken.".into(),
+                    user_uuid: d.requester,
+                    ticket_id: ticket.id,
+                    content_format: backend::models::ContentFormat::Plaintext,
+                    channel_metadata: Some(serde_json::json!({
+                        "provider": "email_imap",
+                        "sender_auth": verdict,
+                    })),
+                    ..Default::default()
+                },
+                None,
+            )
+        });
+    };
+    for verdict in ["unknown", "fail"] {
+        emailed(verdict);
+        let update = d.deliver(d.status_update(&ticket)).await;
+        assert!(!names_the_ticket(&update), "{verdict}: {update:?}");
+    }
+    emailed("pass");
+    let update = d.deliver(d.status_update(&ticket)).await;
+    assert!(update.subject.contains(TITLE), "{}", update.subject);
 }

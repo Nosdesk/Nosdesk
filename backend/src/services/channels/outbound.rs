@@ -215,6 +215,83 @@ fn reply_copy(
     }
 }
 
+/// What one copy of a reply may carry: whether it is redacted for its
+/// recipient, and whether an API token wrote the reply.
+#[derive(Clone, Copy)]
+struct CopyText {
+    redacted: bool,
+    by_token: bool,
+}
+
+/// `to`'s copy of `comment` relayed through `channel`: [`copy_body`], the
+/// request link and the security note, then the quoted history, which a
+/// redacted copy leaves out (it carries the ticket's earlier words).
+#[allow(clippy::too_many_arguments)]
+fn channel_copy_body(
+    conn: &mut crate::db::DbConnection,
+    channel: &crate::models::Channel,
+    ticket: &crate::models::Ticket,
+    comment: &crate::models::Comment,
+    to: Option<uuid::Uuid>,
+    text: CopyText,
+    base: &super::reply_body::ReplyBody,
+    note: Option<&str>,
+) -> super::reply_body::ReplyBody {
+    let body = copy_body(
+        conn,
+        ticket,
+        comment,
+        to,
+        text.redacted,
+        text.by_token,
+        base,
+    );
+    let body = with_request_link(conn, ticket, to, body, false);
+    let body = with_security_note(body, note);
+    if text.redacted {
+        body
+    } else {
+        super::quote_previous::maybe_prepend_quote(conn, channel, ticket, body)
+    }
+}
+
+/// The body of `to`'s copy of `comment`: the reply as composed (`base`), or for
+/// a copy that may not carry the ticket's text, a notice when an API token
+/// wrote it, or the redacted render a rule's reply carries
+/// (`channel_metadata.redacted_html`, see `repository::rules`).
+fn copy_body(
+    conn: &mut crate::db::DbConnection,
+    ticket: &crate::models::Ticket,
+    comment: &crate::models::Comment,
+    to: Option<uuid::Uuid>,
+    redacted: bool,
+    by_token: bool,
+    base: &super::reply_body::ReplyBody,
+) -> super::reply_body::ReplyBody {
+    if !redacted {
+        return base.clone();
+    }
+    if by_token {
+        return token_reply_notice(conn, ticket, to);
+    }
+    let rule_render = comment
+        .channel_metadata
+        .as_ref()
+        .and_then(|m| m.get("redacted_html"))
+        .and_then(serde_json::Value::as_str);
+    match rule_render {
+        Some(html) => super::signature::append_signature_for_user(
+            conn,
+            comment.user_uuid,
+            super::reply_body::ReplyBody {
+                text: crate::utils::content::html_to_plaintext(html),
+                html: html.to_string(),
+            },
+        ),
+        None => base.clone(),
+    }
+}
+
 /// The body of a reply an API token wrote, for someone who may not see the
 /// ticket's own text: a token may be a website relaying a stranger's words,
 /// so it says only that there is a new reply on #N. The request link follows.
@@ -321,11 +398,9 @@ pub fn enqueue_for_comment(
                                 thread_headers_for(conn, ticket.id, &to_email)?;
                             let (copy_subject, redacted) =
                                 reply_copy(conn, &ticket, &to_email, &subject);
-                            let copy_base = if by_token && redacted {
-                                token_reply_notice(conn, &ticket, to_uuid)
-                            } else {
-                                base.clone()
-                            };
+                            let copy_base = copy_body(
+                                conn, &ticket, &comment, to_uuid, redacted, by_token, &base,
+                            );
                             let body = with_request_link(conn, &ticket, to_uuid, copy_base, true);
                             let body = with_security_note(body, note.as_deref());
                             let mut new_row = reply_row(
@@ -414,20 +489,16 @@ pub fn enqueue_for_comment(
                     let (in_reply_to, references) =
                         thread_headers_for(conn, thread.ticket_id, &to_email)?;
                     let (copy_subject, redacted) = reply_copy(conn, &ticket, &to_email, &subject);
-                    let notice_only = by_token && redacted;
-                    let copy_base = if notice_only {
-                        token_reply_notice(conn, &ticket, to_uuid)
-                    } else {
-                        base.clone()
-                    };
-                    let body = with_request_link(conn, &ticket, to_uuid, copy_base, false);
-                    let body = with_security_note(body, note.as_deref());
-                    // Quoted history carries the ticket's earlier words.
-                    let body = if notice_only {
-                        body
-                    } else {
-                        super::quote_previous::maybe_prepend_quote(conn, &channel, &ticket, body)
-                    };
+                    let body = channel_copy_body(
+                        conn,
+                        &channel,
+                        &ticket,
+                        &comment,
+                        to_uuid,
+                        CopyText { redacted, by_token },
+                        &base,
+                        note.as_deref(),
+                    );
                     let mut new_row = reply_row(
                         Some(channel.id),
                         thread.ticket_id,
@@ -695,6 +766,67 @@ mod tests {
     /// A reply through the workspace's email channel on a ticket no email
     /// opened: it follows the earlier reply, then the customer's email once
     /// one arrives. QA batch O: these went out with neither header.
+    /// A copy that may not carry the ticket's text leaves the quoted history
+    /// out (the customer's earlier words); a full copy quotes it.
+    #[test]
+    fn a_redacted_channel_copy_quotes_no_history() {
+        use crate::test_helpers::TestFixtures;
+        let mut conn = setup_test_connection();
+        let channel = TestFixtures::create_channel(&mut conn, "email_managed");
+        let customer = TestFixtures::create_user(&mut conn, "Customer", "user");
+        let ticket = TestFixtures::create_ticket(&mut conn, "Refund", Some(customer.uuid), None);
+        let earlier =
+            TestFixtures::create_comment(&mut conn, ticket.id, customer.uuid, "quote-marker words");
+        crate::repository::channels::record_message(
+            &mut conn,
+            crate::models::NewChannelMessage {
+                channel_id: channel.id,
+                external_id: "<earlier@customer.example>".into(),
+                direction: crate::models::CHANNEL_DIRECTION_INBOUND.to_string(),
+                ticket_id: Some(ticket.id),
+                comment_id: Some(earlier.id),
+                in_reply_to: None,
+                from_address: Some("customer@example.com".into()),
+                author_user_uuid: Some(customer.uuid),
+                raw_metadata: None,
+            },
+        )
+        .expect("inbound");
+        let reply = TestFixtures::create_comment(&mut conn, ticket.id, customer.uuid, "On it");
+        let base = super::super::reply_body::ReplyBody {
+            html: "<p>On it</p>".into(),
+            text: "On it".into(),
+        };
+        let copy = |conn: &mut crate::db::DbConnection, redacted: bool| {
+            channel_copy_body(
+                conn,
+                &channel,
+                &ticket,
+                &reply,
+                None,
+                CopyText {
+                    redacted,
+                    by_token: false,
+                },
+                &base,
+                None,
+            )
+        };
+        let full = copy(&mut conn, false);
+        assert!(full.text.contains("quote-marker words"), "{}", full.text);
+        let redacted = copy(&mut conn, true);
+        assert!(
+            !redacted.text.contains("quote-marker words"),
+            "{}",
+            redacted.text
+        );
+        assert!(
+            !redacted.html.contains("quote-marker words"),
+            "{}",
+            redacted.html
+        );
+    }
+
     #[test]
     fn a_reply_through_a_channel_follows_the_thread_so_far() {
         use crate::test_helpers::TestFixtures;

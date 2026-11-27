@@ -527,17 +527,30 @@ fn move_watchers(
     target_id: i32,
     sources: &[i32],
 ) -> Result<usize, MergeError> {
-    use crate::repository::ticket_watchers::{
-        add_watcher_with_notify, set_notify_on_internal_notes,
-    };
+    use crate::repository::ticket_watchers::{add_watcher_carried, set_notify_on_internal_notes};
     use crate::schema::ticket_watchers::dsl as w;
-    let mut wanted: std::collections::BTreeMap<Uuid, bool> = std::collections::BTreeMap::new();
-    let rows: Vec<(Uuid, bool)> = w::ticket_watchers
+    // Per person: notified of internal notes on any source, and who put them
+    // on it. A person on several sources keeps the adder that says least for
+    // them: someone else rather than themselves, themselves rather than a
+    // system write.
+    let mut wanted: std::collections::BTreeMap<Uuid, (bool, Option<Uuid>)> =
+        std::collections::BTreeMap::new();
+    let rows: Vec<(Uuid, bool, Option<Uuid>)> = w::ticket_watchers
         .filter(w::ticket_id.eq_any(sources))
-        .select((w::user_uuid, w::notify_on_internal_notes))
+        .order(w::ticket_id)
+        .select((w::user_uuid, w::notify_on_internal_notes, w::added_by))
         .load(conn)?;
-    for (user, notify) in rows {
-        *wanted.entry(user).or_default() |= notify;
+    for (user, notify, added_by) in rows {
+        let entry = wanted.entry(user).or_default();
+        entry.0 |= notify;
+        let rank = |by: Option<Uuid>| match by {
+            None => 0,
+            Some(by) if by == user => 1,
+            Some(_) => 2,
+        };
+        if rank(added_by) > rank(entry.1) {
+            entry.1 = added_by;
+        }
     }
     let current: std::collections::HashMap<Uuid, bool> = w::ticket_watchers
         .filter(w::ticket_id.eq(target_id))
@@ -546,10 +559,12 @@ fn move_watchers(
         .into_iter()
         .collect();
     let mut added = 0usize;
-    for (user, notify) in wanted {
+    for (user, (notify, added_by)) in wanted {
         match current.get(&user) {
+            // Moved, they keep who put them on the ticket, not the agent
+            // merging it.
             None => {
-                if add_watcher_with_notify(conn, target_id, user, true, notify)? {
+                if add_watcher_carried(conn, target_id, user, notify, added_by)? {
                     added += 1;
                 }
             }

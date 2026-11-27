@@ -12,8 +12,9 @@
 //!   reply, or an emailed reply the channel accepted), on any ticket; or
 //! - the ticket has no stranger provenance and they are its requester, or the
 //!   team put them on it (`ticket_watchers.added_by` is staff, or a system
-//!   write such as inbound mail copying in a Cc), or they aren't on it at all
-//!   (an approver or a person a rule names: the team chose them).
+//!   write such as inbound mail copying in a Cc), or they put themselves on
+//!   it (following it), or they aren't on it at all (an approver or a person
+//!   a rule names: the team chose them).
 //!
 //! Otherwise the mail names it only as "request #N". A person a requester
 //! added gets the number until they write on it themselves, so a requester
@@ -123,16 +124,17 @@ fn decide(
     if ticket.requester_uuid.is_some_and(|r| people.contains(&r)) {
         return Ok(TicketMailText::Full);
     }
-    // On the ticket: only if the team (or a system write) put them there.
+    // On the ticket: only if the team, a system write or they themselves put
+    // them there (following a ticket isn't someone else choosing to mail them).
     let added_by = watchers_added_by(conn, ticket.id, &people)?;
     if added_by.is_empty() {
         return Ok(TicketMailText::Full);
     }
-    for by in added_by {
+    for (person, by) in added_by {
         let Some(by) = by else {
             return Ok(TicketMailText::Full);
         };
-        if on_team(conn, ticket.workspace_id, &[by])? {
+        if by == person || on_team(conn, ticket.workspace_id, &[by])? {
             return Ok(TicketMailText::Full);
         }
     }
@@ -167,7 +169,11 @@ fn on_team(conn: &mut DbConnection, workspace_id: i32, people: &[Uuid]) -> Query
 /// Whether any of `people` has written a public comment on the ticket since
 /// it was filed. The description a form files with the ticket is written in
 /// the same transaction, at the same instant, so it doesn't count; nor does
-/// viewing the ticket, which a link a mail scanner opens can do.
+/// viewing the ticket, which a link a mail scanner opens can do. A comment
+/// that arrived by email counts only when the message passed DMARC
+/// (`channel_metadata.sender_auth`, which the inbound pipeline stamps): a
+/// forged `From` must not stand for the address it names. Other comments
+/// (the portal, a chat channel) count as they are.
 fn engaged(conn: &mut DbConnection, ticket: &Ticket, people: &[Uuid]) -> QueryResult<bool> {
     use crate::schema::comments as c;
     use diesel::prelude::*;
@@ -180,19 +186,24 @@ fn engaged(conn: &mut DbConnection, ticket: &Ticket, people: &[Uuid]) -> QueryRe
             .filter(c::user_uuid.eq_any(people))
             .filter(c::is_internal.eq(false))
             .filter(c::deleted_at.is_null())
-            .filter(c::created_at.gt(ticket.created_at)),
+            .filter(c::created_at.gt(ticket.created_at))
+            .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
+                "(channel_metadata->>'provider' IS NULL \
+                  OR channel_metadata->>'provider' NOT LIKE 'email%' \
+                  OR channel_metadata->>'sender_auth' = 'pass')",
+            )),
     ))
     .get_result(conn)
 }
 
-/// Who put each of `people` on the ticket, one entry per watcher row (`None`
-/// for a system write or a row from before it was recorded). Empty when none
-/// of them is on it.
+/// Who put each of `people` on the ticket, one entry per watcher row: the
+/// person, and who added them (`None` for a system write or a row from before
+/// it was recorded). Empty when none of them is on it.
 fn watchers_added_by(
     conn: &mut DbConnection,
     ticket_id: i32,
     people: &[Uuid],
-) -> QueryResult<Vec<Option<Uuid>>> {
+) -> QueryResult<Vec<(Uuid, Option<Uuid>)>> {
     use crate::schema::ticket_watchers as w;
     use diesel::prelude::*;
     if people.is_empty() {
@@ -201,7 +212,7 @@ fn watchers_added_by(
     w::table
         .filter(w::ticket_id.eq(ticket_id))
         .filter(w::user_uuid.eq_any(people))
-        .select(w::added_by)
+        .select((w::user_uuid, w::added_by))
         .load(conn)
 }
 

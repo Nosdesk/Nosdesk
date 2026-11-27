@@ -1685,38 +1685,38 @@ fn execute_reply(
     let app_name = crate::repository::site_settings::get_site_settings(conn)
         .map(|s| s.app_name)
         .unwrap_or_else(|_| "Nosdesk".to_string());
-    // A reply the rule sends on its own goes to the requester as a reply from
-    // the team, with nobody reading it first: on a ticket a stranger may have
-    // filed, it names the ticket by number and leaves the requester's name
-    // out until they write on it (services::ticket_mail_redaction). An
-    // agent applying the rule writes the reply as their own.
-    use crate::services::ticket_mail_redaction::{self as redaction, Recipient};
-    let redacted = ctx.source != ApplySource::Manual
-        && ticket.requester_uuid.is_some_and(|r| {
-            redaction::ticket_mail_redaction(conn, ticket, Recipient::User(r)).is_redacted()
-        });
-    let redacted_ticket = redacted.then(|| redaction::redacted_copy(ticket));
-    let requester = if redacted { None } else { requester };
-    let raw_body = if redacted {
-        crate::utils::template_variables::without_variables(
-            &raw_body,
-            crate::utils::template_variables::NAME_VARIABLES,
-        )
-    } else {
-        raw_body
-    };
     // A plain-text template keeps its line breaks in the HTML comment.
-    let rendered = crate::services::template_vars::render(
-        &crate::utils::content::reply_template_html(&raw_body),
-        &crate::services::template_vars::TemplateContext {
-            ticket: redacted_ticket.as_ref().unwrap_or(ticket),
-            requester: requester.as_ref(),
-            agent: Some(&agent),
-            app_name: &app_name,
-            event: None,
-            reply: None,
-        },
-    );
+    let render =
+        |ticket: &crate::models::Ticket, requester: Option<&crate::models::User>, body: &str| {
+            crate::services::template_vars::render(
+                &crate::utils::content::reply_template_html(body),
+                &crate::services::template_vars::TemplateContext {
+                    ticket,
+                    requester,
+                    agent: Some(&agent),
+                    app_name: &app_name,
+                    event: None,
+                    reply: None,
+                },
+            )
+        };
+    let rendered = render(ticket, requester.as_ref(), &raw_body);
+    // A reply the rule sends on its own goes out as a reply from the team with
+    // nobody reading it first, to the requester and every participant. It
+    // also carries a render naming the ticket by number and nobody by name,
+    // which each copy that may not carry the ticket's text takes instead
+    // (services::ticket_mail_redaction, decided per recipient by the relay).
+    // An agent applying the rule writes the reply as their own.
+    let redacted_html = (ctx.source != ApplySource::Manual).then(|| {
+        render(
+            &crate::services::ticket_mail_redaction::redacted_copy(ticket),
+            None,
+            &crate::utils::template_variables::without_variables(
+                &raw_body,
+                crate::utils::template_variables::NAME_VARIABLES,
+            ),
+        )
+    });
 
     let is_internal = visibility == "internal";
     // A reply the rule sent on its own names the rule, so it reads as the
@@ -1728,6 +1728,9 @@ fn execute_reply(
     });
     if ctx.source != ApplySource::Manual {
         channel_metadata["rule_id"] = json!(rule.id);
+    }
+    if let Some(html) = redacted_html {
+        channel_metadata["redacted_html"] = json!(html);
     }
     let new_comment = NewComment {
         content: rendered,

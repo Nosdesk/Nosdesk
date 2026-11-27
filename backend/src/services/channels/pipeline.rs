@@ -709,6 +709,9 @@ fn add_copied_participants(
         {
             continue;
         }
+        // Added under the system actor (NULL added_by, full text): a Cc'd person
+        // already got the sender's own message from the sender's server, so our
+        // mail adds no reach.
         crate::repository::ticket_watchers::add_watcher(conn, ticket.id, user.uuid, true)?;
     }
     Ok(())
@@ -841,6 +844,13 @@ fn insert_inbound_comment(
     if msg.spam_suspected {
         metadata["spam_suspected"] = json!(true);
     }
+    // The DMARC verdict: a reply counts as its sender writing on the ticket
+    // (services::ticket_mail_redaction) only when it passed.
+    metadata["sender_auth"] = json!(match msg.sender_auth {
+        super::SenderAuth::Pass => "pass",
+        super::SenderAuth::Fail => "fail",
+        super::SenderAuth::Unknown => "unknown",
+    });
     // Mail from before the channel connected is history: stamped on the
     // comment itself, so readers of the table (the time-elapsed rule clocks)
     // can tell, as readers of its event do from `created_via`.
