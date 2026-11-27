@@ -133,6 +133,9 @@ portal-magic-link-code = Or enter this code on the sign-in page: <strong>{ $code
 portal-magic-link-code-text = Or enter this code on the sign-in page: { $code }
 portal-magic-link-notice-unexpected = If you didn't request this, you can safely ignore this email
 portal-magic-link-body-text =
+verify-email-confirm-title = Confirm this address
+verify-email-confirm-body = Press the button to confirm this address on your account.
+verify-email-confirm-button = Confirm address
     Hello { $name },
 
     Use this link to sign in to the { $app } support portal and view your tickets:
@@ -8887,6 +8890,9 @@ portal-resolve-yes = Yes, it's fixed
 portal-resolve-no = No, I still need help
 portal-resolve-thanks = Thanks for letting us know. This request is closed.
 portal-resolve-note-label = Anything to add? (optional)
+portal-sign-in-link-title = Sign in to { $app }
+portal-sign-in-link-intro = Press Continue to finish signing in. The link works once.
+portal-sign-in-link-continue = Continue
 portal-resolve-note-send = Send
 portal-resolve-noted = Thanks, the team will see your note.
 portal-resolve-rated-good = You said this is fixed.

@@ -90,6 +90,10 @@ portal-magic-link-cta-label = Aanmelden
 portal-magic-link-notice-expiry = Deze link en code verlopen over <strong>20 minuten</strong> en werken één keer
 portal-magic-link-code = Of vul deze code in op de inlogpagina: <strong>{ $code }</strong>
 portal-magic-link-code-text = Of vul deze code in op de inlogpagina: { $code }
+# MACHINE TRANSLATION, pending native review
+verify-email-confirm-title = Dit adres bevestigen
+verify-email-confirm-body = Druk op de knop om dit adres op uw account te bevestigen.
+verify-email-confirm-button = Adres bevestigen
 portal-magic-link-notice-unexpected = Als u dit niet hebt aangevraagd, kunt u deze e-mail negeren
 portal-magic-link-body-text =
     Hallo { $name },
@@ -9814,6 +9818,10 @@ portal-new-reply = Nieuwe reactie
 portal-resolve-hint-open = Als het is opgelost, laat het team het weten, dan sluiten zij de aanvraag.
 portal-resolve-question = Is het opgelost?
 portal-resolve-yes = Ja, het is opgelost
+# MACHINE TRANSLATION, pending native review
+portal-sign-in-link-title = Inloggen bij { $app }
+portal-sign-in-link-intro = Druk op Doorgaan om het inloggen af te ronden. De link werkt één keer.
+portal-sign-in-link-continue = Doorgaan
 portal-resolve-no = Nee, ik heb nog hulp nodig
 portal-resolve-thanks = Bedankt voor het laten weten. Deze aanvraag is gesloten.
 portal-resolve-note-label = Nog iets toe te voegen? (optioneel)

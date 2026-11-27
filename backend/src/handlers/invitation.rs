@@ -645,7 +645,7 @@ fn accept_invitation_steps(
     }
 
     // Mark user's primary email as verified (they proved ownership by receiving the invitation)
-    if let Err(e) = repository::user_emails::mark_primary_verified(conn, &user.uuid) {
+    if let Err(e) = repository::user_emails::mark_primary_proven(conn, &user.uuid) {
         warn!("Failed to mark email as verified: {:?}", e);
         // Don't fail the request for this
     }

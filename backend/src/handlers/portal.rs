@@ -48,7 +48,8 @@ use diesel::prelude::*;
 /// `/api/portal/auth` scope in main.rs (paths are scope-relative).
 pub fn auth_config(cfg: &mut web::ServiceConfig) {
     cfg.route("/magic-link", web::post().to(request_magic_link))
-        .route("/callback", web::get().to(magic_link_callback))
+        .route("/callback", web::get().to(magic_link_landing))
+        .route("/callback", web::post().to(magic_link_callback))
         .route("/ticket", web::get().to(ticket_link_callback))
         .route("/code", web::post().to(sign_in_with_code))
         .route("/handoff", web::get().to(portal_handoff_callback))
@@ -635,31 +636,58 @@ fn sent_to(metadata: Option<&serde_json::Value>) -> Option<String> {
     metadata?.get("sent_to")?.as_str().map(str::to_string)
 }
 
-/// Mark verified the address a sign-in proved: the one its token was sent to,
-/// or the primary for a token from before tokens recorded it (they were all
-/// sent to the primary).
-fn mark_signed_in_address_verified(
+/// Mark verified and proven the address a sign-in proved: the one its token
+/// was sent to, or the primary for a token from before tokens recorded it
+/// (they were all sent to the primary). Only for the steps a mail scanner
+/// can't take: the sign-in page's POST and the sign-in code.
+fn mark_signed_in_address_proven(
     conn: &mut crate::db::DbConnection,
     user_uuid: uuid::Uuid,
     sent_to: Option<&str>,
 ) -> Result<usize, diesel::result::Error> {
     match sent_to {
         Some(address) => {
-            crate::repository::user_emails::mark_address_verified(conn, &user_uuid, address)
+            crate::repository::user_emails::mark_address_proven(conn, &user_uuid, address)
         }
-        None => crate::repository::user_emails::mark_primary_verified(conn, &user_uuid),
+        None => crate::repository::user_emails::mark_primary_proven(conn, &user_uuid),
     }
 }
 
-/// `GET /api/portal/auth/callback?token=…` (portal origin, unauthenticated).
-/// Consumes a single-use sign-in token, confirms the subject is a member of the
-/// origin's workspace, and establishes the portal session, redirecting to the
-/// portal home with the session cookies set.
+/// `GET /api/portal/auth/callback?token=…` (portal origin, unauthenticated):
+/// the link in a sign-in email. Opening it changes nothing: mail scanners fetch
+/// every link on delivery, and a fetch that signed in would spend the link and
+/// mark the address proven for whoever asked for it. It lands on the portal's
+/// sign-in page, whose Continue button POSTs the token back here.
+pub async fn magic_link_landing(query: web::Query<MagicLinkCallbackQuery>) -> HttpResponse {
+    HttpResponse::Found()
+        .insert_header(("Cache-Control", "no-store"))
+        .insert_header(("Referrer-Policy", "no-referrer"))
+        .append_header((
+            "Location",
+            portal_path(&format!(
+                "/sign-in?token={}",
+                urlencoding::encode(&query.token)
+            )),
+        ))
+        .finish()
+}
+
+/// `POST /api/portal/auth/callback` with `{ "token": … }` (portal origin,
+/// unauthenticated): the sign-in page's Continue. Consumes the single-use
+/// sign-in token, confirms the subject is a member of the origin's workspace,
+/// marks the address proven and establishes the portal session. Every failure
+/// is the same 400, as for a used, expired or unknown link.
 pub async fn magic_link_callback(
     req: HttpRequest,
-    query: web::Query<MagicLinkCallbackQuery>,
+    body: web::Json<MagicLinkCallbackQuery>,
     pool: web::Data<Pool>,
 ) -> Result<HttpResponse, ApiError> {
+    let failed = || {
+        Ok(errors::bad_request_with_code(
+            "This sign-in link doesn't work any more. Send a new one.",
+            "invalid_link",
+        ))
+    };
     let Some(ctx) = req.extensions().get::<WorkspaceContext>().cloned() else {
         return Err(ApiError::BadRequest("No workspace for this origin".into()));
     };
@@ -671,7 +699,7 @@ pub async fn magic_link_callback(
     // The address the link was sent to, read before the token is spent.
     let sent_to = crate::repository::reset_tokens::find_token_by_hash(
         &mut conn,
-        &ResetTokenUtils::hash_token(&query.token),
+        &ResetTokenUtils::hash_token(&body.token),
     )
     .ok()
     .and_then(|t| sent_to(t.metadata.as_ref()));
@@ -679,28 +707,29 @@ pub async fn magic_link_callback(
     // Single-use: the token is claimed (marked used) atomically here.
     let user_uuid = match crate::repository::reset_tokens::validate_and_consume_token(
         &mut conn,
-        &query.token,
+        &body.token,
         TokenType::PortalMagicLink.as_str(),
     ) {
         Ok(uuid) => uuid,
-        Err(_) => return Ok(sign_in_error_redirect()),
+        Err(_) => return failed(),
     };
 
     // The link is workspace-agnostic, so confirm the subject actually belongs
     // to the workspace this origin serves before minting a session for it.
     if !crate::middleware::cookie_auth::is_workspace_member(&mut conn, ctx.workspace_id, user_uuid)
     {
-        return Ok(sign_in_error_redirect());
+        return failed();
     }
 
     let user = match crate::repository::users::find_active_by_uuid(&user_uuid, &mut conn) {
         Ok(u) => u,
-        Err(_) => return Ok(sign_in_error_redirect()),
+        Err(_) => return failed(),
     };
 
-    // Following the emailed link proves the address, as confirming a guest
-    // submission does. Best-effort: the sign-in doesn't depend on it.
-    if let Err(e) = mark_signed_in_address_verified(&mut conn, user.uuid, sent_to.as_deref()) {
+    // Pressing Continue on the emailed link proves the mailbox it was sent to,
+    // as confirming a guest submission does. Best-effort: the sign-in doesn't
+    // depend on it.
+    if let Err(e) = mark_signed_in_address_proven(&mut conn, user.uuid, sent_to.as_deref()) {
         tracing::warn!(user_uuid = %user.uuid, error = ?e, "portal sign-in: could not mark email verified");
     }
 
@@ -712,12 +741,11 @@ pub async fn magic_link_callback(
         PortalScope::Full,
         crate::handlers::auth::SignInProof::Credential,
     )?;
-    Ok(HttpResponse::Found()
+    Ok(HttpResponse::Ok()
         .cookie(session.access)
         .cookie(session.refresh)
         .cookie(session.csrf)
-        .append_header(("Location", portal_path("/")))
-        .finish())
+        .json(json!({ "status": "ok" })))
 }
 
 /// Bounce a failed sign-in back to the portal with a generic error flag (a bad,
@@ -897,7 +925,7 @@ pub async fn sign_in_with_code(
         Ok(Some(_)) => {}
         _ => return invalid(),
     }
-    if let Err(e) = mark_signed_in_address_verified(
+    if let Err(e) = mark_signed_in_address_proven(
         &mut conn,
         user.uuid,
         sent_to(token.metadata.as_ref()).as_deref(),

@@ -31,6 +31,13 @@ const router = createRouter({
     },
     { path: '/', redirect: '/tickets' },
     { path: '/login', name: 'login', component: LoginView },
+    // A sign-in email's link lands here; only its button signs in, so a mail
+    // scanner opening the link spends nothing.
+    {
+      path: '/sign-in',
+      name: 'sign-in-link',
+      component: () => import('./views/SignInLinkView.vue'),
+    },
     { path: '/tickets', name: 'tickets', component: TicketsView },
     { path: '/tickets/new', name: 'ticket-new', component: NewTicketView },
     // A short link to a new request.

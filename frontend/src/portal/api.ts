@@ -97,7 +97,7 @@ portalApi.interceptors.response.use(
       // requester to the page they were on.
       const { default: router } = await import('./router')
       const current = router.currentRoute.value
-      if (current.name !== 'login') {
+      if (current.name !== 'login' && current.name !== 'sign-in-link') {
         router.push({ path: '/login', query: signInQuery(current.fullPath) })
       }
     }

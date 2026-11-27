@@ -93,6 +93,10 @@ portal-magic-link-cta-label = Se connecter
 portal-magic-link-notice-expiry = Ce lien et ce code expirent dans <strong>20 minutes</strong> et ne fonctionnent qu'une fois
 portal-magic-link-code = Ou saisissez ce code sur la page de connexion : <strong>{ $code }</strong>
 portal-magic-link-code-text = Ou saisissez ce code sur la page de connexion : { $code }
+# MACHINE TRANSLATION, pending native review
+verify-email-confirm-title = Confirmer cette adresse
+verify-email-confirm-body = Appuyez sur le bouton pour confirmer cette adresse sur votre compte.
+verify-email-confirm-button = Confirmer l'adresse
 portal-magic-link-notice-unexpected = Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail
 portal-magic-link-body-text =
     Bonjour { $name },
@@ -9823,6 +9827,10 @@ portal-new-reply = Nouvelle réponse
 portal-resolve-hint-open = Si c'est réglé, prévenez l'équipe et elle clôturera la demande.
 portal-resolve-question = C'est réglé ?
 portal-resolve-yes = Oui, c'est réglé
+# MACHINE TRANSLATION, pending native review
+portal-sign-in-link-title = Connexion à { $app }
+portal-sign-in-link-intro = Appuyez sur Continuer pour terminer la connexion. Le lien ne fonctionne qu'une fois.
+portal-sign-in-link-continue = Continuer
 portal-resolve-no = Non, j'ai encore besoin d'aide
 portal-resolve-thanks = Merci de nous avoir prévenus. Cette demande est clôturée.
 portal-resolve-note-label = Autre chose à ajouter ? (facultatif)
