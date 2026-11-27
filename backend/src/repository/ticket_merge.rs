@@ -521,19 +521,51 @@ fn state_category(
 
 /// Each source watcher onto the destination, once, keeping the most
 /// permissive internal-notes setting of their rows on the sources and the
-/// destination. Returns how many were newly added.
+/// destination, and the most restrictive record of who put them on it.
+/// Returns how many were newly added.
 fn move_watchers(
     conn: &mut DbConnection,
     target_id: i32,
     sources: &[i32],
 ) -> Result<usize, MergeError> {
-    use crate::repository::ticket_watchers::{add_watcher_carried, set_notify_on_internal_notes};
+    use crate::repository::ticket_watchers::{
+        add_watcher_carried, set_added_by, set_notify_on_internal_notes,
+    };
     use crate::schema::ticket_watchers::dsl as w;
+    let workspace_id: i32 = crate::schema::tickets::table
+        .find(target_id)
+        .select(crate::schema::tickets::workspace_id)
+        .first(conn)?;
+    // How little a row's adder says for the person, for mail redaction
+    // (`services::ticket_mail_redaction`): a system write, then themselves,
+    // then staff, then someone outside the team, whose choice gets them only
+    // the ticket's number.
+    let mut staff: std::collections::HashMap<Uuid, bool> = std::collections::HashMap::new();
+    let mut rank = |conn: &mut DbConnection, person: Uuid, by: Option<Uuid>| -> u8 {
+        match by {
+            None => 0,
+            Some(by) if by == person => 1,
+            Some(by) => {
+                let on_team = *staff.entry(by).or_insert_with(|| {
+                    crate::repository::users::find_active_by_uuid(&by, conn).is_ok_and(|user| {
+                        crate::repository::user_helpers::user_can_handle_tickets_in(
+                            conn,
+                            workspace_id,
+                            &user,
+                        )
+                    })
+                });
+                if on_team {
+                    2
+                } else {
+                    3
+                }
+            }
+        }
+    };
     // Per person: notified of internal notes on any source, and who put them
-    // on it. A person on several sources keeps the adder that says least for
-    // them: someone else rather than themselves, themselves rather than a
-    // system write.
-    let mut wanted: std::collections::BTreeMap<Uuid, (bool, Option<Uuid>)> =
+    // on it, the most restrictive of their rows.
+    let mut wanted: std::collections::BTreeMap<Uuid, (bool, Option<Uuid>, u8)> =
         std::collections::BTreeMap::new();
     let rows: Vec<(Uuid, bool, Option<Uuid>)> = w::ticket_watchers
         .filter(w::ticket_id.eq_any(sources))
@@ -541,25 +573,23 @@ fn move_watchers(
         .select((w::user_uuid, w::notify_on_internal_notes, w::added_by))
         .load(conn)?;
     for (user, notify, added_by) in rows {
-        let entry = wanted.entry(user).or_default();
+        let r = rank(conn, user, added_by);
+        let entry = wanted.entry(user).or_insert((false, None, 0));
         entry.0 |= notify;
-        let rank = |by: Option<Uuid>| match by {
-            None => 0,
-            Some(by) if by == user => 1,
-            Some(_) => 2,
-        };
-        if rank(added_by) > rank(entry.1) {
+        if r > entry.2 {
             entry.1 = added_by;
+            entry.2 = r;
         }
     }
-    let current: std::collections::HashMap<Uuid, bool> = w::ticket_watchers
+    let current: std::collections::HashMap<Uuid, (bool, Option<Uuid>)> = w::ticket_watchers
         .filter(w::ticket_id.eq(target_id))
-        .select((w::user_uuid, w::notify_on_internal_notes))
-        .load::<(Uuid, bool)>(conn)?
+        .select((w::user_uuid, w::notify_on_internal_notes, w::added_by))
+        .load::<(Uuid, bool, Option<Uuid>)>(conn)?
         .into_iter()
+        .map(|(user, notify, by)| (user, (notify, by)))
         .collect();
     let mut added = 0usize;
-    for (user, (notify, added_by)) in wanted {
+    for (user, (notify, added_by, wanted_rank)) in wanted {
         match current.get(&user) {
             // Moved, they keep who put them on the ticket, not the agent
             // merging it.
@@ -568,10 +598,14 @@ fn move_watchers(
                     added += 1;
                 }
             }
-            // Already watching: only a setting the sources widen changes.
-            Some(&on_target) => {
+            // Already watching: a setting the sources widen changes, and a
+            // more restrictive adder on a source replaces the destination's.
+            Some(&(on_target, target_by)) => {
                 if notify && !on_target {
                     set_notify_on_internal_notes(conn, target_id, &user, true)?;
+                }
+                if wanted_rank > rank(conn, user, target_by) {
+                    set_added_by(conn, target_id, user, added_by)?;
                 }
             }
         }

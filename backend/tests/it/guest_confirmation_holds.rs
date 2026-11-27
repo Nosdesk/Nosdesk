@@ -138,3 +138,32 @@ fn self_hosted_mail_keeps_the_workspaces_branding_and_names() {
         );
     }
 }
+
+/// A stop link after a hard bounce replaces the reason and keeps the bounce's
+/// count and diagnostic.
+#[test]
+fn a_stop_after_a_bounce_keeps_the_bounce_record() {
+    let (_db, pool, ws) = desk();
+    let suppress = |reason: &str, diagnostic: Option<&str>| {
+        run_in_workspace(&pool, REF, ws, |c| {
+            backend::repository::email_suppressions::upsert(
+                c,
+                NewEmailSuppression {
+                    email: "gone@example.com".into(),
+                    reason: reason.into(),
+                    bounce_diagnostic: diagnostic.map(str::to_string),
+                    workspace_id: ws,
+                },
+            )
+        })
+        .expect("suppress")
+    };
+    let bounced = suppress(
+        email_suppression_reason::HARD_BOUNCE,
+        Some("550 no such user"),
+    );
+    let row = suppress(email_suppression_reason::REQUESTED, None);
+    assert_eq!(row.reason, email_suppression_reason::REQUESTED);
+    assert_eq!(row.bounce_count, bounced.bounce_count);
+    assert_eq!(row.bounce_diagnostic.as_deref(), Some("550 no such user"));
+}

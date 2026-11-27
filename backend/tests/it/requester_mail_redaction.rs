@@ -607,6 +607,44 @@ async fn a_merge_keeps_who_added_a_participant() {
     assert!(!names_the_ticket(&notice), "{notice:?}");
 }
 
+/// A person on both tickets keeps the more restrictive record of who put them
+/// there: the requester's choice on the source over staff's on the
+/// destination.
+#[actix_rt::test]
+async fn a_merge_keeps_the_more_restrictive_adder() {
+    let d = desk();
+    let destination = d.ticket("portal", None);
+    let source = d.ticket("portal", None);
+    let victim = d.outsider("Victim", "victim@example.com");
+    d.add(&destination, victim, d.ws.admin_uuid);
+    assert_eq!(d.added_by(destination.id, victim), Some(d.ws.admin_uuid));
+    d.portal_add(&source, "victim@example.com").await;
+    let agent = backend::sync::actor::ActorContext::user(d.ws.admin_uuid, None)
+        .with_workspace(d.ws.workspace_id);
+    backend::sync::session::with_actor_context::<_, backend::repository::ticket_merge::MergeError>(
+        &mut d.pool.get().expect("conn"),
+        &agent,
+        |c| {
+            backend::repository::ticket_merge::execute_merge(
+                c,
+                backend::repository::ticket_merge::MergeInput {
+                    destination_ticket_id: destination.id,
+                    source_ticket_ids: vec![source.id],
+                    reason: None,
+                    notify_customer: false,
+                    expected_state: Vec::new(),
+                    marker_body: None,
+                },
+                &agent,
+            )
+        },
+    )
+    .expect("merge");
+    assert_eq!(d.added_by(destination.id, victim), Some(d.requester));
+    let notice = d.fresh_participant_added(&destination, victim, "victim@example.com");
+    assert!(!names_the_ticket(&notice), "{notice:?}");
+}
+
 /// Someone who put themselves on a request (following it) isn't someone else
 /// choosing to mail them: on a ticket the requester filed, they get its text.
 /// A stranger's ticket still names itself by number only.

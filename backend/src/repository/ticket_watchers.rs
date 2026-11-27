@@ -194,6 +194,24 @@ pub fn add_watcher_carried(
     )
 }
 
+// sync-audit-only: added_by is server-side provenance for mail redaction; no client reads it
+/// Record who put `user_uuid` on the ticket (`added_by`) on their existing row.
+/// A merge uses it when a person on a source is already on the destination.
+pub fn set_added_by(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    user_uuid: Uuid,
+    added_by: Option<Uuid>,
+) -> QueryResult<usize> {
+    diesel::update(
+        ticket_watchers::table
+            .filter(ticket_watchers::ticket_id.eq(ticket_id))
+            .filter(ticket_watchers::user_uuid.eq(user_uuid)),
+    )
+    .set(ticket_watchers::added_by.eq(added_by))
+    .execute(conn)
+}
+
 fn insert_watcher(
     conn: &mut DbConnection,
     ticket_id: i32,
