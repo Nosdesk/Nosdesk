@@ -167,6 +167,37 @@ impl Form {
         user
     }
 
+    /// A workspace named `slug` in which `user` held a `role` seat that was
+    /// since removed.
+    fn removed_seat(&self, slug: &str, user: uuid::Uuid, role: &str) {
+        #[derive(QueryableByName)]
+        struct Id {
+            #[diesel(sql_type = diesel::sql_types::Integer)]
+            id: i32,
+        }
+        let mut c = self.superuser();
+        let ws =
+            diesel::sql_query("INSERT INTO workspaces (slug, name) VALUES ($1, $1) RETURNING id")
+                .bind::<diesel::sql_types::Text, _>(slug)
+                .get_result::<Id>(&mut c)
+                .expect("workspace")
+                .id;
+        common::seat(&mut c, ws, user, role);
+        self.remove_seat(ws, user);
+    }
+
+    /// Remove `user`'s seat in `ws`, as an admin does.
+    fn remove_seat(&self, ws: i32, user: uuid::Uuid) {
+        diesel::sql_query(
+            "UPDATE workspace_members SET removed_at = now() \
+             WHERE workspace_id = $1 AND user_uuid = $2",
+        )
+        .bind::<diesel::sql_types::Integer, _>(ws)
+        .bind::<diesel::sql_types::Uuid, _>(user)
+        .execute(&mut self.superuser())
+        .expect("remove the seat");
+    }
+
     /// `user`'s role in B, `None` without an active seat.
     fn role_in_b(&self, user: uuid::Uuid) -> Option<String> {
         use backend::schema::workspace_members as m;
@@ -329,6 +360,10 @@ async fn one_answer_for_every_address(verification_required: bool) {
     let requester_of_a = f.account_in(f.a, "member", &[(&seated_elsewhere, true, true)]);
     let staff_elsewhere = format!("agent-{tag}@example.com");
     let agent_of_a = f.account_in(f.a, "agent", &[(&staff_elsewhere, true, true)]);
+    // An unverified account, a requester in A, once an agent of another team.
+    let former_agent = format!("former-agent-{tag}@example.com");
+    let former = f.account_in(f.a, "member", &[(&former_agent, true, false)]);
+    f.removed_seat(&format!("former-team-{tag}"), former, "agent");
 
     let mut answers = vec![
         f.submit(&fresh).await,
@@ -337,6 +372,7 @@ async fn one_answer_for_every_address(verification_required: bool) {
         f.submit(&alias_typed).await,
         f.submit(&seated_elsewhere).await,
         f.submit(&staff_elsewhere).await,
+        f.submit(&former_agent).await,
     ];
     if verification_required {
         // An address with three requests waiting is told the same about a
@@ -430,6 +466,12 @@ async fn one_answer_for_every_address(verification_required: bool) {
     assert_eq!(f.tickets_for(&staff_elsewhere), 0);
     assert_eq!(f.confirmations_to(&staff_elsewhere), 0);
     assert_eq!(f.role_in_b(agent_of_a), None);
+    // So is a former team member elsewhere whose unverified account the form
+    // would otherwise reuse: a request held for them could never be released,
+    // and one filed live would seat them.
+    assert_eq!(f.tickets_for(&former_agent), 0);
+    assert_eq!(f.confirmations_to(&former_agent), 0);
+    assert_eq!(f.role_in_b(former), None);
 }
 
 /// A submission that fails to file is answered as any other: the failure is
@@ -1010,4 +1052,43 @@ async fn a_held_verified_account_without_credentials_sets_no_password() {
     assert_eq!(status, 200, "{body}");
     assert_eq!(f.states_for(to), [Some("verified".into())]);
     assert!(f.local_password(user).is_none());
+}
+
+/// A held request whose account can no longer be seated here by the time the
+/// link is followed (its only seat elsewhere was removed, so it would join no
+/// workspace, or it was deleted) isn't released: it stays held and the link
+/// is answered as an invalid one, unspent.
+#[actix_web::test]
+async fn a_confirmation_that_can_seat_nobody_releases_nothing() {
+    let f = form(true);
+    let unseated = "unseated-since@example.com";
+    let deleted = "deleted-since@example.com";
+    let unseated_user = f.account_in(f.a, "member", &[(unseated, true, false)]);
+    let deleted_user = f.account_in(f.a, "member", &[(deleted, true, false)]);
+    for to in [unseated, deleted] {
+        f.submit(to).await;
+        f.until("the held request and its link", || {
+            f.tickets_for(to) == 1 && f.confirmations_to(to) == 1
+        })
+        .await;
+    }
+    f.remove_seat(f.a, unseated_user);
+    diesel::sql_query("UPDATE users SET deleted_at = now() WHERE uuid = $1")
+        .bind::<diesel::sql_types::Uuid, _>(deleted_user)
+        .execute(&mut f.superuser())
+        .expect("delete");
+
+    for (to, user) in [(unseated, unseated_user), (deleted, deleted_user)] {
+        let raw = f.confirmation_token(to);
+        let (status, body) = f.invitation("confirm", &raw, None).await;
+        assert_eq!(status, 400, "{to}: {body}");
+        let (status, body) = f
+            .invitation("accept", &raw, Some("correct horse battery"))
+            .await;
+        assert_eq!(status, 400, "{to}: {body}");
+        assert_eq!(f.states_for(to), [Some("pending".into())], "{to}");
+        assert_eq!(f.role_in_b(user), None, "{to}");
+        assert!(f.local_password(user).is_none(), "{to}");
+        assert!(!f.spent(&raw), "{to}");
+    }
 }

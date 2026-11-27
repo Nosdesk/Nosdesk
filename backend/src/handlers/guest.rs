@@ -472,9 +472,23 @@ pub fn create_guest_submission(
     } = *submission;
     // One submission per address at a time, so the pending cap below holds.
     repository::tickets::lock_guest_submissions_for(conn, email)?;
-    let (user, is_new_guest, held) =
-        match user_helpers::find_or_create_guest_user(email, name, conn, Some(search)) {
+    let (user, is_new_guest, held) = match user_helpers::find_or_create_guest_user(email, name, conn, Some(search)) {
             Ok(GuestUserResult::Created(u)) => (u, true, verification_required),
+            Ok(GuestUserResult::Existing(u))
+                // The confirmation releases only for an account within the
+                // form's reach (`invitation::complete_verification`), so one
+                // that isn't (a platform role, a staff seat elsewhere now or
+                // before) is answered here as an account holder is, rather than
+                // held for a link that can never release it.
+                if crate::repository::requester_identities::out_of_reach(
+                    conn,
+                    workspace_id,
+                    u.uuid,
+                )?
+                .is_some() =>
+            {
+                return Err(CreateError::EmailClaimed)
+            }
             Ok(GuestUserResult::Existing(u)) => {
                 // A reused account may hold seats only elsewhere, and without one
                 // here its View request link and portal sign-in refuse it. A held

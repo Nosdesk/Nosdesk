@@ -218,24 +218,6 @@ pub async fn accept_invitation(
         }
     };
 
-    // A request-form confirmation sets a password only on a guest account
-    // with no way to sign in. Any other is refused before the link is spent,
-    // so it still confirms without one (`confirm_guest_submission`).
-    if guest.is_some() {
-        match guest_confirmation_sets_password(&mut conn, &user) {
-            Ok(true) => {}
-            Ok(false) => {
-                return Err(ApiError::BadRequest(
-                    "This request is confirmed without a password.".into(),
-                ))
-            }
-            Err(e) => {
-                error!(user_uuid = %user.uuid, error = %e, "Could not read the account's sign-in methods");
-                return Err(ApiError::Internal("Failed to confirm submission".into()));
-            }
-        }
-    }
-
     // Hash the password
     let password_hash = match hash_password(&request_data.password) {
         Ok(hash) => hash,
@@ -257,24 +239,43 @@ pub async fn accept_invitation(
             // The password and the confirmation commit together, so a failed
             // release sets no password either.
             let mut failure = None;
-            let committed =
-                diesel::Connection::transaction::<_, diesel::result::Error, _>(&mut conn, |c| {
-                    let done = store_local_password(c, &user, &password_hash).and_then(|()| {
-                        complete_verification(
-                            &db_pool,
-                            c,
-                            &search_service,
-                            &user,
-                            Completion::GuestPasswordSet,
-                            submitted_in(token),
-                            Some(&token.token_hash),
-                        )
-                    });
+            let committed = diesel::Connection::transaction::<_, diesel::result::Error, _>(
+                &mut conn,
+                |c| {
+                    // A request-form confirmation sets a password only on a
+                    // guest account with no way to sign in, read in this
+                    // transaction before the password is written. Any other
+                    // is refused and rolled back, so the link stays unspent
+                    // and confirms without one (`confirm_guest_submission`).
+                    let done = match guest_confirmation_sets_password(c, &user) {
+                        Ok(true) => Ok(()),
+                        Ok(false) => Err(ApiError::BadRequest(
+                            "This request is confirmed without a password.".into(),
+                        )),
+                        Err(e) => {
+                            error!(user_uuid = %user.uuid, error = %e, "Could not read the account's sign-in methods");
+                            Err(ApiError::Internal("Failed to confirm submission".into()))
+                        }
+                    };
+                    let done = done
+                        .and_then(|()| store_local_password(c, &user, &password_hash))
+                        .and_then(|()| {
+                            complete_verification(
+                                &db_pool,
+                                c,
+                                &search_service,
+                                &user,
+                                Completion::GuestPasswordSet,
+                                submitted_in(token),
+                                Some(&token.token_hash),
+                            )
+                        });
                     done.map_err(|e| {
                         failure = Some(e);
                         diesel::result::Error::RollbackTransaction
                     })
-                });
+                },
+            );
             if let Err(e) = committed {
                 return Err(failure.unwrap_or_else(|| {
                     error!(error = %e, "Guest confirmation with a password failed");
@@ -398,7 +399,9 @@ pub async fn confirm_guest_submission(
         return Err(invalid());
     }
 
-    let user = repository::get_user_by_uuid(&token.user_uuid, &mut conn).map_err(|_| invalid())?;
+    // A deleted account's request is never released.
+    let user = repository::users::find_active_by_uuid(&token.user_uuid, &mut conn)
+        .map_err(|_| invalid())?;
     // The workspace whose form sent the confirmation. A reused account can
     // hold seats in several, and its held request is in this one.
     let submitted_in = submitted_in(&token);
@@ -722,12 +725,19 @@ fn complete_verification(
                 };
                 let release = named_tickets(&token);
                 let confirmed_address = confirmed_address(&token);
-                // Whoever the request is released under must still be within
-                // the form's reach now, whatever they were when it was filed: no
-                // platform role and no staff seat elsewhere. Otherwise it stays
-                // held, and the link is answered as an invalid one, unspent.
-                if repository::requester_identities::out_of_reach(c, workspace_id, user.uuid)?
-                    .is_some()
+                // Whoever the request is released under must still be a live
+                // account within the form's reach now, whatever it was when the
+                // request was filed: no platform role and no staff seat
+                // elsewhere. Otherwise it stays held, and the link is answered
+                // as an invalid one, unspent.
+                let active = match repository::users::find_active_by_uuid(&user.uuid, c) {
+                    Ok(_) => true,
+                    Err(diesel::result::Error::NotFound) => false,
+                    Err(e) => return Err(e),
+                };
+                if !active
+                    || repository::requester_identities::out_of_reach(c, workspace_id, user.uuid)?
+                        .is_some()
                 {
                     refused = true;
                     return Err(diesel::result::Error::RollbackTransaction);
@@ -751,7 +761,15 @@ fn complete_verification(
                 // held elsewhere is seated here, now that the address is proven,
                 // so the released request's requester is a member when its
                 // `ticket.created` goes out and a portal session can be minted.
-                repository::workspaces::join_as_requester(c, workspace_id, user.uuid)?;
+                // One that can't be (removed here, or seated nowhere) gets
+                // nothing released: the request stays held and the link is
+                // answered as an invalid one.
+                if !repository::workspaces::join_as_requester(c, workspace_id, user.uuid)?
+                    && repository::workspaces::membership(c, workspace_id, user.uuid)?.is_none()
+                {
+                    refused = true;
+                    return Err(diesel::result::Error::RollbackTransaction);
+                }
                 // The requests this confirmation was sent for, verified.
                 let ids = release.ids(c, user.uuid, workspace_id)?;
                 let mut released =
