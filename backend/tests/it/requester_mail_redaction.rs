@@ -779,19 +779,83 @@ fn sent_to(d: &Desk, to: &str, message_id: &str) {
     });
 }
 
+/// The workspace's requester sign-in provider, listing `domains` as its
+/// organisation's. Written as stored, so a free-mail domain an older admin
+/// form let through is there too.
+fn org_domains(d: &Desk, domains: &[&str]) {
+    let domains: Vec<String> = domains.iter().map(|d| d.to_string()).collect();
+    run_in_workspace(&d.pool, REF, d.ws.workspace_id, |c| {
+        backend::repository::workspace_identity_providers::save(
+            c,
+            d.ws.workspace_id,
+            &backend::repository::workspace_identity_providers::ProviderInput {
+                kind: "oidc",
+                display_name: "Acme",
+                issuer_url: "https://id.acme.example",
+                client_id: "nosdesk",
+                client_secret: None,
+                allowed_domains: &domains,
+                enabled: true,
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .expect("sign-in provider");
+}
+
 /// An address copied on inbound mail counts as the team's choice only when
-/// the message passed DMARC and the address is on the sender's own domain.
-/// Any other is the sender's choice, and gets the ticket by number until it
-/// writes on it, which a reply that passed DMARC does.
+/// the message passed DMARC, the address is on the sender's own domain, and
+/// that domain is one the workspace knows as its organisation's (its sign-in
+/// provider lists it) and not a shared mail provider. Any other is the
+/// sender's choice, and gets the ticket by number until it writes on it,
+/// which a reply that passed DMARC does.
 #[actix_rt::test]
 async fn a_copied_address_gets_the_ticket_only_from_its_senders_authenticated_domain() {
     use backend::services::ticket_mail_redaction::TicketMailText;
     let d = desk();
+    org_domains(&d, &["acme.example", "gmail.com"]);
     let inbox = crate::channel_backlog::Inbox::on(None, d.pool.clone(), d.ws.clone());
     let colleague = copied_member(&d, "Colleague", "colleague@acme.example");
     let friend = copied_member(&d, "Friend", "friend@other.example");
     let unchecked = copied_member(&d, "Unchecked", "unchecked@acme.example");
+    let victim = copied_member(&d, "Victim", "victim@gmail.com");
+    let unlisted = copied_member(&d, "Unlisted", "unlisted@beta.example");
     let at = chrono::Utc::now();
+
+    // A shared mail provider never stands for colleagues, listed or not.
+    let shared = crate::channel_backlog::opened(
+        inbox
+            .receive(
+                &inbound(
+                    "attacker@gmail.com",
+                    "victim@gmail.com",
+                    "pass",
+                    "cc-5@gmail.com",
+                    &[],
+                ),
+                at,
+            )
+            .await,
+    );
+    assert_eq!(text_for(&d, shared, victim), TicketMailText::Redacted);
+
+    // Nor does a domain the workspace doesn't know.
+    let unknown = crate::channel_backlog::opened(
+        inbox
+            .receive(
+                &inbound(
+                    "sam@beta.example",
+                    "unlisted@beta.example",
+                    "pass",
+                    "cc-6@beta.example",
+                    &[],
+                ),
+                at,
+            )
+            .await,
+    );
+    assert_eq!(text_for(&d, unknown, unlisted), TicketMailText::Redacted);
 
     let same_domain = crate::channel_backlog::opened(
         inbox

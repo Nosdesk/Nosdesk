@@ -336,6 +336,7 @@ mod tests {
             source_ref: None,
             spam_suspected: false,
             sender_auth: SenderAuth::Unknown,
+            from_ambiguous: false,
         }
     }
 
@@ -601,6 +602,7 @@ mod tests {
             source_ref: None,
             spam_suspected: false,
             sender_auth: SenderAuth::Unknown,
+            from_ambiguous: false,
         };
 
         let by_tag = message(

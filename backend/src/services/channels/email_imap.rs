@@ -1452,9 +1452,11 @@ pub fn parse_rfc822_into_inbound_message(
         .filter(|id| !id.trim().is_empty())
         .unwrap_or_else(|| synthesized_message_id(raw));
 
-    let from_raw = header_first(headers, "From")
+    let from_header = headers
+        .iter()
+        .find(|h| h.get_key_ref().eq_ignore_ascii_case("From"))
         .ok_or_else(|| ChannelError::Other("message has no From header".into()))?;
-    let (display_name, from_email) = parse_mailbox(&from_raw);
+    let (display_name, from_email, from_ambiguous) = parse_from(from_header);
     let from = ExternalIdentity {
         provider: "email_imap".into(),
         external_id: from_email.clone(),
@@ -1543,6 +1545,7 @@ pub fn parse_rfc822_into_inbound_message(
         // something the MIME parser decides; the caller sets it.
         spam_suspected: false,
         sender_auth,
+        from_ambiguous,
     })
 }
 
@@ -1604,6 +1607,35 @@ fn header_all(headers: &[mailparse::MailHeader], name: &str) -> Vec<String> {
         .filter(|h| h.get_key_ref().eq_ignore_ascii_case(name))
         .map(|h| h.get_value())
         .collect()
+}
+
+/// The `From` header's mailbox as (name, email, ambiguous), parsed as RFC
+/// 5322 so a comment such as `(<v@corp.example>)` is not taken for the
+/// address. Ambiguous when the header names more than one mailbox, a group, or
+/// doesn't parse; the address is then the first mailbox, or what
+/// [`parse_mailbox`] makes of the raw value, and only a guess.
+fn parse_from(header: &mailparse::MailHeader) -> (String, String, bool) {
+    if let Ok(list) = mailparse::addrparse_header(header) {
+        if let [mailparse::MailAddr::Single(one)] = &list[..] {
+            let email = one.addr.trim().to_string();
+            let name = one
+                .display_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(str::to_string)
+                .or_else(|| crate::utils::name_from_email(&email))
+                .unwrap_or_else(|| email.clone());
+            return (name, email, false);
+        }
+        if let Some(mailparse::MailAddr::Single(first)) = list.first() {
+            let email = first.addr.trim().to_string();
+            let name = crate::utils::name_from_email(&email).unwrap_or_else(|| email.clone());
+            return (name, email, true);
+        }
+    }
+    let (name, email) = parse_mailbox(&header.get_value());
+    (name, email, true)
 }
 
 /// Split `Name <email@host>` into (name, email). Without a name, the name
@@ -2505,6 +2537,47 @@ mod tests {
         assert_eq!(cfg.port, 993);
         assert_eq!(cfg.mailbox, "INBOX");
         assert!(cfg.use_tls);
+    }
+
+    // ---------- parse_from ----------
+
+    fn from_of(from: &str) -> InboundMessage {
+        let raw = format!(
+            "Authentication-Results: mx.example.com; dmarc=pass header.from=corp.example\r\n\
+             From: {from}\r\nTo: support@example.com\r\nSubject: Hi\r\n\
+             Message-ID: <from-test@example.com>\r\n\r\nHello\r\n"
+        );
+        parse_rfc822_into_inbound_message(raw.as_bytes(), None).expect("parse")
+    }
+
+    #[test]
+    fn a_comment_in_from_is_not_taken_for_the_address() {
+        let msg = from_of("x@attacker.example (<v@corp.example>)");
+        assert_eq!(msg.from.known_email.as_deref(), Some("x@attacker.example"));
+        assert!(!msg.from_ambiguous);
+        assert_eq!(
+            msg.from_verdict(),
+            crate::services::channels::SenderAuth::Pass
+        );
+    }
+
+    #[test]
+    fn a_from_naming_two_mailboxes_vouches_for_neither() {
+        let msg = from_of("x@attacker.example, v@corp.example");
+        assert!(msg.from_ambiguous);
+        assert_eq!(msg.sender_auth, crate::services::channels::SenderAuth::Pass);
+        assert_eq!(
+            msg.from_verdict(),
+            crate::services::channels::SenderAuth::Unknown
+        );
+    }
+
+    #[test]
+    fn a_named_from_keeps_its_name() {
+        let msg = from_of("\"Alice, The Example\" <alice@example.com>");
+        assert_eq!(msg.from.display_name, "Alice, The Example");
+        assert_eq!(msg.from.known_email.as_deref(), Some("alice@example.com"));
+        assert!(!msg.from_ambiguous);
     }
 
     // ---------- parse_mailbox ----------

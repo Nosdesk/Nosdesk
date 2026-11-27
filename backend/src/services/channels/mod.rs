@@ -227,6 +227,25 @@ pub struct InboundMessage {
     /// server's topmost `Authentication-Results`). The pipeline uses it as an
     /// impersonation guard — see [`SenderAuth`].
     pub sender_auth: SenderAuth,
+    /// The `From` header named more than one mailbox, a group, or didn't
+    /// parse, so the address the pipeline took from it is a guess: a DMARC
+    /// pass vouches for whichever domain the receiving server checked, not
+    /// necessarily that one. See [`InboundMessage::from_verdict`].
+    pub from_ambiguous: bool,
+}
+
+impl InboundMessage {
+    /// [`Self::sender_auth`] as it applies to the address the pipeline took
+    /// from `From`: a pass counts only when `From` named exactly one mailbox.
+    /// What vouches for a sender (an emailed reply counting as writing on a
+    /// ticket, a Cc counting as the team's choice) reads this; the spoofing
+    /// guard reads `sender_auth`, since a fail is a fail either way.
+    pub fn from_verdict(&self) -> SenderAuth {
+        match self.sender_auth {
+            SenderAuth::Pass if self.from_ambiguous => SenderAuth::Unknown,
+            verdict => verdict,
+        }
+    }
 }
 
 /// Whether an inbound message's `From` domain was authenticated (DMARC).
