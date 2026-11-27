@@ -507,15 +507,34 @@ fn a_series_without_a_due_date_comes_back_due_on_a_day() {
 /// (`services::ticket_mail_redaction`).
 #[test]
 fn a_recurring_api_ticket_comes_back_as_an_api_ticket() {
+    assert_eq!(
+        recurrence_of(backend::models::SUBMITTED_VIA_API),
+        vec![Some("api".to_string())]
+    );
+}
+
+/// A token's CSV import that recurs comes back as a token's ticket: the
+/// import mark goes, the stranger provenance stays.
+#[test]
+fn a_recurring_ticket_from_a_tokens_import_comes_back_as_an_api_ticket() {
+    assert_eq!(
+        recurrence_of(backend::models::CSV_IMPORT_BY_TOKEN),
+        vec![Some("api".to_string())]
+    );
+}
+
+/// The `submitted_via` of the occurrence after a weekly ticket stamped `via`
+/// is resolved.
+fn recurrence_of(via: &str) -> Vec<Option<String>> {
     let db = common::TestDb::new();
     let pool = db.pool_with_size(2);
     let mut conn = pool.get().expect("conn");
     let ws = common::seed_two_workspaces(&mut conn).a;
     let ticket = weekly_ticket(&mut conn, &ws);
     diesel::update(tickets::table.find(ticket))
-        .set(tickets::submitted_via.eq(backend::models::SUBMITTED_VIA_API))
+        .set(tickets::submitted_via.eq(via))
         .execute(&mut conn)
-        .expect("stamp it a token's");
+        .expect("stamp it");
 
     let requester = ActorContext::user(ws.member_uuid, None).with_workspace(ws.workspace_id);
     with_actor_context(&mut conn, &requester, |c| {
@@ -530,5 +549,5 @@ fn a_recurring_api_ticket_comes_back_as_an_api_ticket() {
             .load(c)
     })
     .expect("successor");
-    assert_eq!(via, vec![Some("api".to_string())]);
+    via
 }

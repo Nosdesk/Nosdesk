@@ -277,7 +277,7 @@ pub async fn accept_invitation(
                 Completion::PasswordSet,
                 None,
                 // An invitation names no held request.
-                &[],
+                &Release::Named(Vec::new()),
                 None,
             )?;
         }
@@ -488,20 +488,67 @@ fn usable_invitation(token: &crate::models::ResetToken) -> bool {
         && !crate::utils::reset_tokens::ResetTokenUtils::is_token_expired(expires_at)
 }
 
+/// How long before its confirmation token a request filed with it can have
+/// been written. Until tokens named their tickets the form wrote the ticket
+/// in one transaction, then moved its attachments (at most
+/// `GUEST_MAX_FILES_PER_TICKET` of `GUEST_MAX_FILE_SIZE_MB` each) and logged
+/// the filing, then minted the token in another; both timestamps are the
+/// database's `now()`. Two minutes covers that with room, and is short enough
+/// that an earlier filing for the address is outside it.
+const FILED_WITH_TOKEN_WINDOW: chrono::Duration = chrono::Duration::minutes(2);
+
+/// Which held requests confirming a guest confirmation releases.
+enum Release {
+    /// The ones its token names (`ticket_ids`); none for an invitation.
+    Named(Vec<i32>),
+    /// A token from before tokens named their tickets: the request filed
+    /// with it, the requester's newest pending one in the workspace written
+    /// within [`FILED_WITH_TOKEN_WINDOW`] before or at its minting.
+    FiledWith(chrono::DateTime<Utc>),
+}
+
+impl Release {
+    /// The ticket ids to release, read in the confirmation's transaction.
+    fn ids(
+        &self,
+        conn: &mut DbConnection,
+        user_uuid: uuid::Uuid,
+        workspace_id: i32,
+    ) -> diesel::QueryResult<Vec<i32>> {
+        match self {
+            Self::Named(ids) => Ok(ids.clone()),
+            Self::FiledWith(minted_at) => Ok(repository::tickets::pending_ticket_filed_before(
+                conn,
+                user_uuid,
+                workspace_id,
+                *minted_at,
+                FILED_WITH_TOKEN_WINDOW,
+            )?
+            .into_iter()
+            .collect()),
+        }
+    }
+}
+
 /// The requests a guest confirmation was sent for (`ticket_ids`): confirming
 /// releases those and no other pending request naming the address, which may
-/// be a stranger's. Empty on one minted before confirmations named them.
-fn named_tickets(token: &crate::models::ResetToken) -> Vec<i32> {
-    token
+/// be a stranger's. A token minted before confirmations named them releases
+/// the one request filed with it ([`Release::FiledWith`]).
+fn named_tickets(token: &crate::models::ResetToken) -> Release {
+    let Some(ids) = token
         .metadata
         .as_ref()
         .and_then(|m| m.get("ticket_ids"))
         .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(serde_json::Value::as_i64)
-        .filter_map(|id| i32::try_from(id).ok())
-        .collect()
+    else {
+        return Release::FiledWith(token.created_at.and_utc());
+    };
+    Release::Named(
+        ids.iter()
+            .filter_map(serde_json::Value::as_i64)
+            .filter_map(|id| i32::try_from(id).ok())
+            .collect(),
+    )
 }
 
 /// The address a guest confirmation was mailed to (`sent_to`); `None` on one
@@ -560,7 +607,7 @@ fn complete_verification(
     user: &crate::models::User,
     completion: Completion,
     workspace: Option<i32>,
-    release: &[i32],
+    release: &Release,
     confirmed_address: Option<&str>,
 ) -> Result<Vec<ReleasedTicket>, ApiError> {
     // Pre-session (token-verified) flow: resolve the audit workspace once,
@@ -619,7 +666,8 @@ fn complete_verification(
             // `ticket.created` goes out and a portal session can be minted.
             repository::workspaces::join_as_requester(c, workspace_id, user.uuid)?;
             // Only the requests this confirmation was sent for.
-            repository::tickets::verify_pending_tickets_for_user(c, user.uuid, release)
+            let ids = release.ids(c, user.uuid, workspace_id)?;
+            repository::tickets::verify_pending_tickets_for_user(c, user.uuid, &ids)
         })
         .map_err(|e| {
             warn!(user_uuid = %user.uuid, error = %e, "Failed to confirm guest submission");

@@ -600,6 +600,29 @@ pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult
         .first(conn)
 }
 
+/// The requester's newest pending request in `workspace_id` written within
+/// `window` before or at `minted_at`: the one a guest confirmation minted then,
+/// from before tokens named their tickets, was sent for. Pinned to the
+/// workspace by the caller.
+pub fn pending_ticket_filed_before(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    workspace_id: i32,
+    minted_at: chrono::DateTime<chrono::Utc>,
+    window: chrono::Duration,
+) -> QueryResult<Option<i32>> {
+    tickets::table
+        .filter(tickets::workspace_id.eq(workspace_id))
+        .filter(tickets::requester_uuid.eq(Some(user_uuid)))
+        .filter(tickets::verification_state.eq(groups::PENDING_VERIFICATION))
+        .filter(tickets::created_at.le(minted_at))
+        .filter(tickets::created_at.ge(minted_at - window))
+        .order((tickets::created_at.desc(), tickets::id.desc()))
+        .select(tickets::id)
+        .first(conn)
+        .optional()
+}
+
 /// Flip the given user's `verification_state = 'pending'` tickets among
 /// `ticket_ids` over to `'verified'` and return the newly-released tickets.
 ///
@@ -1170,11 +1193,16 @@ fn create_next_occurrence(
             recurrence_template_id: Some(template_id),
             // Its text is the closed ticket's, so it keeps where that came
             // from (services::ticket_mail_redaction), but not an import's
-            // mark: a recurrence is a new request, not history.
-            submitted_via: closed
-                .submitted_via
-                .clone()
-                .filter(|via| !crate::models::is_imported_via(Some(via))),
+            // mark: a recurrence is a new request, not history. A token's
+            // import comes back as a token's ticket.
+            submitted_via: match closed.submitted_via.as_deref() {
+                Some(crate::models::CSV_IMPORT_BY_TOKEN) => {
+                    Some(crate::models::SUBMITTED_VIA_API.to_string())
+                }
+                via => via
+                    .filter(|via| !crate::models::is_imported_via(Some(via)))
+                    .map(str::to_string),
+            },
             verification_state: closed
                 .verification_state
                 .clone()

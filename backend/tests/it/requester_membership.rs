@@ -437,6 +437,58 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
     assert!(proven.is_some());
 }
 
+/// A confirmation minted before tokens named their tickets releases the
+/// request filed with it, and not one filed for the same address an hour
+/// earlier.
+#[actix_web::test]
+async fn a_confirmation_from_before_tokens_named_tickets_releases_only_its_own() {
+    let (inbox, a) = inbox_on_b();
+    let b = inbox.ws.workspace_id;
+    let guest = guest_of(&inbox.pool, a, "older@guest.example");
+    let earlier = submit_form(&inbox, "older@guest.example", true);
+    let actor = ActorContext::system("test:backdate").with_workspace(b);
+    with_actor_context::<_, diesel::result::Error>(&mut conn(&inbox.pool), &actor, |c| {
+        diesel::sql_query("UPDATE tickets SET created_at = now() - interval '1 hour' WHERE id = $1")
+            .bind::<diesel::sql_types::Integer, _>(earlier.ticket.id)
+            .execute(c)
+    })
+    .expect("backdate");
+    let created = submit_form(&inbox, "older@guest.example", true);
+
+    // As the form minted it then: no ticket_ids, no sent_to.
+    let raw = invitation_token(
+        &inbox,
+        guest,
+        serde_json::json!({ "source": "guest_ticket_submission", "workspace_id": b }),
+        Utc::now() + chrono::Duration::days(7),
+    );
+    let (_dir, search) = search(&inbox.pool);
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(web::Data::new(inbox.pool.clone()))
+            .app_data(web::Data::new(search))
+            .route(
+                "/confirm-guest",
+                web::post().to(backend::handlers::invitation::confirm_guest_submission),
+            ),
+    )
+    .await;
+    let req = actix_web::test::TestRequest::post()
+        .uri("/confirm-guest")
+        .set_json(serde_json::json!({ "token": raw }))
+        .to_request();
+    assert_eq!(actix_web::test::call_service(&app, req).await.status(), 200);
+    assert_eq!(
+        state_of(&inbox, created.ticket.id).as_deref(),
+        Some("verified")
+    );
+    assert_eq!(
+        state_of(&inbox, earlier.ticket.id).as_deref(),
+        Some("pending"),
+        "the request filed an hour earlier stays held"
+    );
+}
+
 /// No seat anywhere: they may have been removed here before removal kept the
 /// row, so their mail opens a ticket but seats nobody.
 #[actix_web::test]
