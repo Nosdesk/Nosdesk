@@ -171,6 +171,17 @@ impl Form {
             .collect()
     }
 
+    /// Mail queued to `recipient`, compared case-insensitively.
+    fn mail_to(&self, recipient: &str) -> i64 {
+        diesel::sql_query(
+            "SELECT count(*) AS n FROM outbound_emails WHERE lower(recipient) = lower($1)",
+        )
+        .bind::<diesel::sql_types::Text, _>(recipient)
+        .get_result::<Count>(&mut self.superuser())
+        .expect("count")
+        .n
+    }
+
     /// Submit B's form from `email` through its route, and read the answer:
     /// status, headers (but the date) and body.
     async fn submit(&self, email: &str) -> (u16, Vec<(String, String)>, serde_json::Value) {
@@ -319,7 +330,40 @@ async fn one_answer_for_every_address(verification_required: bool) {
         f.sign_in_links_to(alias_holder),
         [alias_typed.to_lowercase()]
     );
+    f.until("the alias holder's sign-in mail", || {
+        f.mail_to(&alias_typed) == 1
+    })
+    .await;
     assert_eq!(f.tickets_for(&alias_typed), 0);
+}
+
+/// A submission that fails to file is answered as any other: the failure is
+/// the server's to log, not the submitter's to read.
+#[actix_web::test]
+async fn a_filing_that_fails_is_answered_the_same() {
+    let f = form(false);
+    let (status, _, body) = f.submit("before@example.com").await;
+    f.until("a request", || f.tickets_for("before@example.com") == 1)
+        .await;
+
+    let mut c = f.superuser();
+    diesel::sql_query(
+        "CREATE FUNCTION test_refuse_ticket() RETURNS trigger LANGUAGE plpgsql AS \
+         $$ BEGIN RAISE EXCEPTION 'ticket refused'; END $$",
+    )
+    .execute(&mut c)
+    .expect("install fault");
+    diesel::sql_query(
+        "CREATE TRIGGER test_refuse_ticket BEFORE INSERT ON tickets FOR EACH ROW \
+         EXECUTE FUNCTION test_refuse_ticket()",
+    )
+    .execute(&mut c)
+    .expect("install fault");
+
+    let (failed_status, _, failed_body) = f.submit("refused@example.com").await;
+    assert_eq!((failed_status, &failed_body), (status, &body));
+    actix_web::rt::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(f.tickets_for("refused@example.com"), 0);
 }
 
 #[actix_web::test]

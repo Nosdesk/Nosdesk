@@ -865,7 +865,7 @@ pub async fn file_guest_submission(
         }
     };
 
-    // Claim any referenced attachments. Cap at GUEST_MAX_FILES_PER_TICKET —
+    // Claim any referenced attachments. Cap at GUEST_MAX_FILES_PER_TICKET;
     // silently truncate extras rather than rejecting the submission.
     if let Some(comment_id) = first_comment_id {
         if !filing.attachment_tokens.is_empty() {
@@ -931,7 +931,7 @@ pub async fn file_guest_submission(
         //     concern, so re-sending to returning submitters would just be noise).
         //
         // The email itself is framed as "confirm your ticket submission" rather
-        // than the generic "welcome / invitation" copy — see
+        // than the generic "welcome / invitation" copy; see
         // EmailService::send_guest_ticket_confirmation_email. Whether it went
         // out is logged, never answered.
         if verification_required || is_new_guest {
@@ -970,7 +970,7 @@ pub async fn file_guest_submission(
     .map_err(|_| ApiError::Internal("Filing task failed".into()))?;
 
     // Only surface the ticket to techs once it's actually verified. Pending
-    // tickets skip search indexing entirely — accept_invitation picks them
+    // tickets skip search indexing entirely; accept_invitation picks them
     // up at verification time. The verified ticket reaches clients through
     // the sync pool (the repository write emits `ticket.created`).
     if !verification_required {
