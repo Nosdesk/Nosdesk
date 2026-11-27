@@ -197,10 +197,14 @@ pub struct Fill {
     /// people the fill didn't get back stay "not in the export".
     #[serde(default)]
     pub absence_confirmed: bool,
-    /// Requests that failed without stopping the fill, in words. What each
-    /// asked for is as the exports left it.
+    /// Requests that failed without stopping the fill, in words, the first
+    /// [`FILL_ERRORS_KEPT`] of them. What each asked for is as the exports
+    /// left it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<String>,
+    /// How many requests failed without stopping the fill, all of them.
+    #[serde(default)]
+    pub errors_total: u64,
     /// Why the fill stopped, when it did (a refused credential, the
     /// outbound policy, a throttle past the retry budget). What it hadn't
     /// fetched by then is as the exports left it.
@@ -208,12 +212,17 @@ pub struct Fill {
     pub failed: Option<String>,
 }
 
+/// The manifest count of the people the export zips held themselves, not
+/// counting what the API fill added. Absent from an API fetch's manifest.
+pub const PEOPLE_IN_EXPORT: &str = "people_in_export";
+
 /// Request failures a fill keeps in words; past this many, a count.
 pub const FILL_ERRORS_KEPT: usize = 20;
 
 impl Fill {
     /// Records a request that failed without stopping the fill.
     pub fn error(&mut self, why: String) {
+        self.errors_total += 1;
         if self.errors.len() < FILL_ERRORS_KEPT {
             self.errors.push(why);
         }

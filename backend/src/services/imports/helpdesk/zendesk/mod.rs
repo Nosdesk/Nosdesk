@@ -108,6 +108,9 @@ pub struct ZendeskSource {
     /// With a credential, reading an export asks the API for what the
     /// export lacks. Off with `--no-api-fill`.
     api_fill: bool,
+    /// The fill's requests that failed on the network in a row; see
+    /// [`fill::NETWORK_FAILURES_IN_A_ROW`].
+    fill_network_failures: std::sync::atomic::AtomicU32,
 }
 
 impl ZendeskSource {
@@ -192,6 +195,7 @@ impl ZendeskSource {
             max_attachment_bytes: MAX_ATTACHMENT_BYTES,
             ticket_page_size: TICKET_PAGE_SIZE,
             api_fill: true,
+            fill_network_failures: std::sync::atomic::AtomicU32::new(0),
         }
     }
 

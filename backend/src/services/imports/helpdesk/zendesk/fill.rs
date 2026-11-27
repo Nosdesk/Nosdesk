@@ -20,6 +20,11 @@ use crate::services::imports::helpdesk::source::SourceError;
 /// Ids per Show Many request: Zendesk's limit.
 pub const SHOW_MANY: usize = 100;
 
+/// The fill's requests that may fail on the network one after another, past
+/// their own retries, before it stops: the network or Zendesk is down, and
+/// each request after would cost its retries for nothing.
+pub const NETWORK_FAILURES_IN_A_ROW: u32 = 5;
+
 /// What asking by id came to.
 #[derive(Debug)]
 pub struct ById<T> {
@@ -65,6 +70,37 @@ pub fn stops_the_fill(e: &SourceError) -> bool {
 }
 
 impl ZendeskSource {
+    /// A fill request Zendesk answered: the run of network failures is over.
+    pub(super) fn fill_answered(&self) {
+        self.fill_network_failures
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// A fill request that failed: `Ok` with why, when the fill passes over
+    /// it, or `Err` with what stops the fill (see [`stops_the_fill`], or
+    /// [`NETWORK_FAILURES_IN_A_ROW`] network failures in a row).
+    pub(super) fn fill_failed(&self, e: SourceError) -> Result<String, SourceError> {
+        if stops_the_fill(&e) {
+            return Err(e);
+        }
+        if !matches!(e, SourceError::Network(_)) {
+            // Zendesk answered, if not as hoped.
+            self.fill_answered();
+            return Ok(failure(&e));
+        }
+        let n = self
+            .fill_network_failures
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        if n >= NETWORK_FAILURES_IN_A_ROW {
+            return Err(SourceError::Network(format!(
+                "{n} requests in a row failed on the network, the last: {}",
+                failure(&e)
+            )));
+        }
+        Ok(failure(&e))
+    }
+
     /// Whether the credential is an admin's, read from its own user. Only
     /// an admin sees every user, so only an admin's answer that leaves
     /// someone out says they are gone; an agent's may leave out people it
@@ -79,13 +115,18 @@ impl ZendeskSource {
         }
         let url = self.http.url("/api/v2/users/me.json", &[]);
         match self.http.get_json::<Me>(&url, cancel).await {
-            Ok(Some(me)) => Ok(Ok(me
-                .user
-                .and_then(|u| u.role)
-                .is_some_and(|r| r == "admin"))),
-            Ok(None) => Ok(Err("/api/v2/users/me.json answered 404".into())),
-            Err(e) if stops_the_fill(&e) => Err(e),
-            Err(e) => Ok(Err(failure(&e))),
+            Ok(Some(me)) => {
+                self.fill_answered();
+                Ok(Ok(me
+                    .user
+                    .and_then(|u| u.role)
+                    .is_some_and(|r| r == "admin")))
+            }
+            Ok(None) => {
+                self.fill_answered();
+                Ok(Err("/api/v2/users/me.json answered 404".into()))
+            }
+            Err(e) => self.fill_failed(e).map(Err),
         }
     }
 
@@ -157,24 +198,29 @@ impl ZendeskSource {
             query.extend_from_slice(extra);
             let url = self.http.url(path, &query);
             let page = match self.http.get_json::<L>(&url, cancel).await {
-                Ok(Some(page)) => items(page),
+                Ok(Some(page)) => {
+                    self.fill_answered();
+                    items(page)
+                }
                 // Not an answer about these ids: none of them is taken for
                 // gone on it.
                 Ok(None) => {
+                    self.fill_answered();
                     out.errors
                         .push(format!("{path} answered 404 for {} ids", chunk.len()));
                     continue;
                 }
-                Err(SourceError::Cancelled) => return Err(SourceError::Cancelled),
-                Err(e) if stops_the_fill(&e) => {
-                    out.stopped = Some(failure(&e));
-                    return Ok(out);
-                }
-                Err(e) => {
-                    out.errors
-                        .push(format!("{} (for {} ids)", failure(&e), chunk.len()));
-                    continue;
-                }
+                Err(e) => match self.fill_failed(e) {
+                    Ok(why) => {
+                        out.errors.push(format!("{why} (for {} ids)", chunk.len()));
+                        continue;
+                    }
+                    Err(SourceError::Cancelled) => return Err(SourceError::Cancelled),
+                    Err(stop) => {
+                        out.stopped = Some(failure(&stop));
+                        return Ok(out);
+                    }
+                },
             };
             let wanted: HashSet<i64> = chunk.iter().copied().collect();
             let got: HashSet<i64> = page.iter().map(id_of).collect();
@@ -214,9 +260,11 @@ impl ZendeskSource {
             }
         };
         match listed {
-            Ok(items) => Ok(Ok(map::Labels::names(items))),
-            Err(e) if stops_the_fill(&e) => Err(e),
-            Err(e) => Ok(Err(failure(&e))),
+            Ok(items) => {
+                self.fill_answered();
+                Ok(Ok(map::Labels::names(items)))
+            }
+            Err(e) => self.fill_failed(e).map(Err),
         }
     }
 }
@@ -225,4 +273,32 @@ impl ZendeskSource {
 pub enum Names {
     Groups,
     Brands,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_refused_credential_the_outbound_policy_or_the_throttle_stop_the_fill() {
+        let stops = |e: SourceError| stops_the_fill(&e);
+        assert!(stops(SourceError::Unauthorized(
+            "/api/v2/users/show_many.json answered 401".into()
+        )));
+        assert!(!stops(SourceError::Unauthorized(
+            "/api/v2/tickets/7/comments.json answered 403: the credential lacks permission".into()
+        )));
+        assert!(stops(SourceError::Network(format!(
+            "{} 10.0.0.1: private address",
+            client::EGRESS_REFUSED
+        ))));
+        assert!(stops(SourceError::Network(format!(
+            "/api/v2/users/show_many.json {} after 60 waits",
+            client::RATE_LIMITED
+        ))));
+        assert!(stops(SourceError::Io(std::io::Error::other("disk full"))));
+        assert!(stops(SourceError::Cancelled));
+        assert!(!stops(SourceError::Network("connection reset".into())));
+        assert!(!stops(SourceError::Protocol("answered 400".into())));
+    }
 }

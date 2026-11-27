@@ -111,11 +111,11 @@ pub fn render_plan(plan: &Plan) -> String {
                  credential to confirm who is gone"
             );
         }
-        if !f.errors.is_empty() {
+        if f.errors_total > 0 {
             let _ = writeln!(
                 s,
                 "  Requests that failed and were passed over: {}",
-                f.errors.len()
+                f.errors_total
             );
         }
         if let Some(why) = &f.failed {

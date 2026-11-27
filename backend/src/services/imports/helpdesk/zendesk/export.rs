@@ -109,6 +109,7 @@ pub async fn read_export(
             .await
             .map_err(|e| SourceError::Protocol(format!("export reader stopped: {e}")))??
     };
+    source.fill_answered();
     let mut state = FetchState::default();
     bundle.write_state(&state)?;
     let mut run = Run::new(&state, progress);
@@ -138,6 +139,9 @@ pub async fn read_export(
     .await
     .map_err(|e| SourceError::Protocol(format!("export reader stopped: {e}")))??;
     let (mut orgs, mut users) = (orgs, users);
+    // How many people the zips themselves hold, before the fill adds any:
+    // with none, the bundle can't see who else uses an address.
+    let in_export = users.len() as u64;
 
     let fields = if !source.http.has_credential() {
         notes.push("Custom field titles need API access; without a Zendesk credential fields are labelled by id".into());
@@ -286,23 +290,21 @@ pub async fn read_export(
             _ if filling && fill.failed.is_none() => {
                 match source.fetch_comments(t.id, &cancel).await {
                     Ok(Some(c)) if !c.is_empty() => {
+                        source.fill_answered();
                         fill.conversations += 1;
                         c
                     }
-                    Ok(_) => Vec::new(),
-                    Err(SourceError::Cancelled) => return Err(SourceError::Cancelled),
-                    Err(e) if fill::stops_the_fill(&e) => {
-                        fill.conversations_failed += 1;
-                        fill.failed = Some(fill::failure(&e));
+                    Ok(_) => {
+                        source.fill_answered();
                         Vec::new()
                     }
                     Err(e) => {
                         fill.conversations_failed += 1;
-                        fill.error(format!(
-                            "ticket {}'s conversation: {}",
-                            t.id,
-                            fill::failure(&e)
-                        ));
+                        match source.fill_failed(e) {
+                            Ok(why) => fill.error(format!("ticket {}'s conversation: {why}", t.id)),
+                            Err(SourceError::Cancelled) => return Err(SourceError::Cancelled),
+                            Err(stop) => fill.failed = Some(fill::failure(&stop)),
+                        }
                         Vec::new()
                     }
                 }
@@ -462,6 +464,9 @@ pub async fn read_export(
     manifest.person_detail = state.person_detail;
     manifest.inputs = Some(inputs);
     manifest.fill = filling.then_some(fill);
+    manifest
+        .counts
+        .insert(bundle::PEOPLE_IN_EXPORT.into(), in_export);
     bundle.write_manifest(&manifest)?;
     Ok(manifest)
 }
