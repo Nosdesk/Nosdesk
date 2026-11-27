@@ -27,13 +27,15 @@ pub struct Config {
     pub is_production: bool,
     pub host: String,
     pub port: u16,
-    /// Public requests a minute from one client to one workspace
-    /// (`RATE_LIMIT_PER_MINUTE`, default 60, clamped 30..1000).
+    /// Unauthenticated requests a minute from one client
+    /// (`RATE_LIMIT_PER_MINUTE`, default 60, clamped 30..1000). Sign-in and
+    /// account routes count every workspace together; the request forms
+    /// under `/api/public` count each workspace apart.
     pub rate_limit_per_minute: u64,
-    /// Public requests a minute from one client across every workspace
-    /// (`RATE_LIMIT_GLOBAL_PER_MINUTE`, default four times the per-workspace
-    /// limit, never below it, at most 10000). On a single workspace the
-    /// per-workspace limit is the one that bites.
+    /// Request form requests (`/api/public`) a minute from one client across
+    /// every workspace (`RATE_LIMIT_GLOBAL_PER_MINUTE`, default four times
+    /// `rate_limit_per_minute`, never below it, at most 10000). On a single
+    /// workspace the per-workspace limit is the one that bites.
     pub global_rate_limit_per_minute: u64,
     pub auth_rate_limit_per_minute: u64,
     /// Absolute ceiling on a session's life, in days

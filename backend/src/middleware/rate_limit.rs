@@ -8,7 +8,7 @@
 //! The limiter is resolved by type (`web::Data<RequestLimiter>`), so a scope
 //! picks its quota by registering its own `app_data`, which shadows the
 //! app-level one. A limiter may count a request in more than one bucket (the
-//! public one counts it per workspace and per client, and per client across
+//! request form's counts it per workspace and client, and per client across
 //! every workspace); a spent bucket refuses it.
 
 use std::rc::Rc;
@@ -201,6 +201,8 @@ where
             .collect();
 
         Box::pin(async move {
+            // One unthrottled request is one, however many buckets missed it.
+            let mut unreachable: Option<String> = None;
             for (i, key) in keys {
                 let bucket = &limiter.buckets[i];
                 match tokio::time::timeout(COUNT_TIMEOUT, bucket.limiter.count(key.clone())).await {
@@ -216,10 +218,19 @@ where
                                 .map_into_right_body(),
                         ));
                     }
-                    Ok(Err(LimitationError::Client(e))) => limiter.note_unreachable(&e),
-                    Ok(Err(e)) => limiter.note_unreachable(&e),
-                    Err(elapsed) => limiter.note_unreachable(&elapsed),
+                    Ok(Err(LimitationError::Client(e))) => {
+                        unreachable.get_or_insert(e.to_string());
+                    }
+                    Ok(Err(e)) => {
+                        unreachable.get_or_insert(e.to_string());
+                    }
+                    Err(elapsed) => {
+                        unreachable.get_or_insert(elapsed.to_string());
+                    }
                 }
+            }
+            if let Some(err) = unreachable {
+                limiter.note_unreachable(&err);
             }
             service
                 .call(req)
@@ -239,17 +250,18 @@ pub fn client_key(prefix: &str, req: &ServiceRequest) -> Option<String> {
 
 /// `{prefix}:ws{id}:{bucket}`: the client's address bucket within the
 /// workspace the request's origin resolved to, so one tenant's visitors spend
-/// only that tenant's quota. `None` without a client address or a workspace;
-/// a limiter pairs it with [`client_key`] so those are still counted.
+/// only that tenant's quota. A request whose origin resolved no workspace is
+/// keyed `{prefix}:nows:{bucket}`, so it is still counted at this bucket's
+/// limit and never only in a looser one. `None` without a client address.
 pub fn workspace_client_key(prefix: &str, req: &ServiceRequest) -> Option<String> {
     use actix_web::HttpMessage as _;
-    let workspace_id = req
+    let workspace = req
         .extensions()
         .get::<crate::extractors::WorkspaceContext>()
-        .map(|ws| ws.workspace_id)?;
+        .map_or_else(|| "nows".to_string(), |ws| format!("ws{}", ws.workspace_id));
     crate::utils::client_ip::from_service_request(req).map(|ip| {
         format!(
-            "{prefix}:ws{workspace_id}:{}",
+            "{prefix}:{workspace}:{}",
             crate::utils::client_ip::limit_bucket(ip)
         )
     })
@@ -300,8 +312,10 @@ mod tests {
         assert!(ka.starts_with("public:ws1:"), "{ka}");
         assert_eq!(client_key("public", &a), client_key("public", &b));
         assert!(!client_key("public", &a).unwrap().contains("203.0.113.9"));
-        // No workspace resolved: only the shared bucket counts it.
-        assert_eq!(workspace_client_key("public", &from(None)), None);
+        // No workspace resolved: still counted at the per-workspace limit,
+        // under a key of its own.
+        let none = workspace_client_key("public", &from(None)).unwrap();
+        assert!(none.starts_with("public:nows:"), "{none}");
         assert_eq!(client_key("public", &from(None)), client_key("public", &a));
     }
 

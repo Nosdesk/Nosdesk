@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 
 use backend::config::Config;
 use backend::middleware::RequestLimiter;
-use backend::startup::{build_state, configure_app};
+use backend::startup::{build_state, configure_app, RequestLimiters};
 
 fn limiter(redis: &str, prefix: &'static str) -> RequestLimiter {
     RequestLimiter::build(
@@ -64,15 +64,15 @@ async fn a_token_cannot_reach_account_routes() {
         std::process::id()
     ));
     std::env::set_var("SEARCH_INDEX_PATH", &search_dir);
-    let (state, _background) = build_state(
-        &config,
-        pool.clone(),
-        limiter(&redis, "public"),
-        limiter(&redis, "auth"),
-        limiter(&redis, "felogs"),
-        limiter(&redis, "clienterr"),
-    )
-    .expect("build_state succeeds");
+    let limiters = RequestLimiters {
+        public: limiter(&redis, "public"),
+        public_form: limiter(&redis, "pubform"),
+        auth: limiter(&redis, "auth"),
+        frontend_logs: limiter(&redis, "felogs"),
+        client_errors: limiter(&redis, "clienterr"),
+    };
+    let (state, _background) =
+        build_state(&config, pool.clone(), limiters).expect("build_state succeeds");
     state.scheduler_shutdown.cancel();
     let ws = backend::middleware::WorkspaceContextConfig::initialise(&pool)
         .expect("workspace context initialises");

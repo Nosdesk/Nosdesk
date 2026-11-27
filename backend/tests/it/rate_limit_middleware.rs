@@ -244,7 +244,12 @@ async fn one_workspace_spending_its_quota_leaves_another_reachable() {
     assert_eq!(
         test::call_service(&app, to(None)).await.status(),
         200,
-        "no workspace: the shared bucket alone counts it"
+        "no workspace: a bucket of its own"
+    );
+    assert_eq!(
+        test::call_service(&app, to(None)).await.status(),
+        429,
+        "no workspace is still counted at the per-workspace limit"
     );
     assert_eq!(
         test::call_service(&app, to(Some(3))).await.status(),
