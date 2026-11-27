@@ -443,6 +443,10 @@ pub struct CreatedSubmission {
     pub user: crate::models::User,
     /// A guest account was created for the address (not reused).
     pub is_new_guest: bool,
+    /// The request is held until the address is confirmed: always with
+    /// confirmation on, and with it off for an account with a proven or
+    /// vouched address that holds no seat here, which the confirmation seats.
+    pub held: bool,
     pub ticket: crate::models::Ticket,
     pub first_comment_id: Option<i32>,
 }
@@ -468,9 +472,9 @@ pub fn create_guest_submission(
     } = *submission;
     // One submission per address at a time, so the pending cap below holds.
     repository::tickets::lock_guest_submissions_for(conn, email)?;
-    let (user, is_new_guest) =
+    let (user, is_new_guest, held) =
         match user_helpers::find_or_create_guest_user(email, name, conn, Some(search)) {
-            Ok(GuestUserResult::Created(u)) => (u, true),
+            Ok(GuestUserResult::Created(u)) => (u, true, verification_required),
             Ok(GuestUserResult::Existing(u)) => {
                 // A reused account may hold seats only elsewhere, and without one
                 // here its View request link and portal sign-in refuse it. A held
@@ -481,9 +485,20 @@ pub fn create_guest_submission(
                 if !verification_required {
                     crate::repository::workspaces::join_as_requester(conn, workspace_id, u.uuid)?;
                 }
-                (u, false)
+                (u, false, verification_required)
             }
-            Ok(GuestUserResult::EmailClaimed) => return Err(CreateError::EmailClaimed),
+            // An account with a proven or vouched address, seated only in
+            // other workspaces and on no team anywhere, is held and confirmed
+            // as a reused guest is, whatever the confirmation setting: the
+            // typed address proves nothing until its mailbox answers, and the
+            // confirmation seats it here. Anyone else with an account signs in
+            // instead.
+            Ok(GuestUserResult::EmailClaimed) => {
+                match user_helpers::account_to_confirm_and_seat(conn, workspace_id, email)? {
+                    Some(u) => (u, false, true),
+                    None => return Err(CreateError::EmailClaimed),
+                }
+            }
             Err(e) => {
                 error!(error = %e, "Failed to provision guest user");
                 return Err(CreateError::Internal);
@@ -492,7 +507,7 @@ pub fn create_guest_submission(
 
     // Unconfirmed requests are capped per address, so confirming one
     // email can only ever release a handful.
-    if verification_required
+    if held
         && repository::tickets::count_pending_for_requester(conn, user.uuid)?
             >= MAX_PENDING_PER_ADDRESS
     {
@@ -512,7 +527,7 @@ pub fn create_guest_submission(
         requester_uuid: Some(user.uuid),
         category_id,
         submitted_via: Some("guest".to_string()),
-        verification_state: if verification_required {
+        verification_state: if held {
             Some("pending".to_string())
         } else {
             None
@@ -588,6 +603,7 @@ pub fn create_guest_submission(
     Ok(CreatedSubmission {
         user,
         is_new_guest,
+        held,
         ticket,
         first_comment_id,
     })
@@ -901,14 +917,14 @@ pub async fn file_guest_submission(
             };
             session::with_actor_context::<_, CreateError>(&mut conn, &actor, |conn| {
                 let created = create_guest_submission(conn, workspace_id, &search, &submission)?;
-                if verification_required || created.is_new_guest {
+                if created.held || created.is_new_guest {
                     match queue_confirmation(
                         conn,
                         &origin,
                         &created,
                         &filing.email,
                         workspace_id,
-                        verification_required,
+                        created.held,
                     ) {
                         Ok(()) => {}
                         Err(Unqueued::Held) => {
@@ -918,7 +934,7 @@ pub async fn file_guest_submission(
                             );
                             return Err(CreateError::ConfirmationHeld);
                         }
-                        Err(Unqueued::Failed(why)) if verification_required => {
+                        Err(Unqueued::Failed(why)) if created.held => {
                             warn!(
                                 ticket_id = created.ticket.id,
                                 result = %why,
@@ -1026,7 +1042,7 @@ pub async fn file_guest_submission(
     // tickets skip search indexing entirely; accept_invitation picks them
     // up at verification time. The verified ticket reaches clients through
     // the sync pool (the repository write emits `ticket.created`).
-    if !verification_required {
+    if !created.held {
         indexing_tasks::spawn_index_ticket(search, created.ticket, None);
     }
 

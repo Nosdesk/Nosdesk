@@ -2,12 +2,14 @@
 //! whether an address has an account here or anywhere on the deployment.
 //!
 //! Through the form's own route, with confirmation on or off: a new address,
-//! one whose unverified account is reused, one with a verified account, one
-//! held as a verified secondary in another case, and (with confirmation on)
-//! one with too many requests waiting all get one status, one set of headers
-//! and one body. Nothing ticket-derived is in it, and the body says what to do
-//! if you already have an account. What became of each submission is decided
-//! after the answer goes out, so the answer's timing doesn't depend on it.
+//! one whose unverified account is reused, one with a verified account here,
+//! one held as a verified secondary in another case, one whose verified
+//! account is seated only in another workspace, one of a team member
+//! elsewhere, and (with confirmation on) one with too many requests waiting
+//! all get one status, one set of headers and one body. Nothing
+//! ticket-derived is in it, and the body says what to do if you already have
+//! an account. What became of each submission is decided after the answer
+//! goes out, so the answer's timing doesn't depend on it.
 
 #![allow(clippy::expect_used)]
 
@@ -140,6 +142,12 @@ impl Form {
 
     /// A member of B with these addresses: (address, primary, verified).
     fn member_of_b(&self, addresses: &[(&str, bool, bool)]) -> uuid::Uuid {
+        self.account_in(self.b, "member", addresses)
+    }
+
+    /// An account seated in `ws` as `role`, with these addresses: (address,
+    /// primary, verified).
+    fn account_in(&self, ws: i32, role: &str, addresses: &[(&str, bool, bool)]) -> uuid::Uuid {
         let mut c = self.superuser();
         let user = common::insert_plain_user(&mut c, "Account Holder");
         for (email, is_primary, is_verified) in addresses {
@@ -155,8 +163,21 @@ impl Form {
                 .execute(&mut c)
                 .expect("email");
         }
-        common::seat(&mut c, self.b, user, "member");
+        common::seat(&mut c, ws, user, role);
         user
+    }
+
+    /// `user`'s role in B, `None` without an active seat.
+    fn role_in_b(&self, user: uuid::Uuid) -> Option<String> {
+        use backend::schema::workspace_members as m;
+        m::table
+            .filter(m::workspace_id.eq(self.b))
+            .filter(m::user_uuid.eq(user))
+            .filter(m::removed_at.is_null())
+            .select(m::role)
+            .first(&mut self.superuser())
+            .optional()
+            .expect("membership")
     }
 
     /// Tickets B holds for a requester with `email`, in any case.
@@ -304,12 +325,18 @@ async fn one_answer_for_every_address(verification_required: bool) {
         (&format!("Alias-{tag}@Example.com"), false, true),
     ]);
     let alias_typed = format!("ALIAS-{tag}@example.COM");
+    let seated_elsewhere = format!("elsewhere-{tag}@example.com");
+    let requester_of_a = f.account_in(f.a, "member", &[(&seated_elsewhere, true, true)]);
+    let staff_elsewhere = format!("agent-{tag}@example.com");
+    let agent_of_a = f.account_in(f.a, "agent", &[(&staff_elsewhere, true, true)]);
 
     let mut answers = vec![
         f.submit(&fresh).await,
         f.submit(&reused).await,
         f.submit(&claimed).await,
         f.submit(&alias_typed).await,
+        f.submit(&seated_elsewhere).await,
+        f.submit(&staff_elsewhere).await,
     ];
     if verification_required {
         // An address with three requests waiting is told the same about a
@@ -388,6 +415,21 @@ async fn one_answer_for_every_address(verification_required: bool) {
     })
     .await;
     assert_eq!(f.tickets_for(&alias_typed), 0);
+
+    // A verified account seated only in A: its request is held for a
+    // confirmation to the address typed, whatever the setting, and the
+    // account isn't seated here before that.
+    f.until("the request of A's requester", || {
+        f.tickets_for(&seated_elsewhere) == 1
+    })
+    .await;
+    assert_eq!(f.states_for(&seated_elsewhere), [Some("pending".into())]);
+    assert_eq!(f.confirmations_to(&seated_elsewhere), 1);
+    assert_eq!(f.role_in_b(requester_of_a), None);
+    // A team member elsewhere is beyond the form: nothing is filed or held.
+    assert_eq!(f.tickets_for(&staff_elsewhere), 0);
+    assert_eq!(f.confirmations_to(&staff_elsewhere), 0);
+    assert_eq!(f.role_in_b(agent_of_a), None);
 }
 
 /// A submission that fails to file is answered as any other: the failure is
@@ -502,6 +544,104 @@ impl Form {
             .chars()
             .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
             .collect()
+    }
+
+    /// The request B holds for `email`: its id and requester.
+    fn request_for(&self, email: &str) -> (i32, uuid::Uuid) {
+        #[derive(QueryableByName)]
+        struct Request {
+            #[diesel(sql_type = diesel::sql_types::Integer)]
+            id: i32,
+            #[diesel(sql_type = diesel::sql_types::Uuid)]
+            requester_uuid: uuid::Uuid,
+        }
+        let r: Request = diesel::sql_query(
+            "SELECT t.id, t.requester_uuid FROM tickets t JOIN user_emails e \
+             ON e.user_uuid = t.requester_uuid \
+             WHERE t.workspace_id = $1 AND lower(e.email) = lower($2)",
+        )
+        .bind::<diesel::sql_types::Integer, _>(self.b)
+        .bind::<diesel::sql_types::Text, _>(email)
+        .get_result(&mut self.superuser())
+        .expect("request");
+        (r.id, r.requester_uuid)
+    }
+
+    /// POST `token` (and `password`, when given) to an invitation route:
+    /// `confirm` for the passwordless confirmation, `accept` to set a
+    /// password, `validate` to read the link. The status and body.
+    async fn invitation(
+        &self,
+        route: &str,
+        token: &str,
+        password: Option<&str>,
+    ) -> (u16, serde_json::Value) {
+        let search_dir = tempfile::tempdir().expect("search dir");
+        let search = SearchService::new(search_dir.path(), &self.pool).expect("search");
+        let app = actix_web::test::init_service(
+            App::new()
+                .app_data(web::Data::new(self.pool.clone()))
+                .app_data(web::Data::new(Arc::new(search)))
+                .route(
+                    "/confirm",
+                    web::post().to(backend::handlers::invitation::confirm_guest_submission),
+                )
+                .route(
+                    "/accept",
+                    web::post().to(backend::handlers::invitation::accept_invitation),
+                )
+                .route(
+                    "/validate",
+                    web::post().to(backend::handlers::invitation::validate_invitation),
+                ),
+        )
+        .await;
+        let mut body = serde_json::json!({ "token": token });
+        if let Some(password) = password {
+            body["password"] = serde_json::json!(password);
+        }
+        let req = actix_web::test::TestRequest::post()
+            .uri(&format!("/{route}"))
+            .set_json(body)
+            .to_request();
+        let resp = match actix_web::test::try_call_service(&app, req).await {
+            Ok(r) => r.into_parts().1,
+            Err(e) => e.error_response(),
+        };
+        let status = resp.status().as_u16();
+        let bytes = actix_web::body::to_bytes(resp.into_body())
+            .await
+            .expect("body");
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+        )
+    }
+
+    /// `user`'s local password hash, if they have one.
+    fn local_password(&self, user: uuid::Uuid) -> Option<String> {
+        use backend::schema::user_auth_identities as i;
+        i::table
+            .filter(i::user_uuid.eq(user))
+            .filter(i::provider_type.eq("local"))
+            .select(i::password_hash)
+            .first::<Option<String>>(&mut self.superuser())
+            .optional()
+            .expect("identity")
+            .flatten()
+    }
+
+    /// Give `user` a local password with this stored hash.
+    fn set_local_password(&self, user: uuid::Uuid, email: &str, hash: &str) {
+        diesel::sql_query(
+            "INSERT INTO user_auth_identities (user_uuid, provider_type, external_id, email, \
+             password_hash) VALUES ($1, 'local', $2, $2, $3)",
+        )
+        .bind::<diesel::sql_types::Uuid, _>(user)
+        .bind::<diesel::sql_types::Text, _>(email)
+        .bind::<diesel::sql_types::Text, _>(hash)
+        .execute(&mut self.superuser())
+        .expect("local password");
     }
 
     /// B's tickets for `email`, by verification state.
@@ -625,4 +765,249 @@ async fn a_request_held_with_no_earlier_link_is_not_filed() {
     actix_web::rt::time::sleep(std::time::Duration::from_millis(500)).await;
     assert_eq!(f.tickets_for(to), 0);
     assert_eq!(f.confirmations_to(to), 3);
+}
+
+/// A verified account seated only in another workspace writes in with
+/// confirmation off. Its request is held all the same, and the confirmation
+/// mailed to the address typed seats it here as a requester and releases the
+/// request. It can already sign in, so the link never sets or replaces its
+/// password: the page is told none is needed, an accept with a password is
+/// refused and leaves the link usable, and the POST confirms.
+#[actix_web::test]
+async fn a_verified_account_seated_elsewhere_is_seated_by_its_confirmation() {
+    let f = form(false);
+    let to = "requester@example.com";
+    let user = f.account_in(f.a, "member", &[(to, true, true)]);
+    f.set_local_password(user, to, "existing-hash");
+
+    f.submit("Requester@Example.com").await;
+    f.until("the held request and its link", || {
+        f.tickets_for(to) == 1 && f.confirmations_to(to) == 1
+    })
+    .await;
+    let (ticket, requester) = f.request_for(to);
+    assert_eq!(requester, user);
+    assert_eq!(f.states_for(to), [Some("pending".into())]);
+    assert_eq!(f.role_in_b(user), None);
+    let raw = f.confirmation_token(to);
+
+    let (status, body) = f.invitation("validate", &raw, None).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["valid"], true);
+    assert_eq!(body["password_required"], false, "{body}");
+
+    let (status, body) = f
+        .invitation("accept", &raw, Some("correct horse battery"))
+        .await;
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(f.local_password(user).as_deref(), Some("existing-hash"));
+    assert_eq!(f.states_for(to), [Some("pending".into())]);
+
+    let (status, body) = f.invitation("confirm", &raw, None).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(f.states_for(to), [Some("verified".into())]);
+    assert_eq!(f.role_in_b(user).as_deref(), Some("member"));
+    assert_eq!(f.local_password(user).as_deref(), Some("existing-hash"));
+    let proven: Option<chrono::DateTime<chrono::Utc>> = {
+        use backend::schema::user_emails as e;
+        e::table
+            .filter(e::user_uuid.eq(user))
+            .select(e::proven_at)
+            .first(&mut f.superuser())
+            .expect("address")
+    };
+    assert!(proven.is_some(), "the confirmation proved the address");
+    let released: i64 = {
+        use backend::schema::tickets as t;
+        t::table
+            .filter(t::id.eq(ticket))
+            .filter(t::requester_uuid.eq(user))
+            .count()
+            .get_result(&mut f.superuser())
+            .expect("ticket")
+    };
+    assert_eq!(released, 1);
+}
+
+/// A guest account with no way to sign in still sets a password with the
+/// link where local passwords exist.
+#[actix_web::test]
+async fn a_guest_without_credentials_still_sets_a_password() {
+    let f = form(true);
+    let to = "newcomer@example.com";
+    f.submit(to).await;
+    f.until("the held request and its link", || {
+        f.tickets_for(to) == 1 && f.confirmations_to(to) == 1
+    })
+    .await;
+    let raw = f.confirmation_token(to);
+    let (_, body) = f.invitation("validate", &raw, None).await;
+    assert_eq!(body["password_required"], true, "{body}");
+    let (status, body) = f
+        .invitation("accept", &raw, Some("correct horse battery"))
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let (_, requester) = f.request_for(to);
+    assert!(f.local_password(requester).is_some());
+}
+
+/// A verified account the confirmation couldn't seat here as a requester
+/// files nothing, as before: one the team here removed, one seated nowhere,
+/// one with a platform role, and one that was on a team elsewhere.
+#[actix_web::test]
+async fn an_account_the_form_cannot_seat_files_nothing() {
+    let f = form(true);
+    let removed = "removed@example.com";
+    let removed_user = f.account_in(f.a, "member", &[(removed, true, true)]);
+    {
+        let mut c = f.superuser();
+        common::seat(&mut c, f.b, removed_user, "member");
+        diesel::sql_query(
+            "UPDATE workspace_members SET removed_at = now() \
+             WHERE workspace_id = $1 AND user_uuid = $2",
+        )
+        .bind::<diesel::sql_types::Integer, _>(f.b)
+        .bind::<diesel::sql_types::Uuid, _>(removed_user)
+        .execute(&mut c)
+        .expect("remove the seat");
+    }
+    let unseated = "unseated@example.com";
+    {
+        let mut c = f.superuser();
+        let user = common::insert_plain_user(&mut c, "Unseated");
+        diesel::insert_into(backend::schema::user_emails::table)
+            .values(&backend::models::NewUserEmail {
+                user_uuid: user,
+                email: unseated.into(),
+                email_type: "personal".into(),
+                is_primary: true,
+                is_verified: true,
+                source: None,
+            })
+            .execute(&mut c)
+            .expect("email");
+    }
+    let reviewer = "reviewer@example.com";
+    let reviewer_user = f.account_in(f.a, "member", &[(reviewer, true, true)]);
+    diesel::sql_query("UPDATE users SET platform_role = 'audit_reviewer' WHERE uuid = $1")
+        .bind::<diesel::sql_types::Uuid, _>(reviewer_user)
+        .execute(&mut f.superuser())
+        .expect("platform role");
+    let former_agent = "former-agent@example.com";
+    let former = f.account_in(f.a, "member", &[(former_agent, true, true)]);
+    {
+        let mut c = f.superuser();
+        #[derive(QueryableByName)]
+        struct Id {
+            #[diesel(sql_type = diesel::sql_types::Integer)]
+            id: i32,
+        }
+        let other = diesel::sql_query(
+            "INSERT INTO workspaces (slug, name) VALUES ('former-team', 'Former team') \
+             RETURNING id",
+        )
+        .get_result::<Id>(&mut c)
+        .expect("another workspace")
+        .id;
+        common::seat(&mut c, other, former, "agent");
+        diesel::sql_query(
+            "UPDATE workspace_members SET removed_at = now() \
+             WHERE workspace_id = $1 AND user_uuid = $2",
+        )
+        .bind::<diesel::sql_types::Integer, _>(other)
+        .bind::<diesel::sql_types::Uuid, _>(former)
+        .execute(&mut c)
+        .expect("remove the agent seat");
+    }
+
+    let (status, _, body) = f.submit("baseline@example.com").await;
+    for to in [removed, unseated, reviewer, former_agent] {
+        let answer = f.submit(to).await;
+        assert_eq!((answer.0, &answer.2), (status, &body), "{to}");
+    }
+    f.until("the baseline request", || {
+        f.tickets_for("baseline@example.com") == 1
+    })
+    .await;
+    actix_web::rt::time::sleep(std::time::Duration::from_millis(500)).await;
+    for to in [removed, unseated, reviewer, former_agent] {
+        assert_eq!(f.tickets_for(to), 0, "{to}");
+        assert_eq!(f.confirmations_to(to), 0, "{to}");
+    }
+    assert_eq!(
+        f.role_in_b(removed_user),
+        None,
+        "a removed seat stays removed"
+    );
+}
+
+impl Form {
+    /// Whether the confirmation `raw` is spent.
+    fn spent(&self, raw: &str) -> bool {
+        use backend::schema::reset_tokens as rt;
+        rt::table
+            .filter(
+                rt::token_hash.eq(backend::utils::reset_tokens::ResetTokenUtils::hash_token(
+                    raw,
+                )),
+            )
+            .select(rt::is_used)
+            .first(&mut self.superuser())
+            .expect("token")
+    }
+}
+
+/// A verified account seated elsewhere, held for a confirmation, that has
+/// joined a team elsewhere by the time it confirms isn't seated here: the
+/// request stays held, and the link is answered as an invalid one.
+#[actix_web::test]
+async fn an_account_that_joined_a_team_since_filing_is_not_seated() {
+    let f = form(true);
+    let to = "now-agent@example.com";
+    let user = f.account_in(f.a, "member", &[(to, true, true)]);
+    f.submit(to).await;
+    f.until("the held request and its link", || {
+        f.tickets_for(to) == 1 && f.confirmations_to(to) == 1
+    })
+    .await;
+    common::seat(&mut f.superuser(), f.a, user, "agent");
+    let raw = f.confirmation_token(to);
+    let (status, body) = f.invitation("confirm", &raw, None).await;
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(f.states_for(to), [Some("pending".into())]);
+    assert_eq!(f.role_in_b(user), None);
+    assert!(!f.spent(&raw));
+}
+
+/// The form's hold for a verified account seated elsewhere never sets a
+/// password, even for one with no way to sign in yet (its address was
+/// vouched for by a directory): the page is told none is needed, an accept
+/// with one is refused before the link is spent, and the POST confirms.
+#[actix_web::test]
+async fn a_held_verified_account_without_credentials_sets_no_password() {
+    let f = form(true);
+    let to = "no-credentials@example.com";
+    let user = f.account_in(
+        f.a,
+        "member",
+        &[("primary-nc@example.com", true, false), (to, false, true)],
+    );
+    f.submit(to).await;
+    f.until("the held request and its link", || {
+        f.tickets_for(to) == 1 && f.confirmations_to(to) == 1
+    })
+    .await;
+    let raw = f.confirmation_token(to);
+    let (_, body) = f.invitation("validate", &raw, None).await;
+    assert_eq!(body["password_required"], false, "{body}");
+    let (status, _) = f
+        .invitation("accept", &raw, Some("correct horse battery"))
+        .await;
+    assert_eq!(status, 400);
+    assert!(!f.spent(&raw));
+    assert!(f.local_password(user).is_none());
+    let (status, body) = f.invitation("confirm", &raw, None).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(f.states_for(to), [Some("verified".into())]);
+    assert!(f.local_password(user).is_none());
 }

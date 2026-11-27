@@ -177,19 +177,21 @@ async fn the_confirmation_link_releases_a_held_ticket_without_a_password() {
     let db = crate::common::TestDb::new();
     let pool = db.pool_with_size(4);
     let mut conn = pool.get().expect("conn");
-    let guest = crate::common::insert_user(&mut conn, "Guest");
+    // A plain account: a confirmation never seats or releases for one with a
+    // platform role.
+    let guest = crate::common::insert_plain_user(&mut conn, "Guest");
     diesel::insert_into(backend::schema::workspace_members::table)
         .values((
             backend::schema::workspace_members::workspace_id.eq(WS),
-            backend::schema::workspace_members::user_uuid.eq(guest.uuid),
+            backend::schema::workspace_members::user_uuid.eq(guest),
             backend::schema::workspace_members::role.eq(WorkspaceRole::Member.as_str()),
         ))
         .on_conflict_do_nothing()
         .execute(&mut conn)
         .expect("membership");
-    let ticket = guest_ticket(&mut conn, guest.uuid, true);
-    let plain = invitation_token(&mut conn, guest.uuid, None);
-    let token = invitation_token(&mut conn, guest.uuid, Some(ticket.id));
+    let ticket = guest_ticket(&mut conn, guest, true);
+    let plain = invitation_token(&mut conn, guest, None);
+    let token = invitation_token(&mut conn, guest, Some(ticket.id));
 
     let srv = confirm_server(&pool);
     let client = awc::Client::new();

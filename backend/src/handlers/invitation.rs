@@ -129,8 +129,14 @@ pub async fn validate_invitation(
     let user_email = repository::user_helpers::get_primary_email(&user.uuid, &mut conn);
 
     let (invited_by, workspace_name) = greeting_fields(token.metadata.as_ref());
-    let password_required = context.as_deref() != Some("guest_ticket")
-        || crate::middleware::workspace_context::local_credentials_permitted();
+    // A request-form confirmation sets a password only on a guest account
+    // with no way to sign in (`guest_confirmation_sets_password`); any other
+    // confirms with the POST alone.
+    let password_required = if context.as_deref() == Some("guest_ticket") {
+        guest_confirmation_sets_password(&mut conn, &user).unwrap_or(false)
+    } else {
+        true
+    };
     Ok(HttpResponse::Ok().json(ValidateInvitationResponse {
         valid: true,
         user_email,
@@ -211,6 +217,24 @@ pub async fn accept_invitation(
             return Err(ApiError::BadRequest("Invalid or expired invitation".into()));
         }
     };
+
+    // A request-form confirmation sets a password only on a guest account
+    // with no way to sign in. Any other is refused before the link is spent,
+    // so it still confirms without one (`confirm_guest_submission`).
+    if guest.is_some() {
+        match guest_confirmation_sets_password(&mut conn, &user) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(ApiError::BadRequest(
+                    "This request is confirmed without a password.".into(),
+                ))
+            }
+            Err(e) => {
+                error!(user_uuid = %user.uuid, error = %e, "Could not read the account's sign-in methods");
+                return Err(ApiError::Internal("Failed to confirm submission".into()));
+            }
+        }
+    }
 
     // Hash the password
     let password_hash = match hash_password(&request_data.password) {
@@ -456,6 +480,25 @@ pub async fn confirm_guest_submission(
     }))
 }
 
+/// Whether following a request-form confirmation may set a local password on
+/// `user`, its account: only where local passwords exist, on an account with
+/// no way to sign in (a password, a provider identity, a passkey) and no
+/// verified address. The form holds a request for an account with a verified
+/// address only when it has no seat here, and that account signs in its own
+/// way, so its confirmation never sets one.
+fn guest_confirmation_sets_password(
+    conn: &mut DbConnection,
+    user: &crate::models::User,
+) -> diesel::QueryResult<bool> {
+    Ok(
+        crate::middleware::workspace_context::local_credentials_permitted()
+            && !repository::user_auth_identities::has_credentials(conn, user.uuid)?
+            && !repository::user_emails::get_user_emails_by_uuid(conn, &user.uuid)?
+                .iter()
+                .any(|row| row.is_verified),
+    )
+}
+
 /// Whether `token` is a request form's confirmation (rather than a staff or
 /// requester invitation).
 fn is_guest_confirmation(token: &crate::models::ResetToken) -> bool {
@@ -664,6 +707,7 @@ fn complete_verification(
         // with everything else, leaving the link usable; a confirm that finds
         // it spent already is refused as any used link is.
         let mut spent_already = false;
+        let mut refused = false;
         let done = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
             conn,
             &actor,
@@ -678,6 +722,16 @@ fn complete_verification(
                 };
                 let release = named_tickets(&token);
                 let confirmed_address = confirmed_address(&token);
+                // Whoever the request is released under must still be within
+                // the form's reach now, whatever they were when it was filed: no
+                // platform role and no staff seat elsewhere. Otherwise it stays
+                // held, and the link is answered as an invalid one, unspent.
+                if repository::requester_identities::out_of_reach(c, workspace_id, user.uuid)?
+                    .is_some()
+                {
+                    refused = true;
+                    return Err(diesel::result::Error::RollbackTransaction);
+                }
                 if completion.sets_password() {
                     repository::users::set_password_changed_at(
                         c,
@@ -714,7 +768,7 @@ fn complete_verification(
         );
         match done {
             Ok(released) => released,
-            Err(_) if spent_already => {
+            Err(_) if spent_already || refused => {
                 return Err(ApiError::BadRequest(
                     "Invalid or expired confirmation link".into(),
                 ))

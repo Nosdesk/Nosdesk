@@ -650,23 +650,10 @@ pub fn ensure_membership(
     Ok(role)
 }
 
-/// Give a requester a `member` seat in `workspace_id` when they hold one in
-/// another workspace and have no row here; returns whether it granted one.
-/// Accounts are shared across workspaces, so an address a guest form or mailbox
-/// reuses may belong to someone who only ever wrote to another workspace, and
-/// without a seat here their portal links and sign-in refuse them.
-///
-/// Nothing else is seated. Any row here is left as it is: an active one keeps
-/// its role, and one an admin removed stays removed (their mail still opens a
-/// ticket, but nothing signs them back in). "No row" alone is not "never a
-/// member": before memberships were soft-removed, removal deleted the row, so
-/// an account with no active seat anywhere else may be someone removed here
-/// back then. A deleted account is left alone too.
-///
-/// The insert is `ON CONFLICT DO NOTHING`, so a racing grant or removal wins
-/// and an existing row is never rewritten (or re-audited); `user.updated` goes
-/// out only when a row was written.
-pub fn join_as_requester(
+/// Whether [`join_as_requester`] would seat `user_uuid` in `workspace_id`: a
+/// live account with no row here, active or removed, and an active seat in
+/// another workspace. Run pinned to `workspace_id`.
+pub fn may_join_as_requester(
     conn: &mut DbConnection,
     workspace_id: i32,
     user_uuid: Uuid,
@@ -688,7 +675,31 @@ pub fn join_as_requester(
         .first::<Uuid>(conn)
         .optional()?
         .is_some();
-    if held || !member_elsewhere(conn, workspace_id, user_uuid)? {
+    Ok(!held && member_elsewhere(conn, workspace_id, user_uuid)?)
+}
+
+/// Give a requester a `member` seat in `workspace_id` when they hold one in
+/// another workspace and have no row here; returns whether it granted one.
+/// Accounts are shared across workspaces, so an address a guest form or mailbox
+/// reuses may belong to someone who only ever wrote to another workspace, and
+/// without a seat here their portal links and sign-in refuse them.
+///
+/// Nothing else is seated. Any row here is left as it is: an active one keeps
+/// its role, and one an admin removed stays removed (their mail still opens a
+/// ticket, but nothing signs them back in). "No row" alone is not "never a
+/// member": before memberships were soft-removed, removal deleted the row, so
+/// an account with no active seat anywhere else may be someone removed here
+/// back then. A deleted account is left alone too.
+///
+/// The insert is `ON CONFLICT DO NOTHING`, so a racing grant or removal wins
+/// and an existing row is never rewritten (or re-audited); `user.updated` goes
+/// out only when a row was written.
+pub fn join_as_requester(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    user_uuid: Uuid,
+) -> QueryResult<bool> {
+    if !may_join_as_requester(conn, workspace_id, user_uuid)? {
         return Ok(false);
     }
     let access = crate::repository::documentation::doc_access(conn, workspace_id, user_uuid)?;
