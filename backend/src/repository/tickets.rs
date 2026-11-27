@@ -646,6 +646,29 @@ pub fn verify_pending_tickets_for_user(
     user_uuid: Uuid,
     ticket_ids: &[i32],
 ) -> QueryResult<Vec<Ticket>> {
+    release_pending_tickets(conn, user_uuid, ticket_ids, Some("verified"))
+}
+
+/// [`verify_pending_tickets_for_user`] for requests that rode along on a
+/// confirmation sent for another (`reset_tokens::name_ticket_on_outstanding_confirmation`):
+/// released, so live, but with no verification state, since the click proves
+/// the mailbox, not that its holder wrote them. A request-form ticket with no
+/// state is stranger provenance (`services::ticket_mail_redaction`), so mail
+/// about it stays redacted until they write on it.
+pub fn release_unconfirmed_tickets_for_user(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    ticket_ids: &[i32],
+) -> QueryResult<Vec<Ticket>> {
+    release_pending_tickets(conn, user_uuid, ticket_ids, None)
+}
+
+fn release_pending_tickets(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    ticket_ids: &[i32],
+    state: Option<&str>,
+) -> QueryResult<Vec<Ticket>> {
     if ticket_ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -657,7 +680,7 @@ pub fn verify_pending_tickets_for_user(
                 .filter(tickets::verification_state.eq(groups::PENDING_VERIFICATION)),
         )
         .set((
-            tickets::verification_state.eq("verified"),
+            tickets::verification_state.eq(state),
             tickets::updated_at.eq(chrono::Utc::now().naive_utc()),
         ))
         .get_results(conn)?;

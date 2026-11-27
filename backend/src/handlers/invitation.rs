@@ -277,7 +277,7 @@ pub async fn accept_invitation(
                 Completion::PasswordSet,
                 None,
                 // An invitation names no held request.
-                &Release::Named(Vec::new()),
+                &Release::none(),
                 None,
             )?;
         }
@@ -435,7 +435,11 @@ pub async fn confirm_guest_submission(
         .get::<crate::extractors::WorkspaceContext>()
         .cloned()
         .filter(|_| crate::middleware::workspace_context::is_hosted());
-    let newest = released.iter().max_by_key(|t| t.id).map(|t| t.number);
+    let newest = released
+        .iter()
+        .filter(|t| t.verified)
+        .max_by_key(|t| t.id)
+        .map(|t| t.number);
     if let (Some(ctx), Some(number)) = (portal_ctx, newest) {
         match crate::handlers::portal::mint_portal_session(
             &user,
@@ -501,8 +505,13 @@ const FILED_WITH_TOKEN_WINDOW: chrono::Duration = chrono::Duration::minutes(2);
 
 /// Which held requests confirming a guest confirmation releases.
 enum Release {
-    /// The ones its token names (`ticket_ids`); none for an invitation.
-    Named(Vec<i32>),
+    /// The ones its token was sent for (`ticket_ids`), verified, and those
+    /// that rode along on it while its address's confirmations were held
+    /// (`rode_along`), released unconfirmed; none for an invitation.
+    Named {
+        sent_for: Vec<i32>,
+        rode_along: Vec<i32>,
+    },
     /// A token from before tokens named their tickets: the request filed
     /// with it, the requester's newest pending one in the workspace written
     /// within [`FILED_WITH_TOKEN_WINDOW`] before or at its minting.
@@ -510,7 +519,15 @@ enum Release {
 }
 
 impl Release {
-    /// The ticket ids to release, read in the confirmation's transaction.
+    /// None: an invitation names no held request.
+    fn none() -> Self {
+        Self::Named {
+            sent_for: Vec::new(),
+            rode_along: Vec::new(),
+        }
+    }
+
+    /// The ticket ids to verify, read in the confirmation's transaction.
     fn ids(
         &self,
         conn: &mut DbConnection,
@@ -518,7 +535,7 @@ impl Release {
         workspace_id: i32,
     ) -> diesel::QueryResult<Vec<i32>> {
         match self {
-            Self::Named(ids) => Ok(ids.clone()),
+            Self::Named { sent_for, .. } => Ok(sent_for.clone()),
             Self::FiledWith(minted_at) => Ok(repository::tickets::pending_ticket_filed_before(
                 conn,
                 user_uuid,
@@ -530,6 +547,29 @@ impl Release {
             .collect()),
         }
     }
+
+    /// The ticket ids to release unconfirmed.
+    fn rode_along(&self) -> &[i32] {
+        match self {
+            Self::Named { rode_along, .. } => rode_along,
+            Self::FiledWith(_) => &[],
+        }
+    }
+}
+
+/// The ticket ids in a token's metadata under `key`.
+fn ids_at(token: &crate::models::ResetToken, key: &str) -> Option<Vec<i32>> {
+    token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get(key))
+        .and_then(serde_json::Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(serde_json::Value::as_i64)
+                .filter_map(|id| i32::try_from(id).ok())
+                .collect()
+        })
 }
 
 /// The requests a guest confirmation was sent for (`ticket_ids`): confirming
@@ -537,20 +577,13 @@ impl Release {
 /// be a stranger's. A token minted before confirmations named them releases
 /// the one request filed with it ([`Release::FiledWith`]).
 fn named_tickets(token: &crate::models::ResetToken) -> Release {
-    let Some(ids) = token
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("ticket_ids"))
-        .and_then(serde_json::Value::as_array)
-    else {
+    let Some(sent_for) = ids_at(token, "ticket_ids") else {
         return Release::FiledWith(token.created_at.and_utc());
     };
-    Release::Named(
-        ids.iter()
-            .filter_map(serde_json::Value::as_i64)
-            .filter_map(|id| i32::try_from(id).ok())
-            .collect(),
-    )
+    Release::Named {
+        sent_for,
+        rode_along: ids_at(token, "rode_along").unwrap_or_default(),
+    }
 }
 
 /// The address a guest confirmation was mailed to (`sent_to`); `None` on one
@@ -651,7 +684,7 @@ fn complete_verification(
     // A failure changes nothing, so the address isn't left verified with its
     // request still held, and the link can be followed again.
     let released = if completion.releases_a_guest_request() {
-        crate::sync::session::with_actor_context(conn, &actor, |c| {
+        crate::sync::session::with_actor_context::<_, diesel::result::Error>(conn, &actor, |c| {
             if completion.sets_password() {
                 repository::users::set_password_changed_at(c, &user.uuid, Utc::now().naive_utc())?;
             }
@@ -668,9 +701,18 @@ fn complete_verification(
             // so the released request's requester is a member when its
             // `ticket.created` goes out and a portal session can be minted.
             repository::workspaces::join_as_requester(c, workspace_id, user.uuid)?;
-            // Only the requests this confirmation was sent for.
+            // The requests this confirmation was sent for, verified.
             let ids = release.ids(c, user.uuid, workspace_id)?;
-            repository::tickets::verify_pending_tickets_for_user(c, user.uuid, &ids)
+            let mut released =
+                repository::tickets::verify_pending_tickets_for_user(c, user.uuid, &ids)?;
+            // Requests that rode along go live but stay unconfirmed: the click
+            // proves the mailbox, not that its holder wrote them.
+            released.extend(repository::tickets::release_unconfirmed_tickets_for_user(
+                c,
+                user.uuid,
+                release.rode_along(),
+            )?);
+            Ok(released)
         })
         .map_err(|e| {
             warn!(user_uuid = %user.uuid, error = %e, "Failed to confirm guest submission");
@@ -698,6 +740,7 @@ fn complete_verification(
             let out = ReleasedTicket {
                 id: ticket.id,
                 number: ticket.number,
+                verified: ticket.verification_state.as_deref() == Some("verified"),
             };
             indexing_tasks::spawn_index_ticket(search_service.get_ref().clone(), ticket, None);
             out
@@ -753,11 +796,13 @@ fn accept_invitation_steps(
     Vec::new()
 }
 
-/// A guest ticket a verification released: its id, and the number the
-/// portal's links use.
+/// A guest ticket a verification released: its id, the number the portal's
+/// links use, and whether it was one the link was sent for (verified) rather
+/// than one that rode along.
 struct ReleasedTicket {
     id: i32,
     number: i32,
+    verified: bool,
 }
 
 /// Record a token-verified acceptance as a security event.

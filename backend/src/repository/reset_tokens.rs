@@ -99,7 +99,9 @@ pub fn users_with_live_tokens(
 /// Name `ticket_id` on the newest unspent, unexpired request-form confirmation
 /// for `user_uuid` from `workspace_id` that was sent to `address` (compared
 /// case-insensitively) and names its tickets, so following that link releases
-/// this request too. `false` when there is no such confirmation. Locks the row
+/// this request too. It goes in `rode_along`, apart from the `ticket_ids` the
+/// link was sent for: following it proves the mailbox, not that its holder
+/// wrote this one. `false` when there is no such confirmation. Locks the row
 /// it adds to until the caller's transaction ends.
 pub fn name_ticket_on_outstanding_confirmation(
     conn: &mut DbConnection,
@@ -111,8 +113,8 @@ pub fn name_ticket_on_outstanding_confirmation(
     use diesel::sql_types::{Integer, Text, Uuid as SqlUuid};
     let updated = diesel::sql_query(
         "UPDATE reset_tokens \
-         SET metadata = jsonb_set(metadata, '{ticket_ids}', \
-             (metadata->'ticket_ids') || to_jsonb($4::int)) \
+         SET metadata = jsonb_set(metadata, '{rode_along}', \
+             COALESCE(metadata->'rode_along', '[]'::jsonb) || to_jsonb($4::int)) \
          WHERE token_hash = ( \
              SELECT token_hash FROM reset_tokens \
              WHERE user_uuid = $1 AND token_type = $5 \

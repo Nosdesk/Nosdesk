@@ -528,7 +528,10 @@ impl Form {
 
 /// A request whose confirmation is held (here, the address's daily cap) is
 /// named on the link the address was already sent from this workspace, so
-/// that link releases it too.
+/// that link releases it too. Following the link proves the mailbox, not that
+/// its holder wrote the request that rode along: that one goes live but stays
+/// unconfirmed, so mail about it stays redacted, while the request the link
+/// was sent for is verified.
 #[actix_web::test]
 async fn a_request_held_at_the_cap_is_released_by_the_earlier_link() {
     let f = form(true);
@@ -561,10 +564,47 @@ async fn a_request_held_at_the_cap_is_released_by_the_earlier_link() {
         .set_json(serde_json::json!({ "token": raw }))
         .to_request();
     assert_eq!(actix_web::test::call_service(&app, req).await.status(), 200);
+    assert_eq!(f.states_for(to), vec![Some("verified".to_string()), None]);
+
+    let tickets: Vec<(i32, Option<uuid::Uuid>)> = {
+        use backend::schema::tickets as t;
+        t::table
+            .filter(t::workspace_id.eq(f.b))
+            .filter(t::submitted_via.eq(backend::models::SUBMITTED_VIA_GUEST))
+            .order(t::id)
+            .select((t::id, t::requester_uuid))
+            .load(&mut f.superuser())
+            .expect("tickets")
+    };
+    let [(own, Some(requester)), (rode_along, _)] = tickets[..] else {
+        panic!("two tickets: {tickets:?}");
+    };
+    let text = |ticket: i32| {
+        run_in_workspace(&f.pool, REF, f.b, |c| {
+            Ok(
+                backend::services::ticket_mail_redaction::ticket_mail_redaction_by_id(
+                    c,
+                    ticket,
+                    backend::services::ticket_mail_redaction::Recipient::Address(to),
+                ),
+            )
+        })
+        .expect("redaction")
+    };
     assert_eq!(
-        f.states_for(to),
-        vec![Some("verified".to_string()), Some("verified".to_string())]
+        text(own),
+        backend::services::ticket_mail_redaction::TicketMailText::Full
     );
+    assert_eq!(
+        text(rode_along),
+        backend::services::ticket_mail_redaction::TicketMailText::Redacted
+    );
+    // Live: nothing is waiting on a confirmation any more.
+    let pending = run_in_workspace(&f.pool, REF, f.b, |c| {
+        backend::repository::tickets::count_pending_for_requester(c, requester)
+    })
+    .expect("pending");
+    assert_eq!(pending, 0);
 }
 
 /// A request whose confirmation is held with no earlier link outstanding is
