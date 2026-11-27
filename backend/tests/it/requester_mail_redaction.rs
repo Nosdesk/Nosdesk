@@ -783,11 +783,16 @@ fn sent_to(d: &Desk, to: &str, message_id: &str) {
 /// organisation's. Written as stored, so a free-mail domain an older admin
 /// form let through is there too.
 fn org_domains(d: &Desk, domains: &[&str]) {
+    sign_in_provider(d, d.ws.workspace_id, domains);
+}
+
+/// Workspace `workspace_id`'s requester sign-in provider, listing `domains`.
+fn sign_in_provider(d: &Desk, workspace_id: i32, domains: &[&str]) {
     let domains: Vec<String> = domains.iter().map(|d| d.to_string()).collect();
-    run_in_workspace(&d.pool, REF, d.ws.workspace_id, |c| {
+    run_in_workspace(&d.pool, REF, workspace_id, |c| {
         backend::repository::workspace_identity_providers::save(
             c,
-            d.ws.workspace_id,
+            workspace_id,
             &backend::repository::workspace_identity_providers::ProviderInput {
                 kind: "oidc",
                 display_name: "Acme",
@@ -934,8 +939,13 @@ async fn a_copied_address_gets_the_ticket_only_from_its_senders_authenticated_do
 /// The workspace's own list of organisation domains, written as stored, so a
 /// free-mail domain the settings form would refuse is there too.
 fn listed_domains(d: &Desk, domains: &[&str]) {
+    listed_domains_in(d, d.ws.workspace_id, domains);
+}
+
+/// Workspace `workspace_id`'s own list, written as stored.
+fn listed_domains_in(d: &Desk, workspace_id: i32, domains: &[&str]) {
     let domains: Vec<Option<String>> = domains.iter().map(|d| Some(d.to_string())).collect();
-    d.run(|c| {
+    run_in_workspace(&d.pool, REF, workspace_id, |c| {
         backend::repository::site_settings::update_site_settings(
             c,
             backend::models::UpdateSiteSettings {
@@ -944,7 +954,19 @@ fn listed_domains(d: &Desk, domains: &[&str]) {
             },
         )
         .map(|_| ())
-    });
+    })
+    .expect("organisation domains");
+}
+
+/// Every workspace on the server but the desk's.
+fn other_workspaces(d: &Desk) -> Vec<i32> {
+    use backend::schema::workspaces as w;
+    w::table
+        .filter(w::id.ne(d.ws.workspace_id))
+        .select(w::id)
+        .order(w::id)
+        .load(&mut d.db.conn())
+        .expect("workspaces")
 }
 
 /// With no sign-in provider, a domain the admin listed in the workspace's
@@ -1009,6 +1031,58 @@ async fn a_listed_organisation_domain_counts_without_a_sign_in_provider() {
             .await,
     );
     assert_eq!(text_for(&d, shared, victim), TicketMailText::Redacted);
+}
+
+/// Another workspace's domains count for nothing here. Inbound mail runs on a
+/// connection elevated past row-level security and pinned to the receiving
+/// workspace, so the domains are read for the pinned workspace by name: every
+/// other workspace lists the sender's domain and has a sign-in provider for
+/// it, the receiving one has neither, and the copied colleague gets the
+/// number only. The receiving workspace's settings row is written last, so a
+/// read that took the first row it could see would find another workspace's.
+#[actix_rt::test]
+async fn another_workspaces_organisation_domains_dont_count() {
+    use backend::services::ticket_mail_redaction::TicketMailText;
+    let d = desk();
+    let others = other_workspaces(&d);
+    assert!(!others.is_empty(), "the seed has other workspaces");
+    for &other in &others {
+        listed_domains_in(&d, other, &["acme.example"]);
+        sign_in_provider(&d, other, &["acme.example"]);
+    }
+    listed_domains(&d, &[]);
+
+    // Elevated and pinned, as the inbound paths run.
+    let mut conn = d.pool.get().expect("conn");
+    let actor = backend::sync::actor::ActorContext::system("channels:inbound")
+        .with_workspace(d.ws.workspace_id);
+    backend::sync::session::elevate_session_role(&mut conn, &actor).expect("elevate");
+    let listed = backend::repository::site_settings::organisation_domains(&mut conn);
+    let provider = backend::repository::workspace_identity_providers::get(&mut conn);
+    backend::sync::session::reset_session_role(&mut conn);
+    drop(conn);
+    assert_eq!(listed.expect("organisation domains"), Vec::<String>::new());
+    assert!(provider.expect("provider").is_none());
+
+    let inbox = crate::channel_backlog::Inbox::on(None, d.pool.clone(), d.ws.clone());
+    let colleague = copied_member(&d, "Colleague", "colleague@acme.example");
+    let ticket = crate::channel_backlog::opened(
+        inbox
+            .receive(
+                &inbound(
+                    "sam@acme.example",
+                    "colleague@acme.example",
+                    "pass",
+                    "other-1@acme.example",
+                    &[],
+                ),
+                chrono::Utc::now(),
+            )
+            .await,
+    );
+    let sender = inbox.ticket(ticket).requester_uuid;
+    assert_eq!(d.added_by(ticket, colleague), sender);
+    assert_eq!(text_for(&d, ticket, colleague), TicketMailText::Redacted);
 }
 
 /// The domains the Cc rule counts are both lists together: the admin's and

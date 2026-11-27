@@ -203,7 +203,7 @@ import { useToastStore } from '@nosdesk/core/stores/toast';
 import { PRIORITY_OPTIONS } from '@nosdesk/core/constants/ticketOptions';
 import { useUnsavedChanges } from '@/composables/useUnsavedChanges';
 import { useWorkspacePortal } from '@/composables/useWorkspacePortal';
-import { extractErrorMessage } from '@/utils/errors';
+import { errorStatus, extractErrorMessage } from '@/utils/errors';
 import {
   adminGuestSettingsService,
   type AdminGuestSettings
@@ -324,6 +324,17 @@ const introMessage = computed<string>({
 // cleans the list (lowercase, no leading @, no duplicates) and refuses
 // free-mail domains.
 const domainsText = ref('');
+// The text last put in the box from the server's list.
+const loadedDomainsText = ref('');
+
+// Put the server's list in the box. `always` after a save; otherwise only
+// while the box still holds what was last loaded, so a background refetch
+// never undoes typing (a trailing newline parses the same as none).
+function seedDomains(list: string[] | undefined, always: boolean) {
+  const text = (list ?? []).join('\n');
+  if (always || domainsText.value === loadedDomainsText.value) domainsText.value = text;
+  loadedDomainsText.value = text;
+}
 
 function parseDomains(text: string): string[] {
   return text
@@ -356,7 +367,7 @@ watch(
     if (!data || dirty.value) return;
     settings.value = { ...data };
     pristine.value = { ...data };
-    domainsText.value = (data.organisation_domains ?? []).join('\n');
+    seedDomains(data.organisation_domains, false);
   },
   { immediate: true },
 );
@@ -379,11 +390,13 @@ async function save() {
         (settings.value.guest_ticket_intro_message ?? '').trim() || null,
       portal_share_by_domain: settings.value.portal_share_by_domain,
       portal_share_staff_requests: settings.value.portal_share_staff_requests,
-      organisation_domains: parseDomains(domainsText.value)
+      // Only when edited: a stored list the server would now refuse (from an
+      // import) mustn't block saving the other settings.
+      ...(domainsDirty.value ? { organisation_domains: parseDomains(domainsText.value) } : {})
     });
     settings.value = data;
     pristine.value = { ...data };
-    domainsText.value = (data.organisation_domains ?? []).join('\n');
+    seedDomains(data.organisation_domains, true);
     // Keep the cache in lockstep so a later revisit shows the saved
     // values without a network round-trip.
     queryCache.setQueryData(GUEST_SETTINGS_KEY, data);
@@ -391,8 +404,12 @@ async function save() {
     void queryCache.invalidateQueries({ key: ['workspace-portal'] });
     toast.success(t('admin-guest-saved'));
   } catch (error) {
-    // The server says which domain it refused and why.
-    errorMessage.value = extractErrorMessage(error, t('admin-guest-error-save'));
+    // A refused value (a domain, say) comes back as a 400 saying which and
+    // why; anything else gets the localized message.
+    errorMessage.value =
+      errorStatus(error) === 400
+        ? extractErrorMessage(error, t('admin-guest-error-save'))
+        : t('admin-guest-error-save');
   } finally {
     saving.value = false;
   }

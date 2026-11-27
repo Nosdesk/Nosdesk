@@ -25,9 +25,12 @@ fn aad(workspace_id: i32) -> Vec<u8> {
     buf
 }
 
-/// The workspace's provider, if one is configured.
+/// The pinned workspace's provider, if one is configured. Filters by the
+/// pinned workspace, so an elevated connection (inbound mail) reads only that
+/// one, and an unpinned one finds none.
 pub fn get(conn: &mut DbConnection) -> QueryResult<Option<WorkspaceIdentityProvider>> {
     p::table
+        .filter(p::workspace_id.eq(crate::repository::pinned_workspace()))
         .select(WorkspaceIdentityProvider::as_select())
         .first(conn)
         .optional()

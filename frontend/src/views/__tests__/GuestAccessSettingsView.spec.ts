@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PiniaColada } from '@pinia/colada'
+import { PiniaColada, useQueryCache } from '@pinia/colada'
+import { setActivePinia, type Pinia } from 'pinia'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
 import { mountWithProviders } from '@/test/mountWithProviders'
 
@@ -144,5 +145,50 @@ describe('GuestAccessSettingsView organisation domains', () => {
     // The edit stays, unsaved.
     expect(field().element.value).toBe('gmail.com')
     expect(saveButton().attributes('disabled')).toBeUndefined()
+  })
+
+  it('keeps the localized message for anything but a refused value', async () => {
+    await mountView()
+    vi.mocked(adminGuestSettingsService.update).mockRejectedValue({
+      response: { status: 500, data: { error: 'Failed to update settings' }, config: {} },
+    })
+    await field().setValue('acme.com')
+    await saveButton().trigger('click')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('admin-guest-error-save')
+    expect(wrapper!.text()).not.toContain('Failed to update settings')
+  })
+
+  it('leaves the list out of a save that did not edit it', async () => {
+    loaded.overrides = { organisation_domains: ['acme.com'], sign_in_domains: [] }
+    await mountView()
+    vi.mocked(adminGuestSettingsService.update).mockImplementation(async () => ({
+      ...(await adminGuestSettingsService.get()),
+      portal_share_by_domain: true,
+    }))
+    const share = wrapper!
+      .findAll('label')
+      .find((l) => l.text() === 'admin-guest-toggle-share-domain-label')!
+    await wrapper!.find(`#${share.attributes('for')}`).trigger('click')
+    await saveButton().trigger('click')
+    await flushPromises()
+    const sent = vi.mocked(adminGuestSettingsService.update).mock.calls[0]![0]
+    expect(sent.portal_share_by_domain).toBe(true)
+    expect('organisation_domains' in sent).toBe(false)
+  })
+
+  it('keeps what was typed when the settings refetch', async () => {
+    loaded.overrides = { organisation_domains: ['acme.com'], sign_in_domains: [] }
+    await mountView()
+    await field().setValue('acme.com\n')
+    setActivePinia((wrapper!.vm as unknown as { $pinia: Pinia }).$pinia)
+    useQueryCache().setQueryData(['guest-settings'], {
+      ...(await adminGuestSettingsService.get()),
+      sign_in_domains: ['sso.acme.com'],
+    })
+    await flushPromises()
+    // The refetch landed (the note shows) and the box kept the newline.
+    expect(wrapper!.find('[data-test="sign-in-domains"]').exists()).toBe(true)
+    expect(field().element.value).toBe('acme.com\n')
   })
 })

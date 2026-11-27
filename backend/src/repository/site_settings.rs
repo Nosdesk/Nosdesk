@@ -68,10 +68,13 @@ pub fn workspace_timezone(conn: &mut DbConnection) -> QueryResult<chrono_tz::Tz>
 /// The domains the pinned workspace knows as its organisation's: those an
 /// admin listed (`organisation_domains`) and those its enabled requester
 /// sign-in provider allows, lowercased and de-duplicated. Reads without
-/// creating a settings row. Neither list should hold a free-mail domain, but a
-/// caller that relies on that still checks.
+/// creating a settings row, and filters by the pinned workspace, so the
+/// elevated inbound paths read only theirs (under bypass the first row is any
+/// workspace's) and an unpinned connection finds none. Neither list should
+/// hold a free-mail domain, but a caller that relies on that still checks.
 pub fn organisation_domains(conn: &mut DbConnection) -> QueryResult<Vec<String>> {
     let listed: Option<Vec<Option<String>>> = site_settings::table
+        .filter(site_settings::workspace_id.eq(crate::repository::pinned_workspace()))
         .select(site_settings::organisation_domains)
         .first(conn)
         .optional()?;

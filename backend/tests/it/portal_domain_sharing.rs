@@ -450,7 +450,19 @@ async fn organisation_domains_round_trip_through_guest_settings() {
         "{after}"
     );
 
-    // An empty list clears it; other settings are untouched.
+    // A save that leaves the field out keeps the list.
+    let resp =
+        http_test::call_service(&app, patch(json!({ "portal_share_by_domain": true }))).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let toggled: serde_json::Value = http_test::read_body_json(resp).await;
+    assert_eq!(toggled["portal_share_by_domain"], json!(true), "{toggled}");
+    assert_eq!(
+        toggled["organisation_domains"],
+        json!(["acme.test", "it.acme.test"]),
+        "{toggled}"
+    );
+
+    // An empty list clears it; the setting saved above is untouched.
     let resp = http_test::call_service(&app, patch(json!({ "organisation_domains": [] }))).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let cleared: serde_json::Value = http_test::read_body_json(resp).await;
@@ -460,7 +472,7 @@ async fn organisation_domains_round_trip_through_guest_settings() {
         json!(["sso.acme.test"]),
         "{cleared}"
     );
-    assert_eq!(cleared["portal_share_by_domain"], json!(false), "{cleared}");
+    assert_eq!(cleared["portal_share_by_domain"], json!(true), "{cleared}");
 }
 
 /// An agent's own request stays out of the shared view after they are

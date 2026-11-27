@@ -7,24 +7,25 @@ use crate::errors::ApiError;
 /// The most domains one list may hold.
 pub const MAX_DOMAINS: usize = 50;
 
-/// Lowercased, trimmed, without a leading `@`, de-duplicated domains, in the
-/// order given. Blank entries are skipped, so an empty list is valid here; a
+/// Lowercased, trimmed, without a leading `@` or one trailing dot,
+/// de-duplicated domains, in the order given. Blank entries are skipped, so an empty list is valid here; a
 /// caller that needs one says so. Refuses anything that isn't a domain, a
 /// free-mail domain (it would stand for anyone with a personal account), and a
 /// list longer than [`MAX_DOMAINS`].
 pub fn clean_domains(domains: &[String]) -> Result<Vec<String>, ApiError> {
     let mut out: Vec<String> = Vec::new();
     for raw in domains {
-        let d = raw.trim().trim_start_matches('@').to_lowercase();
-        if d.is_empty() {
+        let trimmed = raw.trim().trim_start_matches('@');
+        if trimmed.is_empty() {
             continue;
         }
-        let valid = d.contains('.')
-            && d.len() <= 253
-            && d.chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.');
-        if !valid {
-            return Err(ApiError::BadRequest(format!("{d} isn't a domain")));
+        // A fully qualified `acme.com.` is `acme.com`.
+        let d = trimmed.strip_suffix('.').unwrap_or(trimmed).to_lowercase();
+        if !is_domain(&d) {
+            return Err(ApiError::BadRequest(format!(
+                "{} isn't a domain",
+                trimmed.to_lowercase()
+            )));
         }
         if crate::utils::free_mail::is_free_mail(&d) {
             return Err(ApiError::BadRequest(format!(
@@ -41,6 +42,20 @@ pub fn clean_domains(domains: &[String]) -> Result<Vec<String>, ApiError> {
         )));
     }
     Ok(out)
+}
+
+/// At least two labels, 253 characters at most; each label 1 to 63 letters,
+/// digits and hyphens, not starting or ending with a hyphen.
+fn is_domain(d: &str) -> bool {
+    d.len() <= 253
+        && d.contains('.')
+        && d.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        })
 }
 
 #[cfg(test)]
@@ -94,6 +109,35 @@ mod tests {
         assert!(clean_domains(&list(&["acme.com/path"])).is_err());
         assert!(clean_domains(&list(&["user@acme.com"])).is_err());
         assert!(clean_domains(&[format!("{}.com", "a".repeat(250))]).is_err());
+    }
+
+    #[test]
+    fn one_trailing_dot_is_dropped() {
+        assert_eq!(
+            clean_domains(&list(&["acme.com.", "Acme.com"])).unwrap(),
+            list(&["acme.com"])
+        );
+        assert!(clean_domains(&list(&["acme.com.."])).is_err());
+    }
+
+    #[test]
+    fn labels_must_be_well_formed() {
+        for bad in [
+            ".",
+            "..",
+            ".acme.com",
+            "a..com",
+            "-acme.com",
+            "acme-.com",
+            "acme.-com",
+            "acme.com-",
+        ] {
+            assert!(clean_domains(&list(&[bad])).is_err(), "{bad}");
+        }
+        let longest = "a".repeat(63);
+        assert!(clean_domains(&[format!("{longest}.com")]).is_ok());
+        assert!(clean_domains(&[format!("{longest}a.com")]).is_err());
+        assert!(clean_domains(&list(&["it-desk.acme.com", "x1.co"])).is_ok());
     }
 
     #[test]
