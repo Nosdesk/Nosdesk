@@ -81,7 +81,7 @@ pub fn render_plan(plan: &Plan) -> String {
     if !d.changed_at_source.is_empty() {
         let _ = writeln!(
             s,
-            "Changed at {title} since the last import: {} (not applied)",
+            "Changed at {title} since they were imported: {} (not applied)",
             counted(d.changed_at_source.len() as u64, "person", "people")
         );
     }
@@ -97,6 +97,27 @@ pub fn render_plan(plan: &Plan) -> String {
             counted(f.organizations, "organization", "organizations"),
             counted(f.conversations, "conversation", "conversations"),
         );
+        if f.conversations_failed > 0 {
+            let _ = writeln!(
+                s,
+                "  Conversations it couldn't fetch: {}; each keeps its description, with a note",
+                f.conversations_failed
+            );
+        }
+        if f.people_asked > 0 && !f.absence_confirmed {
+            let _ = writeln!(
+                s,
+                "  Who is gone isn't confirmed: the credential isn't an admin's. Use an admin \
+                 credential to confirm who is gone"
+            );
+        }
+        if !f.errors.is_empty() {
+            let _ = writeln!(
+                s,
+                "  Requests that failed and were passed over: {}",
+                f.errors.len()
+            );
+        }
         if let Some(why) = &f.failed {
             let _ = writeln!(s, "  The fill stopped: {why}");
         }

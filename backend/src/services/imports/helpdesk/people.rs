@@ -179,40 +179,58 @@ impl Resolved {
 pub struct AddressGroup {
     /// Who the group is decided as: see [`representative`].
     pub rep: Person,
-    /// Everyone in it, in the bundle's order.
+    /// Those the tickets mention, in the bundle's order: the ones brought
+    /// across.
     pub members: Vec<Person>,
+    /// Others at the source with the same address, whom the tickets don't
+    /// mention. They count toward the group's least privilege and nothing
+    /// else: nothing of theirs is written.
+    pub others: Vec<Person>,
 }
 
 impl AddressGroup {
     pub fn shared(&self) -> bool {
-        self.members.len() > 1
+        self.members.len() + self.others.len() > 1
     }
 }
 
-/// The bundle's people grouped by lower-cased address, each group in the
-/// order its first member came. Done before anything is decided or
-/// batched, so a shared address resolves the same in any batch and on any
-/// run.
-pub fn group_by_address(people: Vec<Person>) -> Vec<AddressGroup> {
-    let mut groups: Vec<Vec<Person>> = Vec::new();
+/// The people the tickets mention grouped by lower-cased address, each
+/// group in the order its first member came, with `others` (the bundle's
+/// people the tickets don't mention) joining the group of their address.
+/// Done over the whole bundle before anything is decided or batched, so a
+/// shared address resolves the same in any batch, on any run, whoever of
+/// its users the tickets happen to name.
+pub fn group_by_address(people: Vec<Person>, others: Vec<Person>) -> Vec<AddressGroup> {
+    let mut groups: Vec<(Vec<Person>, Vec<Person>)> = Vec::new();
     let mut by_email: HashMap<String, usize> = HashMap::new();
     for p in people {
         match p.email.as_deref().map(str::to_lowercase) {
             Some(e) => match by_email.get(&e) {
-                Some(&i) => groups[i].push(p),
+                Some(&i) => groups[i].0.push(p),
                 None => {
                     by_email.insert(e, groups.len());
-                    groups.push(vec![p]);
+                    groups.push((vec![p], Vec::new()));
                 }
             },
-            None => groups.push(vec![p]),
+            None => groups.push((vec![p], Vec::new())),
+        }
+    }
+    for o in others {
+        let at = o
+            .email
+            .as_deref()
+            .map(str::to_lowercase)
+            .and_then(|e| by_email.get(&e).copied());
+        if let Some(i) = at {
+            groups[i].1.push(o);
         }
     }
     groups
         .into_iter()
-        .map(|members| AddressGroup {
-            rep: representative(&members),
+        .map(|(members, others)| AddressGroup {
+            rep: representative(&members, &others),
             members,
+            others,
         })
         .collect()
 }
@@ -236,12 +254,17 @@ fn privilege(role: PersonRole) -> u8 {
     }
 }
 
-/// Who a group of people sharing an address is decided as. Deleted members
-/// count for attribution only, unless everyone is deleted. Of the rest:
-/// the least privileged role (anyone who raised tickets makes it a
-/// requester), active when any is, limited staff when any is, and the name,
-/// organization and phone of the earliest-created active member.
-fn representative(members: &[Person]) -> Person {
+/// Who a group of people sharing an address is decided as.
+///
+/// The role is the least privileged of everyone at the address who isn't
+/// deleted, the tickets' people and `others` alike (anyone who raised
+/// tickets there makes it a requester), and limited staff when any of them
+/// is: a shared mailbox is never seated above its least trusted user.
+///
+/// What is written comes from the people the tickets mention only, deleted
+/// ones counting for attribution unless all are: active when any is, and
+/// the name, organization and phone of the earliest-created active one.
+fn representative(members: &[Person], others: &[Person]) -> Person {
     let alive: Vec<&Person> = members.iter().filter(|p| !p.deleted).collect();
     let pool: Vec<&Person> = if alive.is_empty() {
         members.iter().collect()
@@ -256,7 +279,12 @@ fn representative(members: &[Person]) -> Person {
         .copied()
         .cloned()
         .unwrap_or_else(|| members[0].clone());
-    let role = pool
+    let deciding: Vec<&Person> = pool
+        .iter()
+        .copied()
+        .chain(others.iter().filter(|o| !o.deleted))
+        .collect();
+    let role = deciding
         .iter()
         .map(|p| p.role)
         .min_by_key(|r| privilege(*r))
@@ -265,10 +293,23 @@ fn representative(members: &[Person]) -> Person {
         role,
         active: pool.iter().any(|p| p.active && !p.deleted),
         deleted: pool.iter().all(|p| p.deleted),
-        limited_staff: role.is_staff() && pool.iter().any(|p| p.limited_staff),
-        custom_role: role.is_staff() && pool.iter().any(|p| p.custom_role),
+        limited_staff: role.is_staff() && deciding.iter().any(|p| p.limited_staff),
+        custom_role: role.is_staff() && deciding.iter().any(|p| p.custom_role),
         ..chosen
     }
+}
+
+/// Whether an account's seat here is no higher than `least`, the group's
+/// least privileged role: a staff seat never stands for an address a
+/// requester also uses.
+fn seat_fits(least: PersonRole, seat: Option<&str>) -> bool {
+    let rank = |r: &str| match r {
+        "owner" => 3,
+        "admin" => 2,
+        "agent" => 1,
+        _ => 0,
+    };
+    seat.map_or(0, rank) <= privilege(least)
 }
 
 pub struct PeopleOptions<'a> {
@@ -451,9 +492,15 @@ pub fn plan(
             Some(_) => (Outcome::Mapped, None),
             None => decide(&g.rep, &facts, opts),
         };
+        let joins = match group_mapped {
+            Some(uuid) => may_join(conn, g, *uuid, &facts, opts)?,
+            None => true,
+        };
         for m in &g.members {
             let outcome = if facts.mapped.contains_key(&m.source_id) {
                 Outcome::Mapped
+            } else if !joins {
+                Outcome::Withheld
             } else {
                 outcome
             };
@@ -539,8 +586,27 @@ pub fn plan(
         decisions,
         warnings,
         profile,
-        changed_at_source: changed_at_source(groups, &facts),
+        changed_at_source: changed_at_source(groups, &facts, opts.scope.source),
     })
+}
+
+/// Whether the group's people the id map doesn't have yet may join the
+/// account another of them was brought across as: only when it holds their
+/// address here and its seat is no higher than the group's least privilege.
+/// Otherwise (an agent mapped to a staff member here, say) they would be
+/// credited to someone the address isn't, depending on which ran first.
+fn may_join(
+    conn: &mut DbConnection,
+    g: &AddressGroup,
+    account: Uuid,
+    facts: &Facts,
+    opts: &PeopleOptions<'_>,
+) -> QueryResult<bool> {
+    if !owns_address(g, account, facts) {
+        return Ok(false);
+    }
+    let seat = workspaces::membership(conn, opts.scope.workspace_id, account)?.map(|m| m.role);
+    Ok(seat_fits(g.rep.role, seat.as_deref()))
 }
 
 /// Someone at the group's address had their profile fill done by an
@@ -577,7 +643,7 @@ fn needs_profile(g: &AddressGroup, facts: &Facts) -> bool {
 /// People brought across before whom the source has changed since: listed,
 /// never applied (a primary address decides who signs in, and an address
 /// changed at the source is no proof).
-fn changed_at_source(groups: &[AddressGroup], facts: &Facts) -> Vec<String> {
+fn changed_at_source(groups: &[AddressGroup], facts: &Facts, source: &str) -> Vec<String> {
     let mut out = Vec::new();
     for p in groups.iter().flat_map(|g| &g.members) {
         let Some(stored) = facts.mapped_updated.get(&p.source_id) else {
@@ -588,7 +654,11 @@ fn changed_at_source(groups: &[AddressGroup], facts: &Facts) -> Vec<String> {
             _ => false,
         };
         if newer {
-            out.push(format!("{} (source id {})", display_name(p), p.source_id));
+            out.push(format!(
+                "{} (source id {})",
+                display_name(p, source),
+                p.source_id
+            ));
         }
     }
     out
@@ -720,7 +790,7 @@ pub fn apply(
     }
 
     let mut out = Applied {
-        changed_at_source: changed_at_source(groups, &facts),
+        changed_at_source: changed_at_source(groups, &facts, opts.scope.source),
         ..Default::default()
     };
     for g in groups {
@@ -733,21 +803,37 @@ pub fn apply(
             .iter()
             .filter(|m| !facts.mapped.contains_key(&m.source_id))
             .collect();
+        let mut withheld_joiners = false;
         let group = match group_mapped {
             Some(uuid) => {
                 let r = standing(conn, ws, uuid, Outcome::Mapped)?;
-                // Others at the same address join the account it went to.
+                // Others at the same address join the account it went to,
+                // when that account holds the address and sits no higher
+                // than the least of them; otherwise they are credited to
+                // the placeholder, and the operator told.
                 if !unmapped.is_empty() {
-                    let joined = conn.transaction(|conn| {
-                        unmapped
-                            .iter()
-                            .try_for_each(|m| remember(conn, m, &r, opts))
-                    });
-                    if let Err(e) = joined {
-                        out.problems.push(format!(
-                            "{}: not recorded with the others at its address ({e})",
-                            display_name(&g.rep)
-                        ));
+                    if may_join(conn, g, uuid, &facts, opts)? {
+                        let joined = conn.transaction(|conn| {
+                            unmapped
+                                .iter()
+                                .try_for_each(|m| remember(conn, m, &r, opts))
+                        });
+                        if let Err(e) = joined {
+                            out.problems.push(format!(
+                                "{}: not recorded with the others at its address ({e})",
+                                display_name(&g.rep, opts.scope.source)
+                            ));
+                        }
+                    } else {
+                        withheld_joiners = true;
+                        for m in &unmapped {
+                            out.problems.push(format!(
+                                "{}: shares an address with someone brought across before as \
+                                 an account here that doesn't hold it or has a higher seat, so \
+                                 credited to the placeholder author",
+                                display_name(m, opts.scope.source)
+                            ));
+                        }
                     }
                 }
                 r
@@ -775,7 +861,7 @@ pub fn apply(
                         let instead = fallback(conn, &g.rep, &unmapped, opts, placeholder);
                         out.problems.push(format!(
                             "{}: {} ({e}), so {}",
-                            display_name(&g.rep),
+                            display_name(&g.rep, opts.scope.source),
                             outcome.label(),
                             if instead.outcome.on_placeholder() {
                                 "credited to the placeholder author"
@@ -789,7 +875,7 @@ pub fn apply(
             }
         };
 
-        if !group.outcome.on_placeholder() && needs_profile(g, &facts) {
+        if !group.outcome.on_placeholder() && !withheld_joiners && needs_profile(g, &facts) {
             // Written only to an account made for this address, or one that
             // holds it, and only once per address; otherwise the fill is
             // recorded as done with nothing written.
@@ -805,7 +891,7 @@ pub fn apply(
                 Ok(tally) => out.profile.add(&tally),
                 Err(e) => out.profile_problems.push(format!(
                     "{}: organization and phone not written ({e})",
-                    display_name(&g.rep)
+                    display_name(&g.rep, opts.scope.source)
                 )),
             }
         }
@@ -815,10 +901,14 @@ pub fn apply(
                 Some(uuid) if Some(*uuid) != group_mapped => {
                     standing(conn, ws, *uuid, Outcome::Mapped)?
                 }
-                _ => group.clone(),
+                Some(_) => group.clone(),
+                None if withheld_joiners => {
+                    Resolved::new(placeholder, false, false, Outcome::Withheld)
+                }
+                None => group.clone(),
             };
             r.source_staff = m.role.is_staff();
-            r.source_name = display_name(m);
+            r.source_name = display_name(m, opts.scope.source);
             // Nothing of a deleted person's but their name.
             r.source_email = m.email.clone().filter(|_| !m.deleted);
             out.resolved.insert(m.source_id.clone(), r);
@@ -933,7 +1023,12 @@ pub fn fallback(
         if !held.is_empty() {
             return Err(diesel::result::Error::RollbackTransaction);
         }
-        let uuid = create_account(conn, &display_name(p), &email, Seat::None)?;
+        let uuid = create_account(
+            conn,
+            &display_name(p, opts.scope.source),
+            &email,
+            Seat::None,
+        )?;
         let r = Resolved::new(uuid, false, false, Outcome::FormerStaff);
         for m in unmapped {
             remember(conn, m, &r, opts)?;
@@ -1013,13 +1108,23 @@ fn bring(
                 Ok(withheld())
             }
         }
-        (Outcome::AgentCreated, _) => create_agent(conn, p),
+        (Outcome::AgentCreated, _) => create_agent(conn, p, opts.scope.source),
         (Outcome::Requester, _) => {
-            let uuid = create_account(conn, &display_name(p), &new_address(p)?, Seat::Requester)?;
+            let uuid = create_account(
+                conn,
+                &display_name(p, opts.scope.source),
+                &new_address(p)?,
+                Seat::Requester,
+            )?;
             Ok(Resolved::new(uuid, false, true, outcome))
         }
         (Outcome::FormerStaff | Outcome::Inactive, _) => {
-            let uuid = create_account(conn, &display_name(p), &new_address(p)?, Seat::None)?;
+            let uuid = create_account(
+                conn,
+                &display_name(p, opts.scope.source),
+                &new_address(p)?,
+                Seat::None,
+            )?;
             Ok(Resolved::new(uuid, false, false, outcome))
         }
         (Outcome::Placeholder | Outcome::Deleted, _) => {
@@ -1039,10 +1144,16 @@ fn new_address(p: &Person) -> QueryResult<String> {
     Ok(email_of(p)?.to_lowercase())
 }
 
-fn display_name(p: &Person) -> String {
+/// A person's name for the history they wrote: their name at the source;
+/// without one, the part of their address before the `@`, except for
+/// someone deleted there, who is named only by their source id.
+pub fn display_name(p: &Person, source: &str) -> String {
     let name = p.name.trim();
     if !name.is_empty() {
         return name.chars().take(255).collect();
+    }
+    if p.deleted {
+        return format!("{} user {}", source_title(source), p.source_id);
     }
     p.email
         .as_deref()
@@ -1108,10 +1219,10 @@ fn create_account(
     Ok(user.uuid)
 }
 
-fn create_agent(conn: &mut DbConnection, p: &Person) -> QueryResult<Resolved> {
+fn create_agent(conn: &mut DbConnection, p: &Person, source: &str) -> QueryResult<Resolved> {
     let email = new_address(p)?;
     match user_helpers::create_user_with_email(
-        new_user(&display_name(p)),
+        new_user(&display_name(p, source)),
         WorkspaceRole::Agent,
         email.clone(),
         false,
@@ -1125,7 +1236,7 @@ fn create_agent(conn: &mut DbConnection, p: &Person) -> QueryResult<Resolved> {
         }
         // Hosted refused the seat after all: an account without one.
         CreateUserWithEmailOutcome::ExternallyManaged => {
-            let uuid = create_account(conn, &display_name(p), &email, Seat::None)?;
+            let uuid = create_account(conn, &display_name(p, source), &email, Seat::None)?;
             Ok(Resolved::new(uuid, false, false, Outcome::FormerStaff))
         }
     }
@@ -1362,13 +1473,16 @@ mod tests {
             email: Some("alone@x.com".into()),
             ..member("5", PersonRole::Admin, None)
         };
-        let groups = group_by_address(vec![
-            deleted_requester.clone(),
-            suspended_agent.clone(),
-            alone,
-            admin.clone(),
-            requester,
-        ]);
+        let groups = group_by_address(
+            vec![
+                deleted_requester.clone(),
+                suspended_agent.clone(),
+                alone,
+                admin.clone(),
+                requester,
+            ],
+            vec![],
+        );
         assert_eq!(groups.len(), 2);
         let g = &groups[0];
         assert_eq!(g.members.len(), 4);
@@ -1391,7 +1505,7 @@ mod tests {
         // Staff alone: the least of them, and limited if any is.
         let mut light = member("6", PersonRole::Agent, Some(6));
         light.limited_staff = true;
-        let groups = group_by_address(vec![admin, light]);
+        let groups = group_by_address(vec![admin.clone(), light], vec![]);
         assert_eq!(groups[0].rep.role, PersonRole::Agent);
         assert!(groups[0].rep.limited_staff);
         assert_eq!(
@@ -1400,15 +1514,50 @@ mod tests {
         );
 
         // Everyone deleted: attribution only.
-        let groups = group_by_address(vec![deleted_requester]);
+        let groups = group_by_address(vec![deleted_requester], vec![]);
         assert!(groups[0].rep.deleted);
         assert_eq!(
             decide(&groups[0].rep, &facts(vec![], &[]), &opts(&map, true)).0,
             Outcome::Deleted
         );
+        // Someone the tickets don't mention still lowers the group: an
+        // agent alone at an address an end user also uses is a requester,
+        // and only the agent is in the group's members.
+        let end_user = person(Some("shared@x.com"), PersonRole::Requester, true);
+        let groups = group_by_address(vec![admin.clone()], vec![end_user]);
+        assert_eq!(groups[0].rep.role, PersonRole::Requester);
+        assert_eq!(groups[0].rep.name, "Name 3", "named for the mentioned one");
+        assert_eq!(groups[0].members.len(), 1);
+        assert!(groups[0].shared());
+        // Someone the tickets don't mention at another address is no one's.
+        let elsewhere = person(Some("else@x.com"), PersonRole::Requester, true);
+        let groups = group_by_address(vec![admin], vec![elsewhere]);
+        assert!(groups[0].others.is_empty());
+        assert_eq!(groups[0].rep.role, PersonRole::Admin);
+
         // Not deleted, but nobody active: an account without a seat.
-        let groups = group_by_address(vec![suspended_agent]);
+        let groups = group_by_address(vec![suspended_agent], vec![]);
         assert!(!groups[0].rep.active);
+    }
+
+    #[test]
+    fn a_seat_never_stands_above_the_least_privilege_at_its_address() {
+        assert!(seat_fits(PersonRole::Requester, None));
+        assert!(seat_fits(PersonRole::Requester, Some("member")));
+        assert!(!seat_fits(PersonRole::Requester, Some("agent")));
+        assert!(seat_fits(PersonRole::Agent, Some("agent")));
+        assert!(!seat_fits(PersonRole::Agent, Some("admin")));
+        assert!(seat_fits(PersonRole::Admin, Some("admin")));
+        assert!(!seat_fits(PersonRole::Admin, Some("owner")));
+    }
+
+    #[test]
+    fn a_deleted_person_without_a_name_is_named_by_their_id() {
+        let mut p = person(Some("dee@x.com"), PersonRole::Requester, false);
+        p.name = String::new();
+        assert_eq!(display_name(&p, "zendesk"), "dee");
+        p.deleted = true;
+        assert_eq!(display_name(&p, "zendesk"), "Zendesk user 1");
     }
 
     #[test]

@@ -1323,17 +1323,26 @@ fn customer_thread(
         .into_iter()
         .map(|c| {
             let user = users.get(&c.user_uuid);
-            let source_name = placeholders
-                .contains(&c.user_uuid)
+            let on_placeholder = placeholders.contains(&c.user_uuid);
+            let source_name = on_placeholder
                 .then(|| imported_author_name(c.channel_metadata.as_ref()))
                 .flatten();
+            // The placeholder holds no seat: a reply credited to it is a
+            // staff reply when its author was staff at the source.
+            let source_staff = on_placeholder.then(|| {
+                c.channel_metadata
+                    .as_ref()
+                    .and_then(|m| m.get("import")?.get("author_role")?.as_str())
+                    == Some("staff")
+            });
             CustomerComment {
                 author: CustomerAuthor {
                     name: source_name
                         .or_else(|| user.map(|u| u.name.clone()))
                         .unwrap_or_default(),
                     avatar_url: user.and_then(|u| u.avatar_thumb.clone().or(u.avatar_url.clone())),
-                    is_staff: roles.get(&c.user_uuid).is_some_and(|r| r.is_staff()),
+                    is_staff: source_staff
+                        .unwrap_or_else(|| roles.get(&c.user_uuid).is_some_and(|r| r.is_staff())),
                     is_you: c.user_uuid == viewer,
                 },
                 attachments: attachments

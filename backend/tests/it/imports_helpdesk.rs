@@ -2864,7 +2864,7 @@ async fn changed_at_zendesk_reported_not_applied() {
     assert_eq!(plan.people_detail.changed_at_source.len(), 1);
     let text = backend::services::imports::helpdesk::report::render_plan(&plan);
     assert!(
-        text.contains("Changed at Zendesk since the last import: 1 person (not applied)"),
+        text.contains("Changed at Zendesk since they were imported: 1 person (not applied)"),
         "{text}"
     );
     let report = run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
@@ -2970,6 +2970,7 @@ async fn people_the_fill_found_gone_need_no_flag_but_the_rest_refuse() {
         m.fill = Some(Fill {
             people_asked: 2,
             gone: vec!["ghost".into()],
+            absence_confirmed: true,
             ..Default::default()
         });
     };
@@ -3104,7 +3105,8 @@ async fn the_plan_reads_as_the_operator_sees_it() {
             gone: vec!["ghost".into()],
             organizations: 1,
             conversations: 1,
-            failed: None,
+            absence_confirmed: true,
+            ..Default::default()
         });
     });
     let plan = loader::plan(&pool, &bundle, &options(&ws, Uuid::now_v7()))
@@ -3175,6 +3177,12 @@ async fn the_portal_shows_the_source_name_on_placeholder_replies_never_the_addre
             name: "Else At Zendesk".into(),
             ..person("w1", "else@customer.test", PersonRole::Requester, true)
         },
+        Person {
+            name: "Ann Agent".into(),
+            deleted: true,
+            active: false,
+            ..person("g1", "ann@acme.test", PersonRole::Agent, false)
+        },
     ];
     let mut t = raised_by("1601", "r1", &[]);
     t.comments.push(comment(
@@ -3190,6 +3198,13 @@ async fn the_portal_shows_the_source_name_on_placeholder_replies_never_the_addre
         true,
         "<p>From Else</p>",
         at(1, 12),
+    ));
+    t.comments.push(comment(
+        "c1601d",
+        Some("g1"),
+        true,
+        "<p>From Ann</p>",
+        at(1, 13),
     ));
     let dir = tempfile::tempdir().expect("dir");
     let bundle = write_bundle_with(dir.path(), &cast, &[t], &[], |_| {});
@@ -3254,9 +3269,19 @@ async fn the_portal_shows_the_source_name_on_placeholder_replies_never_the_addre
         .collect();
     assert_eq!(
         authors,
-        vec!["Source r1", "Dee Deleted", "Else At Zendesk"],
+        vec!["Source r1", "Dee Deleted", "Else At Zendesk", "Ann Agent"],
         "{body}"
     );
+    // A source agent's reply reads as a staff reply, though the placeholder
+    // holds no seat; a customer's doesn't.
+    let staff: Vec<bool> = body["comments"]
+        .as_array()
+        .expect("comments")
+        .iter()
+        .map(|c| c["author"]["is_staff"].as_bool().unwrap_or_default())
+        .collect();
+    assert_eq!(staff, vec![false, false, false, true], "{body}");
+    assert!(!text.contains("ann@acme.test"), "{text}");
 }
 
 #[actix_web::test]
@@ -3395,4 +3420,314 @@ async fn someone_who_joins_a_shared_address_later_doesnt_fill_it_again() {
         mapped(&pool, ws.workspace_id, "person", "j2"),
         vec![desk.to_string()]
     );
+}
+
+/// The job's sync events by type.
+fn job_events(pool: &TestPool, job: Uuid) -> BTreeMap<String, i64> {
+    #[derive(QueryableByName)]
+    struct E {
+        #[diesel(sql_type = Text)]
+        event_type: String,
+        #[diesel(sql_type = BigInt)]
+        n: i64,
+    }
+    let mut conn = pool.get().expect("conn");
+    diesel::sql_query(
+        "SELECT event_type, count(*) AS n FROM sync_actions WHERE actor_ref = $1 \
+         GROUP BY event_type",
+    )
+    .bind::<Text, _>(format!("import:{job}"))
+    .load::<E>(&mut conn)
+    .expect("events")
+    .into_iter()
+    .map(|e| (e.event_type, e.n))
+    .collect()
+}
+
+#[actix_web::test]
+async fn profile_and_phone_writes_record_no_sync_event() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let cast = vec![customer(
+        "e1",
+        "eve@customer.test",
+        Some("Acme"),
+        Some("+61299990000"),
+    )];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(
+        dir.path(),
+        &cast,
+        &[raised_by("1901", "e1", &[])],
+        &[],
+        |_| {},
+    );
+    let job = Uuid::now_v7();
+    let report = run(&pool, &bundle, &options(&ws, job)).await;
+    assert_eq!(
+        (report.profile.organizations, report.profile.phones),
+        (1, 1)
+    );
+    let events = job_events(&pool, job);
+    assert!(
+        events
+            .keys()
+            .all(|e| !e.contains("profile") && !e.contains("phone") && !e.contains("contact")),
+        "{events:?}"
+    );
+    // Of users, only the accounts the run made (Eve and the placeholder),
+    // and nothing updated on them.
+    let user_events: Vec<(&String, &i64)> = events
+        .iter()
+        .filter(|(e, _)| e.starts_with("user."))
+        .collect();
+    assert_eq!(
+        user_events,
+        vec![(&"user.created".to_string(), &2)],
+        "{events:?}"
+    );
+}
+
+#[actix_web::test]
+async fn a_shared_mailbox_an_end_user_uses_is_never_an_agent() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    // Only the agent is mentioned; an end user at Zendesk uses the same
+    // mailbox.
+    let agent = Person {
+        name: "Desk Agent".into(),
+        ..person("x1", "desk@customer.test", PersonRole::Agent, true)
+    };
+    let end_user = person("y1", "Desk@Customer.test", PersonRole::Requester, true);
+    let cast = vec![
+        customer("r1", "rae@customer.test", None, None),
+        agent,
+        end_user,
+    ];
+    let mut t = raised_by("2001", "r1", &[]);
+    t.assignee = Some("x1".into());
+    t.comments.push(comment(
+        "c2001b",
+        Some("x1"),
+        true,
+        "<p>On it</p>",
+        at(1, 11),
+    ));
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &cast, &[t], &[], |_| {});
+    let opts = options(&ws, Uuid::now_v7());
+    assert!(opts.create_agents);
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    let staff = plan
+        .staff
+        .iter()
+        .find(|(who, _, _)| who == "desk@customer.test")
+        .expect("x1");
+    assert_eq!(staff.2, "requester, created");
+    assert_eq!(
+        (
+            plan.people_detail.shared_addresses,
+            plan.people_detail.shared_address_people
+        ),
+        (1, 2)
+    );
+    run(&pool, &bundle, &opts).await;
+    let desk = account_of(&pool, "desk@customer.test");
+    assert_eq!(
+        seat_of(&pool, ws.workspace_id, desk),
+        Some(("member".to_string(), false))
+    );
+    assert_eq!(assignee_of(&pool, &ws, 2001), None);
+    assert_eq!(
+        mapped(&pool, ws.workspace_id, "person", "x1"),
+        vec![desk.to_string()]
+    );
+    assert!(
+        mapped(&pool, ws.workspace_id, "person", "y1").is_empty(),
+        "only people the tickets mention are mapped"
+    );
+}
+
+#[actix_web::test]
+async fn a_requester_at_an_address_mapped_to_staff_is_withheld_not_credited_to_them() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let stella = account(
+        &pool,
+        "Stella Staff",
+        None,
+        "stella@here.test",
+        &[],
+        Some((ws.workspace_id, "agent")),
+    );
+    let agent = person("x1", "desk@customer.test", PersonRole::Agent, true);
+    let mut t1 = raised_by("2101", "r1", &[]);
+    t1.assignee = Some("x1".into());
+    let mut opts = options(&ws, Uuid::now_v7());
+    opts.agent_map = HashMap::from([(
+        "desk@customer.test".to_string(),
+        "stella@here.test".to_string(),
+    )]);
+
+    // Run 1: the bundle holds only the agent at the address.
+    let dir = tempfile::tempdir().expect("dir");
+    let cast = vec![
+        customer("r1", "rae@customer.test", None, None),
+        agent.clone(),
+    ];
+    let bundle = write_bundle_with(dir.path(), &cast, std::slice::from_ref(&t1), &[], |_| {});
+    run(&pool, &bundle, &opts).await;
+    assert_eq!(assignee_of(&pool, &ws, 2101), Some(stella));
+
+    // Run 2: a requester at the same address raises a ticket.
+    let requester = Person {
+        name: "Yan Requester".into(),
+        ..person("y1", "desk@customer.test", PersonRole::Requester, true)
+    };
+    let cast = vec![
+        customer("r1", "rae@customer.test", None, None),
+        agent,
+        requester,
+    ];
+    let tickets = vec![t1, raised_by("2102", "y1", &[])];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &cast, &tickets, &[], |_| {});
+    let mut again = opts.clone();
+    again.job_id = Uuid::now_v7();
+    let plan = loader::plan(&pool, &bundle, &again).await.expect("plan");
+    assert_eq!(
+        plan.people.get("address held elsewhere (placeholder)"),
+        Some(&1),
+        "{:?}",
+        plan.people
+    );
+    let report = run(&pool, &bundle, &again).await;
+    assert!(
+        report
+            .people_problems
+            .iter()
+            .any(|p| p.starts_with("Yan Requester: shares an address")),
+        "{:?}",
+        report.people_problems
+    );
+    let reqs = requesters(&pool, &ws);
+    assert_ne!(
+        reqs[&2102], stella,
+        "a requester's ticket is never Stella's"
+    );
+    assert!(mapped(&pool, ws.workspace_id, "person", "y1").is_empty());
+    assert_eq!(
+        mapped(&pool, ws.workspace_id, "person", "x1"),
+        vec![stella.to_string()]
+    );
+    assert_eq!(profile_of(&pool, ws.workspace_id, stella), None);
+}
+
+#[actix_web::test]
+async fn a_deleted_person_is_named_by_id_and_never_addressed() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    account(
+        &pool,
+        "Stella Staff",
+        None,
+        "stella@here.test",
+        &[],
+        Some((ws.workspace_id, "agent")),
+    );
+    let gone = |id: &str, email: &str, role| Person {
+        name: String::new(),
+        deleted: true,
+        active: false,
+        ..person(id, email, role, false)
+    };
+    let cast = vec![
+        gone("d1", "dee@customer.test", PersonRole::Requester),
+        gone("a9", "gone@acme.test", PersonRole::Agent),
+    ];
+    let mut t = raised_by("2201", "d1", &[]);
+    t.assignee = Some("a9".into());
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &cast, &[t], &[], |_| {});
+    let mut opts = options(&ws, Uuid::now_v7());
+    opts.agent_map =
+        HashMap::from([("gone@acme.test".to_string(), "stella@here.test".to_string())]);
+
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    assert_eq!(
+        plan.staff,
+        vec![(
+            "Zendesk user a9".to_string(),
+            "a staff member here".to_string(),
+            "agent, mapped to a seat"
+        )]
+    );
+    let report = run(&pool, &bundle, &opts).await;
+    let text = format!(
+        "{}{}",
+        backend::services::imports::helpdesk::report::render_plan(&plan),
+        backend::services::imports::helpdesk::report::render_report(&report)
+    );
+    for address in ["dee@customer.test", "gone@acme.test", "stella@here.test"] {
+        assert!(!text.contains(address), "{address} in\n{text}");
+    }
+    let meta = reply_metadata(&pool, &ws, 2201);
+    assert_eq!(meta[0]["author_name"], "Zendesk user d1");
+    assert!(meta[0]["author_email"].is_null());
+    let note = &comments_of(&pool, &ws, ticket_id(&pool, &ws, 2201))[0].content;
+    assert!(
+        note.contains("Requested there by Zendesk user d1 (deleted at Zendesk)"),
+        "{note}"
+    );
+    assert!(!note.contains("dee"), "{note}");
+}
+
+#[actix_web::test]
+async fn a_bundle_before_the_marker_with_inactive_people_refuses() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    // As #1176 wrote it: deleted and suspended both read as inactive.
+    let cast = vec![person(
+        "i1",
+        "ina@customer.test",
+        PersonRole::Requester,
+        false,
+    )];
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(
+        dir.path(),
+        &cast,
+        &[raised_by("2301", "i1", &[])],
+        &[],
+        |m| {
+            m.person_detail = 0;
+        },
+    );
+    let job = Uuid::now_v7();
+    let mut opts = options(&ws, job);
+    opts.create_agents = false;
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    let why = plan.refused.expect("refused");
+    assert!(
+        why.contains("1 person the tickets name was inactive there"),
+        "{why}"
+    );
+    assert!(why.contains("Add --refetch"), "{why}");
+    let why = refused(&pool, &bundle, &opts).await;
+    assert!(
+        why.contains("deleted at the source from suspended"),
+        "{why}"
+    );
+    assert_eq!(traces(&pool, job), (0, 0, 0));
+    assert_eq!(addresses(&pool, "ina@customer.test"), 0);
 }

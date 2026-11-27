@@ -343,7 +343,7 @@ impl MissingPeople {
         let fill = self
             .fill_failed
             .as_deref()
-            .map(|why| format!(" The API fill stopped before asking for them: {why}."))
+            .map(|why| format!(" The API fill didn't confirm whether they are gone: {why}."))
             .unwrap_or_default();
         Some(format!(
             "the tickets name {} the bundle doesn't hold ({}), on {} and {}. Imported now, \
@@ -628,6 +628,41 @@ fn mentioned_people(
     Ok((out, unreadable))
 }
 
+/// The bundle's people the tickets don't mention who share an address with
+/// one who is: they decide the group's least privilege (see
+/// [`people::group_by_address`]) and nothing of theirs is written. Lines
+/// that can't be read were counted by [`mentioned_people`].
+fn address_sharers(
+    bundle: &Bundle,
+    mentioned: &HashSet<String>,
+    persons: &[bundle::Person],
+) -> Result<Vec<bundle::Person>, LoadError> {
+    let addresses: HashSet<String> = persons
+        .iter()
+        .filter_map(|p| p.email.as_deref().map(str::to_lowercase))
+        .collect();
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for p in bundle.people()? {
+        match p {
+            Ok(mut p) => {
+                let shares = p
+                    .email
+                    .as_deref()
+                    .is_some_and(|e| addresses.contains(&e.to_lowercase()));
+                if shares && !mentioned.contains(&p.source_id) && seen.insert(p.source_id.clone()) {
+                    p.name = p.name.replace('\0', "");
+                    p.email = p.email.map(|e| e.replace('\0', ""));
+                    out.push(p);
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(out)
+}
+
 /// The people the tickets name and `persons` lacks, and the tickets and
 /// replies that are theirs (each ticket as first listed, as the plan counts
 /// it), in two groups: those the bundle's people source leaves unexplained
@@ -696,7 +731,16 @@ fn missing_people(
             fill_failed: manifest
                 .fill
                 .as_ref()
-                .and_then(|f| f.failed.clone())
+                .and_then(|f| {
+                    f.failed.clone().or_else(|| {
+                        (f.people_asked > 0 && !f.absence_confirmed).then(|| {
+                            "the credential isn't an admin's, and Zendesk shows an agent only \
+                             the people it can see; use an admin credential to confirm who is \
+                             gone"
+                                .to_string()
+                        })
+                    })
+                })
                 .filter(|_| absence.needs_consent()),
         })
     };
@@ -704,6 +748,23 @@ fn missing_people(
         group(missing.len(), touched[0], absence),
         group(gone.len(), touched[1], Absence::GoneAtSource),
     ))
+}
+
+/// Why a bundle written before people records told deleted from suspended
+/// can't be used when the tickets name anyone inactive at the source: it
+/// reads a deleted person as suspended, and would make an account with
+/// their address.
+fn pre_marker_refusal(manifest: &bundle::Manifest, persons: &[bundle::Person]) -> Option<String> {
+    let inactive = persons.iter().filter(|p| !p.active).count() as u64;
+    (manifest.person_detail < bundle::PERSON_DETAIL && inactive > 0).then(|| {
+        format!(
+            "this bundle predates telling people deleted at the source from suspended ones, \
+             and {} the tickets name {} inactive there; a deleted person's address would make \
+             an account here. Add --refetch to read the source again.",
+            counted(inactive, "person", "people"),
+            if inactive == 1 { "was" } else { "were" }
+        )
+    })
 }
 
 /// Why `--create-agents` can't be used on this bundle, when it can't: one
@@ -800,7 +861,15 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
         plan.people_detail = people_detail(&persons, &organizations, found.mentioned.len());
         plan.people_detail.sharing = sharing_note(conn, &raised, &persons, &organizations)?;
 
-        let groups = people::group_by_address(persons);
+        let sharers = address_sharers(&b, &found.mentioned, &persons)?;
+        let refusal = pre_marker_refusal(&m, &persons);
+        let groups = people::group_by_address(persons, sharers);
+        plan.people_detail.shared_addresses = groups.iter().filter(|g| g.shared()).count() as u64;
+        plan.people_detail.shared_address_people = groups
+            .iter()
+            .filter(|g| g.shared())
+            .map(|g| (g.members.len() + g.others.len()) as u64)
+            .sum();
         let popts = PeopleOptions {
             scope,
             job_id: o.job_id,
@@ -814,20 +883,34 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
         for d in people_plan.decisions {
             *plan.people.entry(d.outcome.label()).or_default() += 1;
             if d.person.role.is_staff() {
-                plan.staff.push((
-                    d.person
-                        .email
-                        .clone()
-                        .unwrap_or_else(|| d.person.name.clone()),
-                    d.target_email.clone().unwrap_or_else(|| "none".into()),
-                    d.outcome.label(),
-                ));
+                // Someone deleted at the source is named, never addressed,
+                // and neither is whoever they map to.
+                let (who, target) = if d.person.deleted {
+                    (
+                        people::display_name(&d.person, &m.source),
+                        if d.target_email.is_some() {
+                            "a staff member here".to_string()
+                        } else {
+                            "none".to_string()
+                        },
+                    )
+                } else {
+                    (
+                        d.person
+                            .email
+                            .clone()
+                            .unwrap_or_else(|| d.person.name.clone()),
+                        d.target_email.clone().unwrap_or_else(|| "none".into()),
+                    )
+                };
+                plan.staff.push((who, target, d.outcome.label()));
             }
         }
         plan.refused = plan
             .missing_people
             .as_ref()
             .and_then(|missing| missing.refusal(o.allow_missing_people))
+            .or(refusal)
             .or_else(|| create_agents_refusal(&m, o.create_agents));
         plan.estimated_minutes = (plan.tickets - plan.tickets_imported_already) / (50 * 60) + 1;
         Ok(plan)
@@ -836,6 +919,8 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
 }
 
 /// The plan's counts of the people beyond their outcomes, from the bundle.
+/// Shared addresses are counted from the groups, which see the whole
+/// bundle.
 fn people_detail(
     persons: &[bundle::Person],
     organizations: &[bundle::Organization],
@@ -850,12 +935,8 @@ fn people_detail(
         mentioned: mentioned as u64,
         ..Default::default()
     };
-    let mut by_address: HashMap<String, u64> = HashMap::new();
     let mut belonged: HashSet<&str> = HashSet::new();
     for p in persons {
-        if let Some(e) = &p.email {
-            *by_address.entry(e.to_lowercase()).or_default() += 1;
-        }
         detail.deleted += u64::from(p.deleted);
         if p.deleted {
             continue;
@@ -875,10 +956,6 @@ fn people_detail(
             Some(_) if p.organization.is_none() => detail.organizations_missing += 1,
             _ => {}
         }
-    }
-    for n in by_address.values().filter(|n| **n > 1) {
-        detail.shared_addresses += 1;
-        detail.shared_address_people += n;
     }
     detail.organizations = belonged.len() as u64;
     detail.organizations_with_domains = belonged
@@ -997,6 +1074,7 @@ pub async fn load(
                 .missing
                 .as_ref()
                 .and_then(|m| m.refusal(opts.allow_missing_people))
+                .or_else(|| prepared.pre_marker.clone())
                 .or_else(|| create_agents_refusal(&prepared.manifest, opts.create_agents));
             match refusal {
                 Some(why) => Err(LoadError::Refused(why)),
@@ -1036,6 +1114,8 @@ struct Prepared {
     /// The bundle's people the tickets mention, grouped by address.
     groups: Vec<people::AddressGroup>,
     people_total: u64,
+    /// Why the bundle is too old for the people it holds, when it is.
+    pre_marker: Option<String>,
     /// Lines of people.jsonl that couldn't be read.
     bad_people: u64,
     missing: Option<MissingPeople>,
@@ -1049,10 +1129,13 @@ fn prepare(bundle: &Bundle) -> Result<Prepared, LoadError> {
     let (missing, gone) =
         missing_people(bundle, &manifest, &found.mentioned, &persons, bad_people)?;
     let people_total = persons.len() as u64;
+    let pre_marker = pre_marker_refusal(&manifest, &persons);
+    let sharers = address_sharers(bundle, &found.mentioned, &persons)?;
     Ok(Prepared {
         manifest,
         found,
-        groups: people::group_by_address(persons),
+        pre_marker,
+        groups: people::group_by_address(persons, sharers),
         people_total,
         bad_people,
         missing,
@@ -1206,6 +1289,7 @@ async fn write_all(
         found,
         groups,
         people_total,
+        pre_marker: _,
         bad_people,
         missing,
         gone: _,
@@ -2447,7 +2531,7 @@ mod tests {
         };
         let why = stopped.refusal(false).expect("refused");
         assert!(
-            why.contains("The API fill stopped before asking for them: Zendesk refused"),
+            why.contains("The API fill didn't confirm whether they are gone: Zendesk refused"),
             "{why}"
         );
         assert!(why.contains("another --export-zip"), "{why}");
