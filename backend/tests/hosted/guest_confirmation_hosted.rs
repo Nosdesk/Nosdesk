@@ -77,7 +77,7 @@ impl Cloud {
         with_actor_context::<_, diesel::result::Error>(
             &mut self.pool.get().expect("conn"),
             &actor,
-            |c| Ok(send_guest_ticket_confirmation(c, &http, user, email, ws)),
+            |c| Ok(send_guest_ticket_confirmation(c, &backend::utils::client_ip::RequestOrigin::of(&http), user, email, ws, 0)),
         )
         .expect("send")
     }
@@ -288,7 +288,7 @@ async fn two_confirmations_at_the_limit_at_once_send_one() {
                     together.wait();
                     let result =
                         with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
-                            Ok(send_guest_ticket_confirmation(conn, &http, user, to, ws))
+                            Ok(send_guest_ticket_confirmation(conn, &backend::utils::client_ip::RequestOrigin::of(&http), user, to, ws, 0))
                         })
                         .expect("send");
                     sent(&result)

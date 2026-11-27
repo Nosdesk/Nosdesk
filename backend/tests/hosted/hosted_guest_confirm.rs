@@ -48,7 +48,7 @@ fn open(pool: &common::TestPool, ws: i32, title: &str, pending_for: Option<uuid:
 }
 
 /// A guest-confirmation token, minted as the send path does.
-fn guest_token(conn: &mut DbConnection, user: uuid::Uuid) -> String {
+fn guest_token(conn: &mut DbConnection, user: uuid::Uuid, ticket: i32) -> String {
     use backend::utils::reset_tokens::{ResetTokenUtils, TokenType};
     let issued = ResetTokenUtils::create_reset_token(user, TokenType::Invitation);
     backend::repository::reset_tokens::create_reset_token(
@@ -59,7 +59,7 @@ fn guest_token(conn: &mut DbConnection, user: uuid::Uuid) -> String {
         None,
         None,
         issued.expires_at,
-        Some(serde_json::json!({ "source": "guest_ticket_submission" })),
+        Some(serde_json::json!({ "source": "guest_ticket_submission", "ticket_ids": [ticket] })),
     )
     .expect("mint token");
     issued.raw_token
@@ -94,7 +94,7 @@ async fn confirming_on_hosted_sends_the_guest_to_the_tickets_number() {
         ticket.id, ticket.number,
         "the id must differ from the number"
     );
-    let token = guest_token(&mut conn, guest);
+    let token = guest_token(&mut conn, guest, ticket.id);
 
     let origin = {
         let w = find_by_id(&mut conn, a.workspace_id)

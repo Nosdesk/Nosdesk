@@ -1061,6 +1061,7 @@ fn queue_confirmation(
             created.user.uuid,
             email,
             workspace_id,
+            created.ticket.id,
         ) {
             SendInvitationResult::Success | SendInvitationResult::Capped => Ok(()),
             other => Err(NotQueued::Refused(other.to_string())),

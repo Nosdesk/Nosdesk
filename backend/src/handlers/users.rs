@@ -625,6 +625,7 @@ pub fn send_guest_ticket_confirmation(
     user_uuid: Uuid,
     user_email: &str,
     workspace_id: i32,
+    ticket_id: i32,
 ) -> SendInvitationResult {
     // The submitter's answer is the same either way; the log is the operator's.
     if let Some(hold) = confirmation_hold(conn, user_email, workspace_id) {
@@ -641,9 +642,14 @@ pub fn send_guest_ticket_confirmation(
         user_uuid,
         // The workspace rides along so confirming releases the request held
         // here, whatever other workspaces the account belongs to.
+        // The ticket rides along so confirming releases this request and no
+        // other pending one naming the address, which may be a stranger's.
         Some(serde_json::json!({
             "source": "guest_ticket_submission",
             "workspace_id": workspace_id,
+            "ticket_ids": [ticket_id],
+            // Confirming proves this address, which may not be the primary.
+            "sent_to": user_email,
         })),
     ) {
         Ok(p) => p,

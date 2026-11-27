@@ -600,13 +600,12 @@ pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult
         .first(conn)
 }
 
-/// Flip every `verification_state = 'pending'` ticket requested by the given
-/// user over to `'verified'` and return the newly-released tickets.
+/// Flip the given user's `verification_state = 'pending'` tickets among
+/// `ticket_ids` over to `'verified'` and return the newly-released tickets.
 ///
-/// Called by the accept-invitation flow: once the submitter has proven they
-/// own the email they gave us, every guest ticket they've filed (potentially
-/// more than one within the 7-day invitation window) is released into the
-/// tech queue at the same time.
+/// Called by the request form's confirmation with the tickets its token names.
+/// Only those: another pending ticket naming the same address may be a
+/// stranger's, and confirming your own request mustn't vouch for it.
 ///
 /// While pending, a ticket's events were held (no workspace audience; see
 /// `groups::for_ticket`), so this is where the workspace first hears of it:
@@ -616,10 +615,15 @@ pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult
 pub fn verify_pending_tickets_for_user(
     conn: &mut DbConnection,
     user_uuid: Uuid,
+    ticket_ids: &[i32],
 ) -> QueryResult<Vec<Ticket>> {
+    if ticket_ids.is_empty() {
+        return Ok(Vec::new());
+    }
     conn.transaction(|conn| {
         let released: Vec<Ticket> = diesel::update(
             tickets::table
+                .filter(tickets::id.eq_any(ticket_ids))
                 .filter(tickets::requester_uuid.eq(Some(user_uuid)))
                 .filter(tickets::verification_state.eq(groups::PENDING_VERIFICATION)),
         )
@@ -2123,22 +2127,28 @@ mod tests {
     }
 
     #[test]
-    fn verify_pending_flips_only_requesters_pending_tickets() {
+    fn verify_pending_flips_only_the_named_pending_tickets_of_the_requester() {
         let mut conn = setup_test_connection();
         let alice = TestFixtures::create_user(&mut conn, "Alice", "user");
         let bob = TestFixtures::create_user(&mut conn, "Bob", "user");
 
-        // Alice has two pending + one already-verified + one nullable
-        // (authenticated) ticket. Bob has one pending. Only Alice's two
-        // pending tickets should flip.
+        // Alice has three pending + one already-verified + one nullable
+        // (authenticated) ticket. Bob has one pending. Only the two of
+        // Alice's pending tickets the confirmation names flip: the third may
+        // be a stranger's, filed under her address.
         let alice_pending_1 = insert_ticket_with_state(&mut conn, alice.uuid, Some("pending"));
         let alice_pending_2 = insert_ticket_with_state(&mut conn, alice.uuid, Some("pending"));
+        let strangers = insert_ticket_with_state(&mut conn, alice.uuid, Some("pending"));
         let alice_verified = insert_ticket_with_state(&mut conn, alice.uuid, Some("verified"));
         let alice_null = insert_ticket_with_state(&mut conn, alice.uuid, None);
         let bob_pending = insert_ticket_with_state(&mut conn, bob.uuid, Some("pending"));
 
-        let released =
-            verify_pending_tickets_for_user(&mut conn, alice.uuid).expect("verify returns");
+        let released = verify_pending_tickets_for_user(
+            &mut conn,
+            alice.uuid,
+            &[alice_pending_1.id, alice_pending_2.id, bob_pending.id],
+        )
+        .expect("verify returns");
 
         let released_ids: Vec<i32> = released.iter().map(|t| t.id).collect();
         assert_eq!(released_ids.len(), 2);
@@ -2152,17 +2162,16 @@ mod tests {
             Some("verified")
         );
         assert_eq!(fetch(alice_null.id).verification_state, None);
-        assert_eq!(
-            fetch(bob_pending.id).verification_state.as_deref(),
-            Some("pending")
-        );
+        for held in [bob_pending.id, strangers.id] {
+            assert_eq!(fetch(held).verification_state.as_deref(), Some("pending"));
+        }
     }
 
     #[test]
     fn verify_pending_noop_when_user_has_no_pending() {
         let mut conn = setup_test_connection();
         let user = TestFixtures::create_user(&mut conn, "NoPending", "user");
-        let released = verify_pending_tickets_for_user(&mut conn, user.uuid).unwrap();
+        let released = verify_pending_tickets_for_user(&mut conn, user.uuid, &[1, 2]).unwrap();
         assert!(released.is_empty());
     }
 

@@ -354,6 +354,7 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
             guest,
             "held@guest.example",
             b,
+            created.ticket.id,
         );
         Ok(())
     })
@@ -363,9 +364,18 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
         .select(rt::metadata)
         .first(&mut seed_conn(&inbox))
         .expect("token");
-    assert_eq!(metadata.expect("metadata")["workspace_id"], b);
+    let metadata = metadata.expect("metadata");
+    assert_eq!(metadata["workspace_id"], b);
+    assert_eq!(
+        metadata["ticket_ids"],
+        serde_json::json!([created.ticket.id])
+    );
 
-    // Confirming with such a token releases the request in B.
+    // Another request held under the same address: a stranger may have
+    // filed it, so confirming this one mustn't release it.
+    let other = submit_form(&inbox, "held@guest.example", true);
+
+    // Confirming with such a token releases the request in B, and only it.
     let issued = ResetTokenUtils::create_reset_token(guest, TokenType::Invitation);
     backend::repository::reset_tokens::create_reset_token(
         &mut seed_conn(&inbox),
@@ -375,7 +385,11 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
         None,
         None,
         issued.expires_at,
-        Some(serde_json::json!({ "source": "guest_ticket_submission", "workspace_id": b })),
+        Some(serde_json::json!({
+            "source": "guest_ticket_submission",
+            "workspace_id": b,
+            "ticket_ids": [created.ticket.id],
+        })),
     )
     .expect("mint token");
     let (_dir, search) = search(&inbox.pool);
@@ -406,6 +420,11 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
     assert_eq!(
         view_request(&inbox, guest, created.ticket.id).await,
         ticket_path(created.ticket.number)
+    );
+    assert_eq!(
+        inbox.ticket(other.ticket.id).verification_state.as_deref(),
+        Some("pending"),
+        "the other held request stays held"
     );
 }
 

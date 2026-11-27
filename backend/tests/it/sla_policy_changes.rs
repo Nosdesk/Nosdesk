@@ -391,7 +391,11 @@ async fn an_unconfirmed_guest_ticket_gets_no_targets_until_it_is_confirmed() {
 
     let mut conn = pool.get().expect("conn");
     with_actor_context::<_, diesel::result::Error>(&mut conn, &pinned(&ws), |c| {
-        backend::repository::tickets::verify_pending_tickets_for_user(c, ws.member_uuid)
+        backend::repository::tickets::verify_pending_tickets_for_user(
+            c,
+            ws.member_uuid,
+            &[guest.id],
+        )
     })
     .expect("confirm");
     drop(conn);

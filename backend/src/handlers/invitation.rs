@@ -243,6 +243,8 @@ pub async fn accept_invitation(
                             &user,
                             Completion::GuestPasswordSet,
                             submitted_in(token),
+                            &named_tickets(token),
+                            confirmed_address(token).as_deref(),
                         )
                     });
                     done.map_err(|e| {
@@ -273,6 +275,9 @@ pub async fn accept_invitation(
                 &search_service,
                 &user,
                 Completion::PasswordSet,
+                None,
+                // An invitation names no held request.
+                &[],
                 None,
             )?;
         }
@@ -400,6 +405,8 @@ pub async fn confirm_guest_submission(
         &user,
         Completion::GuestConfirmed,
         submitted_in,
+        &named_tickets(&token),
+        confirmed_address(&token).as_deref(),
     )?;
 
     if let Err(e) = repository::reset_tokens::validate_and_consume_token(
@@ -481,6 +488,33 @@ fn usable_invitation(token: &crate::models::ResetToken) -> bool {
         && !crate::utils::reset_tokens::ResetTokenUtils::is_token_expired(expires_at)
 }
 
+/// The requests a guest confirmation was sent for (`ticket_ids`): confirming
+/// releases those and no other pending request naming the address, which may
+/// be a stranger's. Empty on one minted before confirmations named them.
+fn named_tickets(token: &crate::models::ResetToken) -> Vec<i32> {
+    token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("ticket_ids"))
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_i64)
+        .filter_map(|id| i32::try_from(id).ok())
+        .collect()
+}
+
+/// The address a guest confirmation was mailed to (`sent_to`); `None` on one
+/// minted before confirmations recorded it, which went to the primary.
+fn confirmed_address(token: &crate::models::ResetToken) -> Option<String> {
+    token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("sent_to"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
 /// The workspace a guest confirmation's form is in; `None` on one minted
 /// before confirmations recorded it.
 fn submitted_in(token: &crate::models::ResetToken) -> Option<i32> {
@@ -526,6 +560,8 @@ fn complete_verification(
     user: &crate::models::User,
     completion: Completion,
     workspace: Option<i32>,
+    release: &[i32],
+    confirmed_address: Option<&str>,
 ) -> Result<Vec<ReleasedTicket>, ApiError> {
     // Pre-session (token-verified) flow: resolve the audit workspace once,
     // then thread it through the audited writes below
@@ -570,13 +606,20 @@ fn complete_verification(
                 repository::users::set_password_changed_at(c, &user.uuid, Utc::now().naive_utc())?;
             }
             repository::workspaces::mark_memberships_accepted(c, user.uuid)?;
-            repository::user_emails::mark_primary_verified(c, &user.uuid)?;
+            // The confirmation POST proves the mailbox it was sent to.
+            match confirmed_address {
+                Some(address) => {
+                    repository::user_emails::mark_address_proven(c, &user.uuid, address)?
+                }
+                None => repository::user_emails::mark_primary_proven(c, &user.uuid)?,
+            };
             // A reused account that wrote to this workspace's form from a seat
             // held elsewhere is seated here, now that the address is proven,
             // so the released request's requester is a member when its
             // `ticket.created` goes out and a portal session can be minted.
             repository::workspaces::join_as_requester(c, workspace_id, user.uuid)?;
-            repository::tickets::verify_pending_tickets_for_user(c, user.uuid)
+            // Only the requests this confirmation was sent for.
+            repository::tickets::verify_pending_tickets_for_user(c, user.uuid, release)
         })
         .map_err(|e| {
             warn!(user_uuid = %user.uuid, error = %e, "Failed to confirm guest submission");
@@ -613,7 +656,8 @@ fn complete_verification(
 
 /// A staff or requester invitation's accept steps, each best-effort as it
 /// always was: the password's timestamp, the membership stamp, the verified
-/// address, the seat, and any guest tickets the person had waiting.
+/// address and the seat. It releases no held request: an invitation names
+/// none, and one waiting may be a stranger's.
 fn accept_invitation_steps(
     conn: &mut DbConnection,
     actor: &crate::sync::actor::ActorContext,
@@ -650,16 +694,12 @@ fn accept_invitation_steps(
         // Don't fail the request for this
     }
 
-    match crate::sync::session::with_actor_context(conn, actor, |c| {
-        repository::workspaces::join_as_requester(c, workspace_id, user.uuid)?;
-        repository::tickets::verify_pending_tickets_for_user(c, user.uuid)
+    if let Err(e) = crate::sync::session::with_actor_context(conn, actor, |c| {
+        repository::workspaces::join_as_requester(c, workspace_id, user.uuid)
     }) {
-        Ok(released) => released,
-        Err(e) => {
-            warn!(user_uuid = %user.uuid, error = %e, "Failed to release pending tickets");
-            Vec::new()
-        }
+        warn!(user_uuid = %user.uuid, error = %e, "Failed to seat the invited person");
     }
+    Vec::new()
 }
 
 /// A guest ticket a verification released: its id, and the number the
