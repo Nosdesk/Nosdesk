@@ -97,6 +97,23 @@ pub struct SiteSettings {
     /// Admin-written body for that acknowledgement, with the auto-ack's
     /// variables. `None` uses the built-in wording.
     pub requester_ack_template: Option<String>,
+    /// The organisation's email domains an admin listed, lowercased, never a
+    /// free-mail domain. With the requester sign-in provider's domains, they
+    /// are the domains inbound mail treats as the organisation's (see
+    /// [`crate::repository::site_settings::organisation_domains`]).
+    pub organisation_domains: Vec<Option<String>>,
+}
+
+impl SiteSettings {
+    /// [`Self::organisation_domains`] without nulls or blanks.
+    pub fn listed_organisation_domains(&self) -> Vec<String> {
+        self.organisation_domains
+            .iter()
+            .flatten()
+            .map(|d| d.trim().to_lowercase())
+            .filter(|d| !d.is_empty())
+            .collect()
+    }
 }
 
 /// What requester-role members (role `user`) may see of the workspace's
@@ -168,6 +185,8 @@ pub struct UpdateSiteSettings {
     pub requester_ack_enabled: Option<bool>,
     /// `Some(None)` reverts to the built-in wording.
     pub requester_ack_template: Option<Option<String>>,
+    /// Cleaned by [`crate::utils::email_domains::clean_domains`] first.
+    pub organisation_domains: Option<Vec<Option<String>>>,
 }
 
 // API response for site settings (without internal fields)
@@ -213,10 +232,13 @@ pub struct SiteSettingsResponse {
     pub requester_ack_enabled: bool,
     /// See [`SiteSettings::requester_ack_template`].
     pub requester_ack_template: Option<String>,
+    /// See [`SiteSettings::organisation_domains`].
+    pub organisation_domains: Vec<String>,
 }
 
 impl From<SiteSettings> for SiteSettingsResponse {
     fn from(settings: SiteSettings) -> Self {
+        let organisation_domains = settings.listed_organisation_domains();
         SiteSettingsResponse {
             app_name: settings.app_name,
             logo_url: settings.logo_url,
@@ -241,6 +263,7 @@ impl From<SiteSettings> for SiteSettingsResponse {
             portal_share_by_domain: settings.portal_share_by_domain,
             portal_share_staff_requests: settings.portal_share_staff_requests,
             requester_ack_enabled: settings.requester_ack_enabled,
+            organisation_domains,
             requester_ack_template: settings.requester_ack_template,
         }
     }

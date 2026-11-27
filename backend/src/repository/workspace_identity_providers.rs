@@ -33,6 +33,15 @@ pub fn get(conn: &mut DbConnection) -> QueryResult<Option<WorkspaceIdentityProvi
         .optional()
 }
 
+/// The enabled provider's allowed domains, lowercased; empty when there is no
+/// provider or it is off.
+pub fn sign_in_domains(conn: &mut DbConnection) -> QueryResult<Vec<String>> {
+    Ok(get(conn)?
+        .filter(|provider| provider.enabled)
+        .map(|provider| provider.domains())
+        .unwrap_or_default())
+}
+
 /// The fields an admin sets. `client_secret: None` keeps the stored secret,
 /// as long as the app (issuer and client id) is the same: a secret belongs to
 /// one app, so pointing at another drops it.

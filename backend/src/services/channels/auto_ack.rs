@@ -428,6 +428,7 @@ mod tests {
             currency_code: None,
             requester_ack_enabled: true,
             requester_ack_template: None,
+            organisation_domains: vec![],
         }
     }
 

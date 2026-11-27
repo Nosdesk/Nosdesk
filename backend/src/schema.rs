@@ -1713,6 +1713,7 @@ diesel::table! {
         currency_code -> Nullable<Bpchar>,
         requester_ack_enabled -> Bool,
         requester_ack_template -> Nullable<Text>,
+        organisation_domains -> Array<Nullable<Text>>,
     }
 }
 

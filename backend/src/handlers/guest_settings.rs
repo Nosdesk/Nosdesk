@@ -80,6 +80,29 @@ pub struct UpdateGuestSettingsRequest {
     pub guest_ticket_intro_message: Option<Option<String>>,
     pub portal_share_by_domain: Option<bool>,
     pub portal_share_staff_requests: Option<bool>,
+    /// Replaces the whole list; an empty list clears it.
+    pub organisation_domains: Option<Vec<String>>,
+}
+
+/// The guest-access settings, with the enabled requester sign-in provider's
+/// domains, which count as organisation domains too; they are edited on the
+/// sign-in provider's page.
+#[derive(Debug, serde::Serialize)]
+pub struct GuestSettingsResponse {
+    #[serde(flatten)]
+    pub settings: SiteSettingsResponse,
+    pub sign_in_domains: Vec<String>,
+}
+
+/// `settings` with the sign-in provider's domains.
+fn with_sign_in_domains(
+    conn: &mut crate::db::DbConnection,
+    settings: crate::models::SiteSettings,
+) -> diesel::QueryResult<GuestSettingsResponse> {
+    Ok(GuestSettingsResponse {
+        settings: settings.into(),
+        sign_in_domains: crate::repository::workspace_identity_providers::sign_in_domains(conn)?,
+    })
 }
 
 pub async fn get_guest_settings(
@@ -91,11 +114,11 @@ pub async fn get_guest_settings(
     // demanded platform-admin; both are now workspace-admin. The public portal
     // reads guest config through handlers/guest.rs, not this admin endpoint.
     crate::utils::rbac::require_workspace_role(&req, crate::models::WorkspaceRole::Admin)?;
-    match tc.run(site_settings::get_site_settings) {
-        Ok(settings) => {
-            let response: SiteSettingsResponse = settings.into();
-            Ok(HttpResponse::Ok().json(response))
-        }
+    match tc.run(|conn| {
+        let settings = site_settings::get_site_settings(conn)?;
+        with_sign_in_domains(conn, settings)
+    }) {
+        Ok(response) => Ok(HttpResponse::Ok().json(response)),
         Err(e) => {
             error!(error = ?e, "Failed to load site_settings for guest admin view");
             Err(ApiError::Internal("Failed to load settings".into()))
@@ -146,6 +169,13 @@ pub async fn update_guest_settings(
         }
     }
 
+    let organisation_domains = body
+        .organisation_domains
+        .as_deref()
+        .map(utils::email_domains::clean_domains)
+        .transpose()?
+        .map(|domains| domains.into_iter().map(Some).collect());
+
     // Normalize: whitespace-only strings collapse to null so the frontend
     // renders no intro at all.
     let intro_update = body.guest_ticket_intro_message.clone().map(|outer| {
@@ -172,14 +202,15 @@ pub async fn update_guest_settings(
         guest_ticket_intro_message: intro_update,
         portal_share_by_domain: body.portal_share_by_domain,
         portal_share_staff_requests: body.portal_share_staff_requests,
+        organisation_domains,
         ..Default::default()
     };
 
-    match tc.run(|conn| site_settings::update_site_settings(conn, update)) {
-        Ok(settings) => {
-            let response: SiteSettingsResponse = settings.into();
-            Ok(HttpResponse::Ok().json(response))
-        }
+    match tc.run(|conn| {
+        let settings = site_settings::update_site_settings(conn, update)?;
+        with_sign_in_domains(conn, settings)
+    }) {
+        Ok(response) => Ok(HttpResponse::Ok().json(response)),
         Err(e) => {
             error!(error = ?e, "Failed to update guest settings");
             Err(ApiError::Internal("Failed to update settings".into()))

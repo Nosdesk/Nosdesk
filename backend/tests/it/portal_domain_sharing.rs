@@ -362,6 +362,107 @@ async fn the_staff_flag_round_trips_through_guest_settings() {
     );
 }
 
+/// The admin endpoint reads and writes the organisation's domains, cleaned,
+/// refuses a free-mail domain without touching the stored list, and shows the
+/// enabled sign-in provider's domains alongside, read only.
+#[actix_web::test]
+async fn organisation_domains_round_trip_through_guest_settings() {
+    let fx = Fixture::new();
+    let app = settings_as_admin!(fx);
+    let get = || {
+        http_test::TestRequest::get()
+            .uri("/api/admin/guest-settings")
+            .to_request()
+    };
+    let patch = |body: serde_json::Value| {
+        http_test::TestRequest::patch()
+            .uri("/api/admin/guest-settings")
+            .set_json(body)
+            .to_request()
+    };
+
+    let before: serde_json::Value = http_test::call_and_read_body_json(&app, get()).await;
+    assert_eq!(before["organisation_domains"], json!([]), "{before}");
+    assert_eq!(before["sign_in_domains"], json!([]), "{before}");
+
+    let resp = http_test::call_service(
+        &app,
+        patch(json!({
+            "organisation_domains": [" @Acme.test ", "acme.test", "", "it.acme.test"]
+        })),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let saved: serde_json::Value = http_test::read_body_json(resp).await;
+    assert_eq!(
+        saved["organisation_domains"],
+        json!(["acme.test", "it.acme.test"]),
+        "{saved}"
+    );
+
+    for (refused, why) in [
+        (json!(["acme.test", "gmail.com"]), "personal email provider"),
+        (json!(["not a domain"]), "isn't a domain"),
+        (
+            json!((0..51).map(|i| format!("d{i}.test")).collect::<Vec<_>>()),
+            "at most 50",
+        ),
+    ] {
+        let resp =
+            http_test::call_service(&app, patch(json!({ "organisation_domains": refused }))).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "{refused}");
+        let body: serde_json::Value = http_test::read_body_json(resp).await;
+        assert!(
+            body["error"].as_str().is_some_and(|e| e.contains(why)),
+            "{body}"
+        );
+    }
+
+    // The sign-in provider's domains show, but aren't part of the list.
+    run_in_workspace(&fx.pool, REF, fx.ws.workspace_id, |c| {
+        backend::repository::workspace_identity_providers::save(
+            c,
+            fx.ws.workspace_id,
+            &backend::repository::workspace_identity_providers::ProviderInput {
+                kind: "oidc",
+                display_name: "Acme",
+                issuer_url: "https://id.acme.test",
+                client_id: "nosdesk",
+                client_secret: None,
+                allowed_domains: &["sso.acme.test".to_string()],
+                enabled: true,
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| diesel::result::Error::QueryBuilderError(format!("{e:?}").into()))
+    })
+    .expect("sign-in provider");
+
+    let after: serde_json::Value = http_test::call_and_read_body_json(&app, get()).await;
+    assert_eq!(
+        after["organisation_domains"],
+        json!(["acme.test", "it.acme.test"]),
+        "a refused save leaves the list alone: {after}"
+    );
+    assert_eq!(
+        after["sign_in_domains"],
+        json!(["sso.acme.test"]),
+        "{after}"
+    );
+
+    // An empty list clears it; other settings are untouched.
+    let resp = http_test::call_service(&app, patch(json!({ "organisation_domains": [] }))).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let cleared: serde_json::Value = http_test::read_body_json(resp).await;
+    assert_eq!(cleared["organisation_domains"], json!([]), "{cleared}");
+    assert_eq!(
+        cleared["sign_in_domains"],
+        json!(["sso.acme.test"]),
+        "{cleared}"
+    );
+    assert_eq!(cleared["portal_share_by_domain"], json!(false), "{cleared}");
+}
+
 /// An agent's own request stays out of the shared view after they are
 /// demoted to requester: it was raised by staff. This is how a hosted seat is
 /// taken away (the control plane leaves the person a `member`).
