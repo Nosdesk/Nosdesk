@@ -314,8 +314,9 @@ async fn a_token_ticket_is_stamped_api_and_may_skip_the_acknowledgement() {
 }
 
 /// A token that changes the title or the requester of a ticket it didn't file
-/// makes its text the token's: the ticket is stamped `"api"`. A change to
-/// something else leaves it as it was, and so does a session's edit.
+/// makes its text the token's: the ticket is stamped `"api"`, or an import its
+/// token variant. A change to something else leaves it as it was, and so does
+/// a session's edit.
 #[actix_web::test]
 async fn a_token_that_retitles_a_ticket_stamps_it_api() {
     common::ensure_test_keyring();
@@ -368,7 +369,8 @@ async fn a_token_that_retitles_a_ticket_stamps_it_api() {
         None
     );
 
-    // An imported ticket too: the token's words are not the import's history.
+    // An imported ticket takes its import's token variant: still history, so
+    // its clocks don't start, and a stranger's words, so its mail is redacted.
     let imported = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
         backend::repository::tickets::create_ticket(
             c,
@@ -392,12 +394,24 @@ async fn a_token_that_retitles_a_ticket_stamps_it_api() {
     )
     .await;
     assert!(status.is_success(), "{status}");
+    let retitled = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        backend::repository::tickets::get_ticket_by_id(c, imported)
+    })
+    .expect("retitled ticket");
     assert_eq!(
-        stored(&pool, ws.workspace_id, imported)
-            .submitted_via
-            .as_deref(),
-        Some("api")
+        retitled.submitted_via.as_deref(),
+        Some(backend::models::CSV_IMPORT_BY_TOKEN)
     );
+    let open_state = Some(backend::models::WorkflowStateCategory::Active);
+    assert!(!backend::services::rules::clocks::Eligibility {
+        category: open_state,
+        submitted_via: retitled.submitted_via.as_deref(),
+        verification_state: None,
+        merged: false,
+        held_for_approval: false,
+    }
+    .runs_clocks());
+    assert!(backend::services::ticket_mail_redaction::stranger_provenance(&retitled));
 
     for body in [
         json!({ "title": "Win a prize" }),

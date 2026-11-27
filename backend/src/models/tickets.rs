@@ -403,13 +403,54 @@ pub const EMAIL_BACKLOG: &str = "email_backlog";
 /// system (Zendesk, ...). The source is on the id map and the creation event.
 pub const HELPDESK_IMPORT: &str = "import";
 
+/// [`EMAIL_BACKLOG`] after an API token set its title or requester.
+pub const EMAIL_BACKLOG_BY_TOKEN: &str = "email_backlog_api";
+
+/// [`HELPDESK_IMPORT`] after an API token set its title or requester.
+pub const HELPDESK_IMPORT_BY_TOKEN: &str = "import_api";
+
+/// What a ticket that came in `submitted_via` this way becomes once an API
+/// token sets its title or requester: an import keeps being history, as its
+/// token variant, and anything else becomes [`SUBMITTED_VIA_API`].
+pub fn by_token(submitted_via: Option<&str>) -> &'static str {
+    match submitted_via {
+        Some(CSV_IMPORT | CSV_IMPORT_BY_TOKEN) => CSV_IMPORT_BY_TOKEN,
+        Some(EMAIL_BACKLOG | EMAIL_BACKLOG_BY_TOKEN) => EMAIL_BACKLOG_BY_TOKEN,
+        Some(HELPDESK_IMPORT | HELPDESK_IMPORT_BY_TOKEN) => HELPDESK_IMPORT_BY_TOKEN,
+        _ => SUBMITTED_VIA_API,
+    }
+}
+
+/// Whether an API token filed a ticket that came in `submitted_via` this way,
+/// or set its title or requester: stranger provenance
+/// (`services::ticket_mail_redaction`), since a token may be relaying what a
+/// stranger wrote.
+pub fn is_by_token(submitted_via: Option<&str>) -> bool {
+    matches!(
+        submitted_via,
+        Some(
+            SUBMITTED_VIA_API
+                | CSV_IMPORT_BY_TOKEN
+                | EMAIL_BACKLOG_BY_TOKEN
+                | HELPDESK_IMPORT_BY_TOKEN
+        )
+    )
+}
+
 /// Whether a ticket that came in `submitted_via` this way is imported
 /// history ([`Ticket::is_imported`]). For readers that have the value but
 /// not the ticket, such as an event's data.
 pub fn is_imported_via(submitted_via: Option<&str>) -> bool {
     matches!(
         submitted_via,
-        Some(CSV_IMPORT | CSV_IMPORT_BY_TOKEN | EMAIL_BACKLOG | HELPDESK_IMPORT)
+        Some(
+            CSV_IMPORT
+                | CSV_IMPORT_BY_TOKEN
+                | EMAIL_BACKLOG
+                | EMAIL_BACKLOG_BY_TOKEN
+                | HELPDESK_IMPORT
+                | HELPDESK_IMPORT_BY_TOKEN
+        )
     )
 }
 

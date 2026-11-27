@@ -313,13 +313,19 @@ fn ticket_created_data(
 }
 
 // sync-audit-only: provenance for mail redaction on the server; the ticket's next emit carries it
-/// Stamp `ticket_id` as a token's (`submitted_via = "api"`) after an API token
-/// set its title or requester: its text may now be a website relaying a
-/// stranger's form (`services::ticket_mail_redaction`). It always does, an
-/// imported ticket included: the token's words are not the import's history.
+/// Stamp `ticket_id` as a token's after an API token set its title or
+/// requester: its text may now be a website relaying a stranger's form
+/// (`services::ticket_mail_redaction`). An imported ticket takes its import's
+/// token variant ([`crate::models::by_token`]), so it stays history for rule
+/// clocks and acknowledgements; anything else becomes `"api"`.
 pub fn mark_filed_by_token(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<usize> {
+    let via: Option<String> = tickets::table
+        .find(ticket_id)
+        .select(tickets::submitted_via)
+        .for_no_key_update()
+        .first(conn)?;
     diesel::update(tickets::table.find(ticket_id))
-        .set(tickets::submitted_via.eq(crate::models::SUBMITTED_VIA_API))
+        .set(tickets::submitted_via.eq(crate::models::by_token(via.as_deref())))
         .execute(conn)
 }
 
@@ -1193,10 +1199,10 @@ fn create_next_occurrence(
             recurrence_template_id: Some(template_id),
             // Its text is the closed ticket's, so it keeps where that came
             // from (services::ticket_mail_redaction), but not an import's
-            // mark: a recurrence is a new request, not history. A token's
-            // import comes back as a token's ticket.
+            // mark: a recurrence is a new request, not history. Anything a
+            // token filed or wrote comes back as a token's ticket.
             submitted_via: match closed.submitted_via.as_deref() {
-                Some(crate::models::CSV_IMPORT_BY_TOKEN) => {
+                via if crate::models::is_by_token(via) => {
                     Some(crate::models::SUBMITTED_VIA_API.to_string())
                 }
                 via => via
