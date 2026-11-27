@@ -2174,12 +2174,14 @@ pub async fn run(config: Config) -> std::io::Result<()> {
     //   2. Pause briefly so that drain propagates before we stop accepting.
     //   3. Stop accepting new connections and drain in-flight requests (bounded
     //      by the shutdown_timeout set in build_server).
-    //   4. Connections closed, docs final: flush collab, then cancel the shared
-    //      token and await the background listeners/jobs (bounded) so they finish
-    //      cleanly rather than being aborted by the runtime dropping.
+    //   4. Connections closed: let answered request-form submissions finish
+    //      filing (bounded).
+    //   5. Docs final: flush collab, then cancel the shared token and await the
+    //      background listeners/jobs (bounded) so they finish cleanly rather
+    //      than being aborted by the runtime dropping.
     // A second signal escalates to an immediate stop. The deploy grace period
-    // (Fly `kill_timeout`) must exceed drain pause + shutdown_timeout + flush +
-    // task-drain, or the process is SIGKILLed mid-shutdown.
+    // (Fly `kill_timeout`) must exceed drain pause + shutdown_timeout + filing
+    // drain + flush + task-drain, or the process is SIGKILLed mid-shutdown.
     info!("Shutdown signal received; draining traffic");
     crate::handlers::health::begin_shutdown();
 
@@ -2188,6 +2190,11 @@ pub async fn run(config: Config) -> std::io::Result<()> {
     let graceful = async move {
         tokio::time::sleep(SHUTDOWN_DRAIN_PAUSE).await;
         sh.stop(true).await;
+        // Request-form submissions answered before the drain are filed after
+        // their answer, on the system arbiter; give them a bounded window.
+        if !crate::handlers::guest::drain_filings(GUEST_FILING_DRAIN_TIMEOUT).await {
+            warn!("Guest submissions were still filing when the drain window closed");
+        }
         info!("HTTP drained; flushing collaborative documents");
         yjs.flush_all_dirty(std::time::Duration::from_secs(4)).await;
         token.cancel();
@@ -2222,6 +2229,10 @@ const SHUTDOWN_DRAIN_PAUSE: std::time::Duration = std::time::Duration::from_secs
 /// Bounded window to wait for background listeners/jobs to finish after the
 /// shutdown token is cancelled, before exiting regardless (they're crash-safe).
 const BACKGROUND_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Bounded window, after HTTP drains, for request-form submissions that were
+/// answered to finish filing.
+const GUEST_FILING_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[cfg(test)]
 mod tests {

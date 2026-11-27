@@ -634,6 +634,21 @@ pub fn verify_pending_tickets_for_user(
     })
 }
 
+// sync-audit-only: takes a transaction-scoped advisory lock, writes nothing
+/// Serialise request-form submissions for `email` (compared lowercase) until
+/// the caller's transaction ends, so two at once can't both pass the
+/// [`count_pending_for_requester`] cap or both make an account for it. Must run
+/// inside a transaction.
+pub fn lock_guest_submissions_for(conn: &mut DbConnection, email: &str) -> QueryResult<()> {
+    diesel::sql_query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind::<diesel::sql_types::Text, _>(format!(
+            "guest_submission:{}",
+            email.trim().to_lowercase()
+        ))
+        .execute(conn)
+        .map(|_| ())
+}
+
 /// How many of `requester`'s tickets are still waiting for their email to be
 /// confirmed.
 pub fn count_pending_for_requester(conn: &mut DbConnection, requester: Uuid) -> QueryResult<i64> {

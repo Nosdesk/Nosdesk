@@ -42,6 +42,7 @@ fn form(verification_required: bool) -> Form {
     let db = TestDb::new();
     let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
     let b = seeded.b.workspace_id;
+    clear_daily_count(b);
     let pool = db.runtime_pool(6);
     // A new workspace's settings row is made on first read.
     run_in_workspace(&pool, REF, b, |c| {
@@ -73,6 +74,21 @@ fn form(verification_required: bool) -> Form {
         _dirs: (search_dir, storage_dir),
         search,
         storage,
+    }
+}
+
+/// Forget the form's daily count for `ws` in the limiter's Redis, which
+/// outlives the sandbox database, so earlier runs that reused the workspace
+/// id can't spend this one's allowance. Redis being away is fine: the limit
+/// fails open.
+fn clear_daily_count(ws: i32) {
+    let Ok(client) = redis::Client::open(backend::utils::rate_limit::get_redis_url()) else {
+        return;
+    };
+    if let Ok(mut conn) = client.get_connection_with_timeout(std::time::Duration::from_secs(1)) {
+        let _: redis::RedisResult<()> = redis::cmd("DEL")
+            .arg(format!("guest_tickets_day:{ws}"))
+            .query(&mut conn);
     }
 }
 
@@ -171,6 +187,22 @@ impl Form {
             .collect()
     }
 
+    /// Confirmations queued to `recipient`, compared case-insensitively.
+    fn confirmations_to(&self, recipient: &str) -> i64 {
+        diesel::sql_query(
+            "SELECT count(*) AS n FROM outbound_emails \
+             WHERE lower(recipient) = lower($1) AND idempotency_key LIKE $2",
+        )
+        .bind::<diesel::sql_types::Text, _>(recipient)
+        .bind::<diesel::sql_types::Text, _>(format!(
+            "{}%",
+            backend::services::transactional_email::GUEST_CONFIRMATION_KEY_PREFIX
+        ))
+        .get_result::<Count>(&mut self.superuser())
+        .expect("count")
+        .n
+    }
+
     /// Mail queued to `recipient`, compared case-insensitively.
     fn mail_to(&self, recipient: &str) -> i64 {
         diesel::sql_query(
@@ -185,7 +217,21 @@ impl Form {
     /// Submit B's form from `email` through its route, and read the answer:
     /// status, headers (but the date) and body.
     async fn submit(&self, email: &str) -> (u16, Vec<(String, String)>, serde_json::Value) {
-        let ctx = context_of(&mut self.pool.get().expect("conn"), self.b);
+        // A canonical origin, so confirmation links can be built (self-hosted
+        // would use FRONTEND_URL, which this binary leaves unset).
+        self.submit_on(email, Some(format!("help-{}.example.com", self.b)))
+            .await
+    }
+
+    /// [`Self::submit`] on an origin with `custom_domain` as its canonical
+    /// host; with none, no confirmation link can be built.
+    async fn submit_on(
+        &self,
+        email: &str,
+        custom_domain: Option<String>,
+    ) -> (u16, Vec<(String, String)>, serde_json::Value) {
+        let mut ctx = context_of(&mut self.pool.get().expect("conn"), self.b);
+        ctx.custom_domain = custom_domain;
         let app = actix_web::test::init_service(
             App::new()
                 .app_data(web::Data::new(self.pool.clone()))
@@ -311,6 +357,13 @@ async fn one_answer_for_every_address(verification_required: bool) {
         f.tickets_for(&reused) == 1
     })
     .await;
+    // Filed with the ticket: a confirmation for a new address always, and for
+    // a reused one when its request is held.
+    assert_eq!(f.confirmations_to(&fresh), 1);
+    assert_eq!(
+        f.confirmations_to(&reused),
+        i64::from(verification_required)
+    );
     f.until("the account holder's sign-in link", || {
         !f.sign_in_links_to(holder).is_empty()
     })
@@ -374,4 +427,22 @@ async fn with_confirmation_off_every_address_gets_one_answer() {
 #[actix_web::test]
 async fn with_confirmation_on_every_address_gets_one_answer() {
     one_answer_for_every_address(true).await;
+}
+
+/// A held request whose confirmation can't be queued (here, no origin to
+/// build its link on) is not filed either, so nothing waits on a link nobody
+/// was sent. It is answered as any other.
+#[actix_web::test]
+async fn a_held_request_without_its_confirmation_is_not_filed() {
+    let f = form(true);
+    let (status, _, body) = f.submit("linked@example.com").await;
+    f.until("a held request", || {
+        f.tickets_for("linked@example.com") == 1
+    })
+    .await;
+    let answer = f.submit_on("unlinked@example.com", None).await;
+    assert_eq!((answer.0, &answer.2), (status, &body));
+    actix_web::rt::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(f.tickets_for("unlinked@example.com"), 0);
+    assert_eq!(f.confirmations_to("unlinked@example.com"), 0);
 }
