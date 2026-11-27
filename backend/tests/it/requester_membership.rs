@@ -439,7 +439,7 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
 
 /// A confirmation minted before tokens named their tickets releases the
 /// request filed with it, and not one filed for the same address an hour
-/// earlier.
+/// earlier. It seats the account but proves no address.
 #[actix_web::test]
 async fn a_confirmation_from_before_tokens_named_tickets_releases_only_its_own() {
     let (inbox, a) = inbox_on_b();
@@ -487,6 +487,15 @@ async fn a_confirmation_from_before_tokens_named_tickets_releases_only_its_own()
         Some("pending"),
         "the request filed an hour earlier stays held"
     );
+    // Seated, but no address proven: it went to whatever the form was given.
+    assert_eq!(role_in(&inbox.pool, b, guest).as_deref(), Some("member"));
+    let proven: Vec<Option<chrono::DateTime<Utc>>> = backend::schema::user_emails::table
+        .filter(backend::schema::user_emails::user_uuid.eq(guest))
+        .select(backend::schema::user_emails::proven_at)
+        .load(&mut seed_conn(&inbox))
+        .expect("addresses");
+    assert!(proven.iter().all(Option::is_none), "{proven:?}");
+    assert!(!address_verified(&inbox, guest));
 }
 
 /// No seat anywhere: they may have been removed here before removal kept the

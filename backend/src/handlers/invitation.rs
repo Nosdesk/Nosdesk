@@ -494,7 +494,9 @@ fn usable_invitation(token: &crate::models::ResetToken) -> bool {
 /// `GUEST_MAX_FILES_PER_TICKET` of `GUEST_MAX_FILE_SIZE_MB` each) and logged
 /// the filing, then minted the token in another; both timestamps are the
 /// database's `now()`. Two minutes covers that with room, and is short enough
-/// that an earlier filing for the address is outside it.
+/// that an earlier filing for the address is outside it. Two filings for the
+/// address inside that gap could swap tickets; accepted for links that expire
+/// within 7 days of this change.
 const FILED_WITH_TOKEN_WINDOW: chrono::Duration = chrono::Duration::minutes(2);
 
 /// Which held requests confirming a guest confirmation releases.
@@ -552,7 +554,8 @@ fn named_tickets(token: &crate::models::ResetToken) -> Release {
 }
 
 /// The address a guest confirmation was mailed to (`sent_to`); `None` on one
-/// minted before confirmations recorded it, which went to the primary.
+/// minted before confirmations recorded it, which went to the address typed
+/// on the form, so it proves no address.
 fn confirmed_address(token: &crate::models::ResetToken) -> Option<String> {
     token
         .metadata
@@ -653,13 +656,13 @@ fn complete_verification(
                 repository::users::set_password_changed_at(c, &user.uuid, Utc::now().naive_utc())?;
             }
             repository::workspaces::mark_memberships_accepted(c, user.uuid)?;
-            // The confirmation POST proves the mailbox it was sent to.
-            match confirmed_address {
-                Some(address) => {
-                    repository::user_emails::mark_address_proven(c, &user.uuid, address)?
-                }
-                None => repository::user_emails::mark_primary_proven(c, &user.uuid)?,
-            };
+            // The confirmation POST proves the mailbox it was sent to. One
+            // minted before confirmations recorded that proves nothing: it
+            // went to the address typed on the form, which may not be the
+            // primary.
+            if let Some(address) = confirmed_address {
+                repository::user_emails::mark_address_proven(c, &user.uuid, address)?;
+            }
             // A reused account that wrote to this workspace's form from a seat
             // held elsewhere is seated here, now that the address is proven,
             // so the released request's requester is a member when its
