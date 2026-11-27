@@ -141,6 +141,17 @@ pub fn resolve(
                 .map(str::to_string)
                 .or_else(|| crate::utils::name_from_email(email))
                 .unwrap_or_else(|| email.to_string());
+            // An address an account out of reach holds, even as an unverified
+            // secondary, is refused rather than provisioned: it doesn't stand
+            // for that account (only a primary or verified address does), and
+            // no second account may take it.
+            for holder in crate::repository::user_emails::holders_of(conn, email)? {
+                match out_of_reach(conn, workspace_id, holder.user_uuid)? {
+                    Some(OutOfReach::PlatformRole) => return Ok(Err(Refused::PlatformRole)),
+                    Some(OutOfReach::StaffElsewhere) => return Ok(Err(Refused::StaffElsewhere)),
+                    None => {}
+                }
+            }
             crate::repository::user_helpers::find_or_provision_requester(email, &name, conn, None)?
                 .uuid
         }
