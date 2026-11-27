@@ -173,6 +173,8 @@ struct Twists {
     users_stall: AtomicU32,
     /// Show Many Users answers 401.
     deny_show_many: AtomicBool,
+    /// Show Many Users answers 404, then a body without its list.
+    show_many_not_an_answer: AtomicU32,
 }
 
 /// A small Zendesk account: two orgs and three users over two pages each,
@@ -250,6 +252,11 @@ fn account(api_base: &str, files_base: &str, twists: &Twists, req: &Req) -> Resp
         "/api/v2/users/show_many.json" => {
             if twists.deny_show_many.load(Ordering::SeqCst) {
                 return status(401);
+            }
+            match twists.show_many_not_an_answer.load(Ordering::SeqCst) {
+                1 => return status(404),
+                2 => return json_resp(json!({"count": 0})),
+                _ => {}
             }
             let users: Vec<Value> = q("ids")
                 .unwrap_or_default()
@@ -1800,6 +1807,25 @@ async fn fill_marks_unreturned_ids_gone() {
         "950"
     );
     no_incremental(&s.api);
+
+    // A 404, or an answer without its list, says nothing about who is
+    // gone: nobody is taken for gone on it.
+    for (n, why) in [(1, "answered 404"), (2, "")] {
+        s.twists.show_many_not_an_answer.store(n, Ordering::SeqCst);
+        let (_, manifest) = read_zips(
+            &src,
+            std::slice::from_ref(&zip),
+            &dir.path().join(format!("n{n}")),
+        )
+        .await;
+        let fill = manifest.fill.expect("fill");
+        assert!(fill.gone.is_empty(), "{n}: {:?}", fill.gone);
+        assert!(
+            fill.failed.as_deref().is_some_and(|f| f.contains(why)),
+            "{n}: {fill:?}"
+        );
+    }
+    s.twists.show_many_not_an_answer.store(0, Ordering::SeqCst);
 
     // A fill refused at Zendesk confirms no one gone: they stay "not in
     // the export", and the fill's failure is recorded.

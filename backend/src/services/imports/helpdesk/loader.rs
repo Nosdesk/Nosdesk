@@ -310,6 +310,8 @@ pub struct MissingPeople {
     /// The absence in words ("not in the export"), for the plan, the
     /// report and each affected ticket's import note.
     pub label: String,
+    /// Why the API fill stopped before it could ask for them, when it did.
+    pub fill_failed: Option<String>,
 }
 
 impl MissingPeople {
@@ -333,15 +335,21 @@ impl MissingPeople {
                  --refetch."
             }
             _ => {
-                "To bring them across, run again with --refetch and either a zip that also \
-                 holds Zendesk's users export, or a credential in place of --export-zip."
+                "To bring them across, run again with --refetch, giving Zendesk's users export \
+                 as another --export-zip, or a credential beside the zips so the API fill asks \
+                 Zendesk for them."
             }
         };
+        let fill = self
+            .fill_failed
+            .as_deref()
+            .map(|why| format!(" The API fill stopped before asking for them: {why}."))
+            .unwrap_or_default();
         Some(format!(
             "the tickets name {} the bundle doesn't hold ({}), on {} and {}. Imported now, \
              the tickets they requested and the replies they wrote would be credited to the \
              placeholder author for good, tickets assigned to them would be unassigned, and \
-             they would watch nothing. {fix} To import without them, pass --allow-missing-people: each affected \
+             they would watch nothing.{fill} {fix} To import without them, pass --allow-missing-people: each affected \
              ticket's import note then names its requester and assignee by source id.",
             counted(self.people, "person", "people"),
             self.label,
@@ -685,6 +693,11 @@ fn missing_people(
             replies,
             absence,
             label: absence.label(&manifest.source),
+            fill_failed: manifest
+                .fill
+                .as_ref()
+                .and_then(|f| f.failed.clone())
+                .filter(|_| absence.needs_consent()),
         })
     };
     Ok((
@@ -2361,6 +2374,7 @@ mod tests {
             replies: 3,
             absence,
             label: absence.label("zendesk"),
+            fill_failed: None,
         }
     }
 
@@ -2426,6 +2440,17 @@ mod tests {
         assert!(why.contains("(unreadable in the bundle)"), "{why}");
         assert!(why.contains("--refetch"), "{why}");
         assert_eq!(missing(Absence::Unreadable).refusal(true), None);
+
+        let stopped = MissingPeople {
+            fill_failed: Some("Zendesk refused the credential (401)".into()),
+            ..missing(Absence::NotInExport)
+        };
+        let why = stopped.refusal(false).expect("refused");
+        assert!(
+            why.contains("The API fill stopped before asking for them: Zendesk refused"),
+            "{why}"
+        );
+        assert!(why.contains("another --export-zip"), "{why}");
 
         assert_eq!(missing(Absence::GoneAtSource).refusal(false), None);
         let nobody = MissingPeople {

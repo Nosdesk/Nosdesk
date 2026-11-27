@@ -67,17 +67,16 @@ pub struct OrganizationsPage {
     pub meta: Meta,
 }
 
-/// `GET /api/v2/users/show_many.json?ids=...`
+/// `GET /api/v2/users/show_many.json?ids=...`. The list must be there: an
+/// answer without it says nothing about who is gone, so it doesn't read.
 #[derive(Debug, Deserialize)]
 pub struct UsersList {
-    #[serde(default, deserialize_with = "null_default")]
     pub users: Vec<User>,
 }
 
 /// `GET /api/v2/organizations/show_many.json?ids=...`
 #[derive(Debug, Deserialize)]
 pub struct OrganizationsList {
-    #[serde(default, deserialize_with = "null_default")]
     pub organizations: Vec<Organization>,
 }
 

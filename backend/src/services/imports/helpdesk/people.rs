@@ -463,24 +463,25 @@ pub fn plan(
                 target_email: target_email.clone(),
             });
         }
-        if outcome.on_placeholder() || !needs_profile(g, &facts) {
+        if outcome.on_placeholder() || !needs_profile(g, &facts) || profiled_before(g, &facts) {
             continue;
         }
-        let account = group_mapped.copied().or_else(|| {
-            target_email
-                .as_deref()
-                .and_then(|t| facts.holders.get(&t.to_lowercase()))
-                .filter(|_| {
-                    matches!(
-                        outcome,
-                        Outcome::Member | Outcome::Known | Outcome::Reused | Outcome::AgentMapped
-                    )
-                })
-                .map(|h| h.uuid)
-        });
-        match account {
-            Some(uuid) => existing.push((uuid, g)),
-            None => fresh.push(g),
+        match outcome {
+            Outcome::Requester
+            | Outcome::AgentCreated
+            | Outcome::FormerStaff
+            | Outcome::Inactive => fresh.push(g),
+            _ => {
+                let account = group_mapped.copied().or_else(|| {
+                    target_email
+                        .as_deref()
+                        .and_then(|t| facts.holders.get(&t.to_lowercase()))
+                        .map(|h| h.uuid)
+                });
+                if let Some(uuid) = account.filter(|u| owns_address(g, *u, &facts)) {
+                    existing.push((uuid, g));
+                }
+            }
         }
     }
 
@@ -540,6 +541,27 @@ pub fn plan(
         profile,
         changed_at_source: changed_at_source(groups, &facts),
     })
+}
+
+/// Someone at the group's address had their profile fill done by an
+/// earlier run: it isn't done again for a member who joined since, so a
+/// value cleared here stays cleared.
+fn profiled_before(g: &AddressGroup, facts: &Facts) -> bool {
+    g.members
+        .iter()
+        .any(|m| facts.profiled.contains(&m.source_id))
+}
+
+/// `account` holds the group's own address here, so what the source had
+/// for them is about that account. An agent mapped to a staff member here
+/// isn't: their organization and phone never land on someone else.
+fn owns_address(g: &AddressGroup, account: Uuid, facts: &Facts) -> bool {
+    g.rep
+        .email
+        .as_deref()
+        .map(str::to_lowercase)
+        .and_then(|e| facts.holders.get(&e))
+        .is_some_and(|h| h.trusted && h.uuid == account)
 }
 
 /// The group's profile fill is still to do: someone in it alive at the
@@ -768,7 +790,18 @@ pub fn apply(
         };
 
         if !group.outcome.on_placeholder() && needs_profile(g, &facts) {
-            match conn.transaction(|conn| fill_profile(conn, g, group.uuid, &facts, opts)) {
+            // Written only to an account made for this address, or one that
+            // holds it, and only once per address; otherwise the fill is
+            // recorded as done with nothing written.
+            let write = !profiled_before(g, &facts)
+                && match group.outcome {
+                    Outcome::Requester
+                    | Outcome::AgentCreated
+                    | Outcome::FormerStaff
+                    | Outcome::Inactive => true,
+                    _ => owns_address(g, group.uuid, &facts),
+                };
+            match conn.transaction(|conn| fill_profile(conn, g, group.uuid, write, &facts, opts)) {
                 Ok(tally) => out.profile.add(&tally),
                 Err(e) => out.profile_problems.push(format!(
                     "{}: organization and phone not written ({e})",
@@ -801,10 +834,38 @@ fn fill_profile(
     conn: &mut DbConnection,
     g: &AddressGroup,
     account: Uuid,
+    write: bool,
     facts: &Facts,
     opts: &PeopleOptions<'_>,
 ) -> QueryResult<ProfileTally> {
     let mut tally = ProfileTally::default();
+    if write {
+        write_profile(conn, g, account, opts, &mut tally)?;
+    }
+    for m in &g.members {
+        if m.deleted || facts.profiled.contains(&m.source_id) {
+            continue;
+        }
+        idmap::record(
+            conn,
+            opts.scope,
+            Entity::Profile,
+            &m.source_id,
+            &account.to_string(),
+            opts.job_id,
+            None,
+        )?;
+    }
+    Ok(tally)
+}
+
+fn write_profile(
+    conn: &mut DbConnection,
+    g: &AddressGroup,
+    account: Uuid,
+    opts: &PeopleOptions<'_>,
+    tally: &mut ProfileTally,
+) -> QueryResult<()> {
     let synced = user_contact::contact_standing(conn, &[account])?
         .get(&account)
         .is_some_and(|s| s.directory_synced);
@@ -838,21 +899,7 @@ fn fill_profile(
             }
         }
     }
-    for m in &g.members {
-        if m.deleted || facts.profiled.contains(&m.source_id) {
-            continue;
-        }
-        idmap::record(
-            conn,
-            opts.scope,
-            Entity::Profile,
-            &m.source_id,
-            &account.to_string(),
-            opts.job_id,
-            None,
-        )?;
-    }
-    Ok(tally)
+    Ok(())
 }
 
 /// Where a group goes when bringing it across as decided failed: staff keep

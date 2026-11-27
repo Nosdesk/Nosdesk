@@ -217,7 +217,8 @@ struct HelpdeskImportArgs {
     /// they wrote are credited to the placeholder author for good, tickets
     /// assigned to them are unassigned, their watching is dropped, and each
     /// ticket's import note names its requester and assignee by Zendesk id.
-    /// Not needed for people a fetch from the API found gone at Zendesk.
+    /// Not needed for people Zendesk confirmed gone: absent from an API
+    /// fetch, or asked for by the API fill and not returned.
     #[arg(long)]
     allow_missing_people: bool,
 

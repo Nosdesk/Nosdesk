@@ -102,8 +102,12 @@ impl ZendeskSource {
             let url = self.http.url(path, &query);
             let page = match self.http.get_json::<L>(&url, cancel).await {
                 Ok(Some(page)) => items(page),
-                // Nothing by those ids at all.
-                Ok(None) => Vec::new(),
+                // Not an answer about these ids: none of them is taken for
+                // gone on it.
+                Ok(None) => {
+                    out.failed = Some(format!("{path} answered 404"));
+                    return Ok(out);
+                }
                 Err(SourceError::Cancelled) => return Err(SourceError::Cancelled),
                 Err(e) => {
                     out.failed = Some(failure(&e));

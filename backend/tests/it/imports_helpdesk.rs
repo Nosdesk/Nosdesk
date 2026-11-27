@@ -3258,3 +3258,141 @@ async fn the_portal_shows_the_source_name_on_placeholder_replies_never_the_addre
         "{body}"
     );
 }
+
+#[actix_web::test]
+async fn a_mapped_agents_organization_and_phone_never_land_on_the_staff_member() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let staff = account(
+        &pool,
+        "Stella Staff",
+        None,
+        "stella@here.test",
+        &[],
+        Some((ws.workspace_id, "agent")),
+    );
+    let agent = Person {
+        organization: Some("Zendesk Inc".into()),
+        organization_id: Some("o-z".into()),
+        phone: Some("+61211110000".into()),
+        ..person("a1", "zd@acme.test", PersonRole::Agent, true)
+    };
+    let cast = vec![customer("r1", "rob@customer.test", None, None), agent];
+    let mut t = raised_by("1701", "r1", &[]);
+    t.assignee = Some("a1".into());
+    t.comments.push(comment(
+        "c1701b",
+        Some("a1"),
+        true,
+        "<p>Done</p>",
+        at(1, 11),
+    ));
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(dir.path(), &cast, &[t], &[], |_| {});
+    let mut opts = options(&ws, Uuid::now_v7());
+    opts.agent_map = HashMap::from([("zd@acme.test".to_string(), "stella@here.test".to_string())]);
+    let plan = loader::plan(&pool, &bundle, &opts).await.expect("plan");
+    assert_eq!(plan.people.get("agent, mapped to a seat"), Some(&1));
+    assert_eq!(plan.people_detail.profile, Default::default());
+    for _ in 0..2 {
+        let mut o = opts.clone();
+        o.job_id = Uuid::now_v7();
+        let report = run(&pool, &bundle, &o).await;
+        assert!(
+            report.profile_problems.is_empty(),
+            "{:?}",
+            report.profile_problems
+        );
+        assert_eq!(profile_of(&pool, ws.workspace_id, staff), None);
+        assert!(phones_of(&pool, ws.workspace_id, staff).is_empty());
+    }
+    assert_eq!(assignee_of(&pool, &ws, 1701), Some(staff));
+    assert_eq!(
+        mapped(&pool, ws.workspace_id, "profile", "a1"),
+        vec![staff.to_string()],
+        "done once, with nothing written"
+    );
+}
+
+#[actix_web::test]
+async fn someone_who_joins_a_shared_address_later_doesnt_fill_it_again() {
+    let db = TestDb::new();
+    let pool = db.pool_with_size(4);
+    crate::common::ensure_test_keyring();
+    let ws = crate::common::seed_two_workspaces(&mut pool.get().expect("conn")).a;
+    let first = customer(
+        "j1",
+        "desk@customer.test",
+        Some("Acme"),
+        Some("+61299990000"),
+    );
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(
+        dir.path(),
+        std::slice::from_ref(&first),
+        &[raised_by("1801", "j1", &[])],
+        &[],
+        |_| {},
+    );
+    run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    let desk = account_of(&pool, "desk@customer.test");
+    run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        diesel::sql_query("UPDATE user_profiles SET organization = NULL WHERE user_uuid = $1")
+            .bind::<diesel::sql_types::Uuid, _>(desk)
+            .execute(c)?;
+        diesel::sql_query("DELETE FROM user_phone_numbers WHERE user_uuid = $1")
+            .bind::<diesel::sql_types::Uuid, _>(desk)
+            .execute(c)
+    })
+    .expect("cleared here");
+
+    // Another Zendesk user at the address, created earlier, so now the one
+    // the group is decided as.
+    let joiner = Person {
+        created_at: Some(at(1, 0)),
+        ..customer(
+            "j2",
+            "desk@customer.test",
+            Some("Beta"),
+            Some("+61288880000"),
+        )
+    };
+    let dir = tempfile::tempdir().expect("dir");
+    let bundle = write_bundle_with(
+        dir.path(),
+        &[first, joiner],
+        &[raised_by("1801", "j1", &[]), raised_by("1802", "j2", &[])],
+        &[],
+        |_| {},
+    );
+    let plan = loader::plan(&pool, &bundle, &options(&ws, Uuid::now_v7()))
+        .await
+        .expect("plan");
+    assert_eq!(plan.people_detail.profile, Default::default());
+    let report = run(&pool, &bundle, &options(&ws, Uuid::now_v7())).await;
+    assert!(
+        report.profile_problems.is_empty(),
+        "{:?}",
+        report.profile_problems
+    );
+    assert!(
+        report.people_problems.is_empty(),
+        "{:?}",
+        report.people_problems
+    );
+    assert_eq!(
+        profile_of(&pool, ws.workspace_id, desk).and_then(|p| p.organization),
+        None
+    );
+    assert!(phones_of(&pool, ws.workspace_id, desk).is_empty());
+    assert_eq!(
+        mapped(&pool, ws.workspace_id, "profile", "j2"),
+        vec![desk.to_string()]
+    );
+    assert_eq!(
+        mapped(&pool, ws.workspace_id, "person", "j2"),
+        vec![desk.to_string()]
+    );
+}
