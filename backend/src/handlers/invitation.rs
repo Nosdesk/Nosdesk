@@ -174,9 +174,9 @@ pub async fn accept_invitation(
     }
 
     // A guest confirmation (the request form's link, where local passwords
-    // exist) is checked now and spent only once its held request is released
-    // in the workspace it names, as `confirm_guest_submission` does, so a
-    // failed release leaves the link usable. Any other invitation, and a
+    // exist) is checked now and spent in the transaction that releases its
+    // held request in the workspace it names, as `confirm_guest_submission`
+    // does, so a failed release leaves the link usable. Any other invitation, and a
     // guest confirmation already used or expired, is spent (or refused) here,
     // before the password is written, with the same answer.
     let guest = repository::reset_tokens::find_token_by_hash(
@@ -243,8 +243,7 @@ pub async fn accept_invitation(
                             &user,
                             Completion::GuestPasswordSet,
                             submitted_in(token),
-                            &named_tickets(token),
-                            confirmed_address(token).as_deref(),
+                            Some(&token.token_hash),
                         )
                     });
                     done.map_err(|e| {
@@ -258,14 +257,6 @@ pub async fn accept_invitation(
                     ApiError::Internal("Failed to confirm submission".into())
                 }));
             }
-            if let Err(e) = repository::reset_tokens::validate_and_consume_token(
-                &mut conn,
-                &request_data.token,
-                TokenType::Invitation.as_str(),
-            ) {
-                // A concurrent accept claimed it first; the release already happened.
-                info!(user_uuid = %user.uuid, error = %e, "Guest confirmation token already claimed");
-            }
         }
         None => {
             store_local_password(&mut conn, &user, &password_hash)?;
@@ -277,7 +268,6 @@ pub async fn accept_invitation(
                 Completion::PasswordSet,
                 None,
                 // An invitation names no held request.
-                &Release::none(),
                 None,
             )?;
         }
@@ -365,9 +355,9 @@ fn store_local_password(
 /// [`accept_invitation`] can't run there; confirming the address is what
 /// releases the held ticket either way.
 ///
-/// The token is checked first and claimed only after the release succeeds, so
-/// a failed release leaves the link usable. Releasing is idempotent, so a
-/// double click can't release twice.
+/// The token is checked first, then spent in the release's own transaction,
+/// so a failed release leaves the link usable and a second click finds it
+/// spent.
 pub async fn confirm_guest_submission(
     db_pool: web::Data<crate::db::Pool>,
     search_service: web::Data<Arc<SearchService>>,
@@ -405,18 +395,8 @@ pub async fn confirm_guest_submission(
         &user,
         Completion::GuestConfirmed,
         submitted_in,
-        &named_tickets(&token),
-        confirmed_address(&token).as_deref(),
+        Some(&token.token_hash),
     )?;
-
-    if let Err(e) = repository::reset_tokens::validate_and_consume_token(
-        &mut conn,
-        &request_data.token,
-        TokenType::Invitation.as_str(),
-    ) {
-        // A concurrent confirm claimed it first; the release already happened.
-        info!(user_uuid = %user.uuid, error = %e, "Guest confirmation token already claimed");
-    }
 
     if let Err(e) = record_verification_event(
         &user.uuid,
@@ -435,10 +415,13 @@ pub async fn confirm_guest_submission(
         .get::<crate::extractors::WorkspaceContext>()
         .cloned()
         .filter(|_| crate::middleware::workspace_context::is_hosted());
+    // The newest request it was sent for, or, when those were released
+    // already, the newest that rode along.
     let newest = released
         .iter()
         .filter(|t| t.verified)
         .max_by_key(|t| t.id)
+        .or_else(|| released.iter().max_by_key(|t| t.id))
         .map(|t| t.number);
     if let (Some(ctx), Some(number)) = (portal_ctx, newest) {
         match crate::handlers::portal::mint_portal_session(
@@ -507,7 +490,7 @@ const FILED_WITH_TOKEN_WINDOW: chrono::Duration = chrono::Duration::minutes(2);
 enum Release {
     /// The ones its token was sent for (`ticket_ids`), verified, and those
     /// that rode along on it while its address's confirmations were held
-    /// (`rode_along`), released unconfirmed; none for an invitation.
+    /// (`rode_along`), released unconfirmed.
     Named {
         sent_for: Vec<i32>,
         rode_along: Vec<i32>,
@@ -519,14 +502,6 @@ enum Release {
 }
 
 impl Release {
-    /// None: an invitation names no held request.
-    fn none() -> Self {
-        Self::Named {
-            sent_for: Vec::new(),
-            rode_along: Vec::new(),
-        }
-    }
-
     /// The ticket ids to verify, read in the confirmation's transaction.
     fn ids(
         &self,
@@ -643,8 +618,7 @@ fn complete_verification(
     user: &crate::models::User,
     completion: Completion,
     workspace: Option<i32>,
-    release: &Release,
-    confirmed_address: Option<&str>,
+    confirmation: Option<&str>,
 ) -> Result<Vec<ReleasedTicket>, ApiError> {
     // Pre-session (token-verified) flow: resolve the audit workspace once,
     // then thread it through the audited writes below
@@ -684,40 +658,72 @@ fn complete_verification(
     // A failure changes nothing, so the address isn't left verified with its
     // request still held, and the link can be followed again.
     let released = if completion.releases_a_guest_request() {
-        crate::sync::session::with_actor_context::<_, diesel::result::Error>(conn, &actor, |c| {
-            if completion.sets_password() {
-                repository::users::set_password_changed_at(c, &user.uuid, Utc::now().naive_utc())?;
+        // The link is spent in this transaction, and what it releases is read
+        // from the row as spent, so a request that rode along on it a moment
+        // before is released with the rest. A failure rolls the spend back
+        // with everything else, leaving the link usable; a confirm that finds
+        // it spent already is refused as any used link is.
+        let mut spent_already = false;
+        let done = crate::sync::session::with_actor_context::<_, diesel::result::Error>(
+            conn,
+            &actor,
+            |c| {
+                let Some(token) = confirmation
+                    .map(|hash| repository::reset_tokens::claim_unused(c, hash))
+                    .transpose()?
+                    .flatten()
+                else {
+                    spent_already = true;
+                    return Err(diesel::result::Error::RollbackTransaction);
+                };
+                let release = named_tickets(&token);
+                let confirmed_address = confirmed_address(&token);
+                if completion.sets_password() {
+                    repository::users::set_password_changed_at(
+                        c,
+                        &user.uuid,
+                        Utc::now().naive_utc(),
+                    )?;
+                }
+                repository::workspaces::mark_memberships_accepted(c, user.uuid)?;
+                // The confirmation POST proves the mailbox it was sent to. One
+                // minted before confirmations recorded that proves nothing: it
+                // went to the address typed on the form, which may not be the
+                // primary.
+                if let Some(address) = confirmed_address.as_deref() {
+                    repository::user_emails::mark_address_proven(c, &user.uuid, address)?;
+                }
+                // A reused account that wrote to this workspace's form from a seat
+                // held elsewhere is seated here, now that the address is proven,
+                // so the released request's requester is a member when its
+                // `ticket.created` goes out and a portal session can be minted.
+                repository::workspaces::join_as_requester(c, workspace_id, user.uuid)?;
+                // The requests this confirmation was sent for, verified.
+                let ids = release.ids(c, user.uuid, workspace_id)?;
+                let mut released =
+                    repository::tickets::verify_pending_tickets_for_user(c, user.uuid, &ids)?;
+                // Requests that rode along go live but stay unconfirmed: the click
+                // proves the mailbox, not that its holder wrote them.
+                released.extend(repository::tickets::release_unconfirmed_tickets_for_user(
+                    c,
+                    user.uuid,
+                    release.rode_along(),
+                )?);
+                Ok(released)
+            },
+        );
+        match done {
+            Ok(released) => released,
+            Err(_) if spent_already => {
+                return Err(ApiError::BadRequest(
+                    "Invalid or expired confirmation link".into(),
+                ))
             }
-            repository::workspaces::mark_memberships_accepted(c, user.uuid)?;
-            // The confirmation POST proves the mailbox it was sent to. One
-            // minted before confirmations recorded that proves nothing: it
-            // went to the address typed on the form, which may not be the
-            // primary.
-            if let Some(address) = confirmed_address {
-                repository::user_emails::mark_address_proven(c, &user.uuid, address)?;
+            Err(e) => {
+                warn!(user_uuid = %user.uuid, error = %e, "Failed to confirm guest submission");
+                return Err(ApiError::Internal("Failed to confirm submission".into()));
             }
-            // A reused account that wrote to this workspace's form from a seat
-            // held elsewhere is seated here, now that the address is proven,
-            // so the released request's requester is a member when its
-            // `ticket.created` goes out and a portal session can be minted.
-            repository::workspaces::join_as_requester(c, workspace_id, user.uuid)?;
-            // The requests this confirmation was sent for, verified.
-            let ids = release.ids(c, user.uuid, workspace_id)?;
-            let mut released =
-                repository::tickets::verify_pending_tickets_for_user(c, user.uuid, &ids)?;
-            // Requests that rode along go live but stay unconfirmed: the click
-            // proves the mailbox, not that its holder wrote them.
-            released.extend(repository::tickets::release_unconfirmed_tickets_for_user(
-                c,
-                user.uuid,
-                release.rode_along(),
-            )?);
-            Ok(released)
-        })
-        .map_err(|e| {
-            warn!(user_uuid = %user.uuid, error = %e, "Failed to confirm guest submission");
-            ApiError::Internal("Failed to confirm submission".into())
-        })?
+        }
     } else {
         accept_invitation_steps(conn, &actor, workspace_id, user, completion)
     };
