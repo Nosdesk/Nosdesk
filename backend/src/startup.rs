@@ -1507,6 +1507,7 @@ pub async fn build_server(
     // build_state / configure_app take `&config` directly.
     let environment = config.environment.clone();
     let rate_limit_per_minute = config.rate_limit_per_minute;
+    let global_rate_limit_per_minute = config.global_rate_limit_per_minute;
     let auth_rate_limit_per_minute = config.auth_rate_limit_per_minute;
     let redis_url = config.redis_url.clone();
     let frontend_url = config.frontend_url.clone();
@@ -1573,16 +1574,31 @@ pub async fn build_server(
     // limit. A build failure (a malformed REDIS_URL) is fatal everywhere —
     // there's no in-memory fallback to silently degrade to. Redis going
     // away at runtime lets requests through instead (middleware::rate_limit).
+    //
+    // Two buckets. Per workspace and client, so on Cloud one tenant's
+    // visitors (a busy office behind one address, a form under attack) spend
+    // only that tenant's quota; and a looser one per client across every
+    // workspace, so one address can't spray every tenant at the full rate. A
+    // request whose origin resolved no workspace is counted by the second.
     let public_limiter = RequestLimiter::build(
         "public",
         &redis_url,
         rate_limit_per_minute as usize,
         Duration::from_secs(60),
         |req: &actix_web::dev::ServiceRequest| {
-            crate::utils::client_ip::from_service_request(req)
-                .map(|ip| format!("public:{}", crate::utils::client_ip::limit_bucket(ip)))
+            crate::middleware::rate_limit::workspace_client_key("public", req)
         },
     )
+    .and_then(|limiter| {
+        limiter.with_bucket(
+            &redis_url,
+            global_rate_limit_per_minute as usize,
+            Duration::from_secs(60),
+            |req: &actix_web::dev::ServiceRequest| {
+                crate::middleware::rate_limit::client_key("public", req)
+            },
+        )
+    })
     .map_err(|e| {
         error!(error = %e, "Failed to build the public rate limiter (check REDIS_URL)");
         std::io::Error::other("Public rate limiter initialization failed")

@@ -27,7 +27,14 @@ pub struct Config {
     pub is_production: bool,
     pub host: String,
     pub port: u16,
+    /// Public requests a minute from one client to one workspace
+    /// (`RATE_LIMIT_PER_MINUTE`, default 60, clamped 30..1000).
     pub rate_limit_per_minute: u64,
+    /// Public requests a minute from one client across every workspace
+    /// (`RATE_LIMIT_GLOBAL_PER_MINUTE`, default four times the per-workspace
+    /// limit, never below it, at most 10000). On a single workspace the
+    /// per-workspace limit is the one that bites.
+    pub global_rate_limit_per_minute: u64,
     pub auth_rate_limit_per_minute: u64,
     /// Absolute ceiling on a session's life, in days
     /// (`NOSDESK_SESSION_MAX_LIFETIME_DAYS`, default 30, clamped 1..90).
@@ -118,6 +125,11 @@ impl Config {
             .parse::<u64>()
             .unwrap_or(60)
             .clamp(30, 1000); // Reasonable limits: 30-1000 requests per minute
+
+        let global_rate_limit_per_minute = get("RATE_LIMIT_GLOBAL_PER_MINUTE")
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or(rate_limit_per_minute * 4)
+            .clamp(rate_limit_per_minute, 10_000);
 
         let auth_rate_limit_per_minute = get("AUTH_RATE_LIMIT_PER_MINUTE")
             .unwrap_or_else(|| "600".to_string()) // Higher limit for authenticated users (10x public rate)
@@ -261,6 +273,7 @@ impl Config {
             host,
             port,
             rate_limit_per_minute,
+            global_rate_limit_per_minute,
             auth_rate_limit_per_minute,
             session_max_lifetime_days,
             redis_url,
@@ -515,6 +528,28 @@ mod tests {
     fn rate_limits_are_clamped() {
         let c = build(&[("JWT_SECRET", GOOD_JWT), ("RATE_LIMIT_PER_MINUTE", "5")]).unwrap();
         assert_eq!(c.rate_limit_per_minute, 30); // clamped up to the floor
+    }
+
+    #[test]
+    fn the_global_public_limit_is_looser_than_the_per_workspace_one() {
+        let c = build(&[("JWT_SECRET", GOOD_JWT)]).unwrap();
+        assert_eq!(
+            (c.rate_limit_per_minute, c.global_rate_limit_per_minute),
+            (60, 240)
+        );
+        let c = build(&[
+            ("JWT_SECRET", GOOD_JWT),
+            ("RATE_LIMIT_PER_MINUTE", "100"),
+            ("RATE_LIMIT_GLOBAL_PER_MINUTE", "50"),
+        ])
+        .unwrap();
+        assert_eq!(c.global_rate_limit_per_minute, 100, "never below it");
+        let c = build(&[
+            ("JWT_SECRET", GOOD_JWT),
+            ("RATE_LIMIT_GLOBAL_PER_MINUTE", "900"),
+        ])
+        .unwrap();
+        assert_eq!(c.global_rate_limit_per_minute, 900);
     }
 
     #[test]
