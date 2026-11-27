@@ -53,6 +53,25 @@ pub fn upsert(
         .get_result(conn)
 }
 
+/// [`is_suppressed`], counting only entries made for one of `reasons`.
+pub fn is_suppressed_for(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    email: &str,
+    reasons: &[&str],
+) -> Result<bool, diesel::result::Error> {
+    use diesel::dsl::exists;
+    use diesel::select;
+    let normalized = email.trim().to_ascii_lowercase();
+    select(exists(
+        email_suppressions::table
+            .filter(email_suppressions::workspace_id.eq(workspace_id))
+            .filter(email_suppressions::email.eq(&normalized))
+            .filter(email_suppressions::reason.eq_any(reasons)),
+    ))
+    .get_result(conn)
+}
+
 /// Is the given address on the suppression list? Case-insensitive
 /// match via lower-case fold (mirrors `upsert`). The caller uses
 /// this on the outbound enqueue hot path, so it's a single keyed

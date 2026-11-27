@@ -743,6 +743,31 @@ pub fn count_recent_to_anywhere(
     }
 }
 
+// sync-audit-only: takes a lock and writes nothing
+/// Hold, to the end of the transaction, the lock on the request form's
+/// confirmation allowance for `recipient` (case-insensitive), or with
+/// `workspace_id` the one on that workspace's ceiling. The allowances are a
+/// count then an insert, so two requests at the limit would both pass without
+/// it. Take the address's lock before the workspace's, always, so two
+/// requests can't wait on each other.
+pub fn lock_confirmation_allowance(
+    conn: &mut DbConnection,
+    recipient: &str,
+    workspace_id: Option<i32>,
+) -> QueryResult<()> {
+    let key = match workspace_id {
+        None => format!(
+            "guest-confirmation:address:{}",
+            recipient.trim().to_lowercase()
+        ),
+        Some(ws) => format!("guest-confirmation:workspace:{ws}"),
+    };
+    diesel::sql_query("SELECT pg_advisory_xact_lock(hashtext($1))")
+        .bind::<Text, _>(key)
+        .execute(conn)
+        .map(|_| ())
+}
+
 /// Whether this workspace has queued any mail to `recipient`, in any status.
 /// Case-insensitive. `conn` must be pinned: row security scopes it.
 pub fn has_mailed(conn: &mut DbConnection, recipient: &str) -> QueryResult<bool> {
@@ -757,13 +782,14 @@ pub fn has_mailed(conn: &mut DbConnection, recipient: &str) -> QueryResult<bool>
 }
 
 // sync-audit-only: a read-only scan (raw SELECT), no write
-/// Emails queued since `since` whose key starts with `key_prefix` and that
-/// were this workspace's first mail to their address: how many addresses it
-/// began mailing that way. `conn` must be pinned: row security scopes both
-/// reads to the workspace.
-pub fn count_first_contacts_since(
+/// The request form's confirmations queued since `since` that were this
+/// workspace's first mail to their address: how many addresses it began
+/// mailing that way. The key prefix is written into the query, not bound, so
+/// the partial index on confirmations (`outbound_emails_guest_confirmation_idx`)
+/// serves it. `conn` must be pinned: row security scopes both reads to the
+/// workspace.
+pub fn count_first_contact_confirmations_since(
     conn: &mut DbConnection,
-    key_prefix: &str,
     since: chrono::DateTime<chrono::Utc>,
 ) -> QueryResult<i64> {
     #[derive(QueryableByName)]
@@ -773,13 +799,13 @@ pub fn count_first_contacts_since(
     }
     diesel::sql_query(
         "SELECT count(*) AS n FROM outbound_emails o \
-         WHERE o.idempotency_key LIKE $1 AND o.created_at >= $2 \
+         WHERE o.idempotency_key LIKE 'guest-confirmation:%' AND o.created_at >= $1 \
+           AND o.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::int \
            AND NOT EXISTS (SELECT 1 FROM outbound_emails p \
                            WHERE p.workspace_id = o.workspace_id \
                              AND lower(p.recipient) = lower(o.recipient) \
                              AND (p.created_at, p.id) < (o.created_at, o.id))",
     )
-    .bind::<Text, _>(format!("{key_prefix}%"))
     .bind::<Timestamptz, _>(since)
     .get_result::<Count>(conn)
     .map(|c| c.n)

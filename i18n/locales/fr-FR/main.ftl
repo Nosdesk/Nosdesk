@@ -25,6 +25,39 @@ invitation-subject = Vous avez été invité à rejoindre { $app } - Créez votr
 invitation-title = Bienvenue sur { $app } !
 invitation-greeting = Bonjour <strong>{ $name }</strong>,
 invitation-intro = Vous avez été invité à rejoindre <strong>{ $app }</strong> par <strong>{ $by }</strong>.
+# MACHINE TRANSLATION, pending native review
+email-greeting-anonymous = Bonjour,
+invitation-intro-anonymous = Vous avez été invité à rejoindre <strong>{ $app }</strong>.
+invitation-body-text-anonymous =
+    Bonjour,
+
+    Vous avez été invité à rejoindre { $app }.
+
+    Pour finaliser la création de votre compte et choisir votre mot de passe, ouvrez ce lien dans votre navigateur :
+
+    { $link }
+
+    À savoir :
+      - Cette invitation expirera dans 7 jours.
+      - Vous choisirez un mot de passe pendant la configuration.
+      - Choisissez un mot de passe robuste d'au moins 8 caractères.
+      - Si vous n'attendiez pas cette invitation, vous pouvez ignorer cet e-mail.
+password-reset-body-text-anonymous =
+    Bonjour,
+
+    Nous avons reçu une demande de réinitialisation du mot de passe de votre compte { $app }. Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail.
+
+    Pour réinitialiser votre mot de passe, ouvrez ce lien dans votre navigateur :
+
+    { $link }
+
+    Notes de sécurité :
+      - Ce lien expirera dans 1 heure.
+      - Ce lien ne peut être utilisé qu'une seule fois.
+      - Ne partagez jamais ce lien avec personne.
+      - Si vous n'avez pas demandé cette réinitialisation, sécurisez votre compte.
+
+    Pour toute question, contactez votre administrateur système.
 invitation-action-prompt = Pour finaliser la création de votre compte et choisir votre mot de passe, cliquez sur le bouton ci-dessous :
 invitation-cta-label = Configurer mon compte
 invitation-notice-expiry = Ce lien d'invitation expirera dans <strong>7 jours</strong>
@@ -60,6 +93,10 @@ verify-email-failed-body = Ce lien de confirmation est invalide ou a expiré.
 verify-email-failed-hint = Les liens de confirmation expirent après 24 heures et ne servent qu’une fois. Vous pouvez en envoyer un nouveau depuis votre profil.
 verify-email-missing-token = Ce lien ne contient pas de code de confirmation.
 verify-email-continue = Continuer
+# MACHINE TRANSLATION, pending native review
+verify-email-confirm-title = Confirmer cette adresse
+verify-email-confirm-body = Appuyez sur le bouton pour confirmer cette adresse sur votre compte.
+verify-email-confirm-button = Confirmer l'adresse
 settings-emails-resend = Renvoyer la confirmation
 settings-emails-resend-sending = Envoi…
 settings-emails-resend-sent = Confirmation envoyée
@@ -93,10 +130,6 @@ portal-magic-link-cta-label = Se connecter
 portal-magic-link-notice-expiry = Ce lien et ce code expirent dans <strong>20 minutes</strong> et ne fonctionnent qu'une fois
 portal-magic-link-code = Ou saisissez ce code sur la page de connexion : <strong>{ $code }</strong>
 portal-magic-link-code-text = Ou saisissez ce code sur la page de connexion : { $code }
-# MACHINE TRANSLATION, pending native review
-verify-email-confirm-title = Confirmer cette adresse
-verify-email-confirm-body = Appuyez sur le bouton pour confirmer cette adresse sur votre compte.
-verify-email-confirm-button = Confirmer l'adresse
 portal-magic-link-notice-unexpected = Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail
 portal-magic-link-body-text =
     Bonjour { $name },
@@ -594,6 +627,8 @@ settings-localization-save-failed = Échec de l'enregistrement des préférences
 # Footer on an agent reply sent with no email channel (replies to it are lost).
 reply-email-reply-elsewhere = Les réponses à cet e-mail ne nous parviennent pas. Pour répondre, ouvrez votre demande :
 reply-email-view-request = Voir votre demande
+# MACHINE TRANSLATION, pending native review
+reply-email-redacted-body = Il y a une nouvelle réponse à la demande n° { $number }.
 
 # Channel auto-acknowledgement.
 auto-ack-default-template = Votre demande (#{ $ticket_id }) a été reçue et est en cours d'examen par notre équipe d'assistance. Pour ajouter d'autres commentaires, répondez à cet e-mail.
@@ -627,8 +662,6 @@ password-reset-body-text =
 
     Notes de sécurité :
       - Ce lien expirera dans 1 heure.
-# MACHINE TRANSLATION, pending native review
-reply-email-redacted-body = Il y a une nouvelle réponse à la demande n° { $number }.
       - Ce lien ne peut être utilisé qu'une seule fois.
       - Ne partagez jamais ce lien avec personne.
       - Si vous n'avez pas demandé cette réinitialisation, sécurisez votre compte.
@@ -9794,6 +9827,10 @@ portal-sign-in-use-another = Utiliser une autre adresse e-mail
 # MACHINE TRANSLATION, pending native review
 portal-sign-in-password = Se connecter avec un mot de passe
 portal-sign-in-error = Ce lien de connexion n'a pas fonctionné. Il a peut-être expiré ou déjà été utilisé. Saisissez votre e-mail pour en recevoir un nouveau.
+# MACHINE TRANSLATION, pending native review
+portal-sign-in-link-title = Connexion à { $app }
+portal-sign-in-link-intro = Appuyez sur Continuer pour terminer la connexion. Le lien ne fonctionne qu'une fois.
+portal-sign-in-link-continue = Continuer
 # Traduction automatique, en attente de relecture par un locuteur natif.
 portal-sso-button = Se connecter avec { $provider }
 portal-sso-or = ou
@@ -9829,10 +9866,6 @@ portal-new-reply = Nouvelle réponse
 portal-resolve-hint-open = Si c'est réglé, prévenez l'équipe et elle clôturera la demande.
 portal-resolve-question = C'est réglé ?
 portal-resolve-yes = Oui, c'est réglé
-# MACHINE TRANSLATION, pending native review
-portal-sign-in-link-title = Connexion à { $app }
-portal-sign-in-link-intro = Appuyez sur Continuer pour terminer la connexion. Le lien ne fonctionne qu'une fois.
-portal-sign-in-link-continue = Continuer
 portal-resolve-no = Non, j'ai encore besoin d'aide
 portal-resolve-thanks = Merci de nous avoir prévenus. Cette demande est clôturée.
 portal-resolve-note-label = Autre chose à ajouter ? (facultatif)

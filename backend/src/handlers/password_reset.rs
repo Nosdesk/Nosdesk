@@ -206,17 +206,19 @@ async fn issue_password_reset(
         "background:password_reset",
         workspace_id,
         |conn| {
-            // Under the platform's sender: an address nobody has proven gets the
-            // workspace's name in a short plain slot, nothing more.
-            let branding =
-                crate::utils::email_branding::instance_branding_for(conn, &base_url, &user_email);
+            // Hosted, under the platform's sender: an address nobody has proven
+            // gets the workspace's name in a short plain slot and no greeting by
+            // name (a guest account's name is whatever a form was given).
+            let mail =
+                crate::utils::email_branding::instance_mail_for(conn, &base_url, &user_email);
+            let name = if mail.names { user.name.as_str() } else { "" };
             let locale = crate::repository::user_locale::resolve_effective_locale(conn, user.uuid);
             crate::services::transactional_email::enqueue_password_reset(
                 conn,
                 &email_service,
-                &branding,
+                &mail.branding,
                 &user_email,
-                &user.name,
+                name,
                 &reset_token.raw_token,
                 &locale,
             )

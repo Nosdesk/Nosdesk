@@ -241,7 +241,9 @@ pub fn prepare_guest_confirmation(
 }
 
 /// Idempotency-key prefix of guest confirmation emails, which the
-/// per-recipient cap counts.
+/// per-recipient cap counts. Also written into
+/// `outbound_emails::count_first_contact_confirmations_since` and its partial
+/// index; change all three together.
 pub const GUEST_CONFIRMATION_KEY_PREFIX: &str = "guest-confirmation:";
 
 /// Condense a bug report's client breadcrumb trail (JSONB array of

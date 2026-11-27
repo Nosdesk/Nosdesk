@@ -96,6 +96,9 @@ pub struct BrandingImageTypeQuery {
     pub type_: String, // "logo", "logo_light", or "favicon"
 }
 
+/// The longest custom requester acknowledgement, in characters.
+pub const REQUESTER_ACK_TEMPLATE_MAX_CHARS: usize = 2000;
+
 #[derive(Debug, Deserialize)]
 pub struct UpdateBrandingRequest {
     pub app_name: Option<String>,
@@ -276,6 +279,11 @@ pub async fn update_branding_config(
 
     // The requester acknowledgement takes the auto-ack's variables.
     if let Some(ref tmpl) = body.requester_ack_template {
+        if tmpl.chars().count() > REQUESTER_ACK_TEMPLATE_MAX_CHARS {
+            return Err(ApiError::BadRequest(format!(
+                "The acknowledgement can be at most {REQUESTER_ACK_TEMPLATE_MAX_CHARS} characters."
+            )));
+        }
         if !tmpl.trim().is_empty() {
             let unknown = crate::utils::template_variables::unknown_variables(
                 tmpl,

@@ -260,3 +260,75 @@ async fn a_daily_ceiling_holds_confirmations_to_addresses_never_mailed() {
         .expect("paid");
     assert!(sent(&c.confirm(a, "new@victim.example")));
 }
+
+/// Two submissions at the per-address limit at the same moment: the count and
+/// the insert are serialised, so only one goes.
+#[actix_web::test]
+async fn two_confirmations_at_the_limit_at_once_send_one() {
+    let c = cloud();
+    let (a, b) = (c.seeded.a.workspace_id, c.seeded.b.workspace_id);
+    let to = "race@victim.example";
+    assert!(sent(&c.confirm(a, to)));
+    assert!(sent(&c.confirm(a, to)));
+    // Each from its own workspace, so neither waits on the other's workspace.
+    let users: Vec<uuid::Uuid> = [a, b].iter().map(|ws| c.guest(*ws, to)).collect();
+    let together = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let results: Vec<bool> = std::thread::scope(|scope| {
+        let handles: Vec<_> = [a, b]
+            .into_iter()
+            .zip(users)
+            .map(|(ws, user)| {
+                let together = together.clone();
+                let c = &c;
+                scope.spawn(move || {
+                    let http = actix_web::test::TestRequest::default().to_http_request();
+                    http.extensions_mut().insert(c.context(ws));
+                    let actor = ActorContext::system("guest:ticket_create").with_workspace(ws);
+                    let mut conn = c.pool.get().expect("conn");
+                    together.wait();
+                    let result =
+                        with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
+                            Ok(send_guest_ticket_confirmation(conn, &http, user, to, ws))
+                        })
+                        .expect("send");
+                    sent(&result)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("thread"))
+            .collect()
+    });
+    assert_eq!(results.iter().filter(|s| **s).count(), 1, "{results:?}");
+    assert_eq!(c.confirmations(to).len(), 3);
+}
+
+/// Hosted, account mail under the platform's sender names nobody and carries
+/// only the workspace's name slot until the address proves its mailbox
+/// (`proven_at`). A directory or a workspace's own sign-in marking it
+/// verified isn't proof.
+#[actix_web::test]
+async fn account_mail_to_an_unproven_address_names_nobody() {
+    let c = cloud();
+    let a = c.seeded.a.workspace_id;
+    let to = "unproven@victim.example";
+    let person = c.guest(a, to);
+    let mail = |c: &Cloud| {
+        run_in_workspace(&c.pool, REF, a, |conn| {
+            Ok(backend::utils::email_branding::instance_mail_for(
+                conn,
+                "https://a.nosdesk.test",
+                to,
+            ))
+        })
+        .expect("mail")
+    };
+    assert!(!mail(&c).names);
+    backend::repository::user_emails::mark_primary_verified(&mut c.db.conn(), &person)
+        .expect("verify");
+    assert!(!mail(&c).names, "verified by a directory is not proof");
+    backend::repository::user_emails::mark_primary_proven(&mut c.db.conn(), &person)
+        .expect("prove");
+    assert!(mail(&c).names, "a proven mailbox");
+}

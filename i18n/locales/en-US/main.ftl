@@ -61,6 +61,41 @@ invitation-subject = You've Been Invited to { $app } - Set Up Your Account
 invitation-title = Welcome to { $app }!
 invitation-greeting = Hello <strong>{ $name }</strong>,
 invitation-intro = You've been invited to join <strong>{ $app }</strong> by <strong>{ $by }</strong>.
+# Account mail to an address nobody has confirmed carries no names a
+# workspace or a form supplied: these replace the greeting, the invitation's
+# intro and the plain-text bodies then.
+email-greeting-anonymous = Hello,
+invitation-intro-anonymous = You've been invited to join <strong>{ $app }</strong>.
+invitation-body-text-anonymous =
+    Hello,
+
+    You've been invited to join { $app }.
+
+    To complete your account setup and create your password, open this link in your browser:
+
+    { $link }
+
+    A few things to know:
+      - This invitation will expire in 7 days.
+      - You'll create a password during setup.
+      - Choose a strong password with at least 8 characters.
+      - If you didn't expect this invitation, you can safely ignore this email.
+password-reset-body-text-anonymous =
+    Hello,
+
+    We received a request to reset your password for your { $app } account. If you didn't make this request, you can safely ignore this email.
+
+    To reset your password, open this link in your browser:
+
+    { $link }
+
+    Security notes:
+      - This link will expire in 1 hour.
+      - This link can only be used once.
+      - Never share this link with anyone.
+      - If you didn't request this reset, secure your account.
+
+    If you have any questions, please contact your system administrator.
 invitation-action-prompt = To complete your account setup and create your password, click the button below:
 invitation-cta-label = Set Up Your Account
 invitation-notice-expiry = This invitation link will expire in <strong>7 days</strong>
@@ -98,6 +133,9 @@ verify-email-failed-body = This confirmation link is invalid or has expired.
 verify-email-failed-hint = Confirmation links expire after 24 hours and can be used once. You can send a new one from your profile.
 verify-email-missing-token = This link is missing its confirmation code.
 verify-email-continue = Continue
+verify-email-confirm-title = Confirm this address
+verify-email-confirm-body = Press the button to confirm this address on your account.
+verify-email-confirm-button = Confirm address
 settings-emails-resend = Resend confirmation
 settings-emails-resend-sending = Sending…
 settings-emails-resend-sent = Confirmation sent
@@ -133,9 +171,6 @@ portal-magic-link-code = Or enter this code on the sign-in page: <strong>{ $code
 portal-magic-link-code-text = Or enter this code on the sign-in page: { $code }
 portal-magic-link-notice-unexpected = If you didn't request this, you can safely ignore this email
 portal-magic-link-body-text =
-verify-email-confirm-title = Confirm this address
-verify-email-confirm-body = Press the button to confirm this address on your account.
-verify-email-confirm-button = Confirm address
     Hello { $name },
 
     Use this link to sign in to the { $app } support portal and view your tickets:
@@ -615,6 +650,7 @@ settings-localization-save-failed = Failed to save preferences
 # Footer on an agent reply sent with no email channel (replies to it are lost).
 reply-email-reply-elsewhere = Replies to this email don't reach us. To reply, open your request:
 reply-email-view-request = View your request
+reply-email-redacted-body = There's a new reply on request #{ $number }.
 
 # Default body for the channel auto-acknowledgement reply when no
 # admin-customised template is set. Picked by the inbound's
@@ -650,7 +686,6 @@ ticket-merge-marker-comment-header = Merged { $count ->
     [one] 1 ticket
    *[other] { $count } tickets
   } into this one
-reply-email-redacted-body = There's a new reply on request #{ $number }.
 ticket-merge-marker-incoming-from = Incoming from:
 ticket-merge-banner-merged-into = This ticket was merged into #{ $target_id } by { $actor } on { $when }.
 ticket-merge-banner-merged-into-another = This ticket was merged into another ticket by { $actor } on { $when }.
@@ -8855,6 +8890,9 @@ portal-sign-in-sent = If we have your email on file, a sign-in link is on its wa
 portal-sign-in-use-another = Use a different email
 portal-sign-in-password = Sign in with a password
 portal-sign-in-error = That sign-in link didn't work. It may have expired or already been used. Enter your email for a new one.
+portal-sign-in-link-title = Sign in to { $app }
+portal-sign-in-link-intro = Press Continue to finish signing in. The link works once.
+portal-sign-in-link-continue = Continue
 portal-sso-button = Sign in with { $provider }
 portal-sso-or = or
 portal-sso-error = Sign-in didn't finish. Try again, or enter your email below.
@@ -8891,9 +8929,6 @@ portal-resolve-yes = Yes, it's fixed
 portal-resolve-no = No, I still need help
 portal-resolve-thanks = Thanks for letting us know. This request is closed.
 portal-resolve-note-label = Anything to add? (optional)
-portal-sign-in-link-title = Sign in to { $app }
-portal-sign-in-link-intro = Press Continue to finish signing in. The link works once.
-portal-sign-in-link-continue = Continue
 portal-resolve-note-send = Send
 portal-resolve-noted = Thanks, the team will see your note.
 portal-resolve-rated-good = You said this is fixed.

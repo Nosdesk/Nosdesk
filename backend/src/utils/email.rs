@@ -1719,10 +1719,17 @@ impl EmailService {
         let name_html = escape_html(user_name);
         let app_html = escape_html(&branding.app_name);
 
-        let greeting = tr(
-            "password-reset-greeting",
-            &[("name", name_html.clone().into())],
-        );
+        // No name: account mail to an address nobody has confirmed carries
+        // none a workspace or a form supplied.
+        let anonymous = user_name.trim().is_empty();
+        let greeting = if anonymous {
+            tr("email-greeting-anonymous", &[])
+        } else {
+            tr(
+                "password-reset-greeting",
+                &[("name", name_html.clone().into())],
+            )
+        };
         let intro = tr("password-reset-intro", &[("app", app_html.clone().into())]);
         let action_prompt = tr("password-reset-action-prompt", &[]);
         let title = tr("password-reset-title", &[]);
@@ -1766,7 +1773,11 @@ impl EmailService {
         // value so translators see the whole prose at once
         // (instead of stitching together six fragments).
         let body_text = tr(
-            "password-reset-body-text",
+            if anonymous {
+                "password-reset-body-text-anonymous"
+            } else {
+                "password-reset-body-text"
+            },
             &[
                 ("name", user_name.to_string().into()),
                 ("app", branding.app_name.clone().into()),
@@ -1804,14 +1815,28 @@ impl EmailService {
         let by_html = escape_html(invited_by);
 
         let title = tr("invitation-title", &[("app", app_html.clone().into())]);
-        let greeting = tr("invitation-greeting", &[("name", name_html.clone().into())]);
-        let intro = tr(
-            "invitation-intro",
-            &[
-                ("app", app_html.clone().into()),
-                ("by", by_html.clone().into()),
-            ],
-        );
+        // Account mail to an address nobody has confirmed names neither the
+        // invitee nor who invited them; the caller passes them empty.
+        let greeting = if user_name.trim().is_empty() {
+            tr("email-greeting-anonymous", &[])
+        } else {
+            tr("invitation-greeting", &[("name", name_html.clone().into())])
+        };
+        let intro = if invited_by.trim().is_empty() {
+            tr(
+                "invitation-intro-anonymous",
+                &[("app", app_html.clone().into())],
+            )
+        } else {
+            tr(
+                "invitation-intro",
+                &[
+                    ("app", app_html.clone().into()),
+                    ("by", by_html.clone().into()),
+                ],
+            )
+        };
+        let anonymous = user_name.trim().is_empty() && invited_by.trim().is_empty();
         let action_prompt = tr("invitation-action-prompt", &[]);
         let cta_label = tr("invitation-cta-label", &[]);
         let footer = tr("invitation-footer", &[]);
@@ -1850,7 +1875,11 @@ impl EmailService {
         );
 
         let body_text = tr(
-            "invitation-body-text",
+            if anonymous {
+                "invitation-body-text-anonymous"
+            } else {
+                "invitation-body-text"
+            },
             &[
                 ("name", user_name.to_string().into()),
                 ("app", branding.app_name.clone().into()),
@@ -3704,6 +3733,35 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
 
     /// `every_letter_text` builds every `compose_` letter, so the security
     /// note test above covers each one a new builder adds.
+    /// Account mail with the names left out (an unproven address on a hosted
+    /// deployment) greets nobody and says nobody invited them.
+    #[test]
+    fn account_mail_without_names_greets_nobody() {
+        use std::str::FromStr;
+        let svc = svc();
+        let branding = EmailBranding::default();
+        let locale = unic_langid::LanguageIdentifier::from_str("en-US").unwrap();
+        let (_, html, text) = svc.compose_password_reset("", "TOKEN", &branding, &locale);
+        assert!(
+            text.contains("Hello,\n") && !text.contains("Hello ,"),
+            "{text}"
+        );
+        assert!(html.contains("Hello,"), "{html}");
+        assert!(!html.contains("<strong></strong>"), "{html}");
+        let (_, html, text) = svc.compose_invitation("", "TOKEN", &branding, "", &locale);
+        assert!(
+            text.contains("Hello,\n") && !text.contains("Hello ,"),
+            "{text}"
+        );
+        assert!(text.contains("invited to join Nosdesk."), "{text}");
+        assert!(!html.contains("<strong></strong>"), "{html}");
+        let (_, _, named) = svc.compose_invitation("Sam", "TOKEN", &branding, "Kim", &locale);
+        assert!(
+            named.contains("Hello Sam,") && named.contains("by Kim"),
+            "{named}"
+        );
+    }
+
     #[test]
     fn every_letter_text_builds_every_compose_letter() {
         let src = include_str!("email.rs");

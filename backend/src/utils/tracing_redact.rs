@@ -132,6 +132,9 @@ const ALLOWED_FIELDS: &[&str] = &[
     "source",
     "entity",
     "event_type",
+    // What held a request form's confirmation: suppressed | per_address |
+    // new_addresses (handlers::users::confirmation_hold). Never the address.
+    "hold",
     "kind",
     "mode",
     "op",

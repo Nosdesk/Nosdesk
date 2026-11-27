@@ -105,6 +105,7 @@ mod error_envelope_lint;
 mod file_ranges;
 mod file_token;
 mod foreign_references_refused;
+mod guest_confirmation_holds;
 mod guest_form_answer;
 mod guest_pending_hold;
 mod guest_residue_sweep;
