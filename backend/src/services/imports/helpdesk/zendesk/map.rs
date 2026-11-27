@@ -87,15 +87,15 @@ pub fn person(u: &api::User, orgs: &Organizations) -> Person {
         .as_deref()
         .map(|e| text(e.trim()).to_lowercase())
         .filter(|e| !e.is_empty());
-    // Without a name, the address stands in, but never for someone deleted:
-    // their history keeps a name, and nothing else of theirs.
+    // Without a name, the source id stands in, never the address: a name is
+    // shown where an address must not be (the portal, a deleted person's
+    // history).
     let name = u
         .name
         .as_deref()
         .map(str::trim)
         .filter(|n| !n.is_empty())
         .map(text)
-        .or_else(|| email.clone().filter(|_| u.active))
         .unwrap_or_else(|| format!("Zendesk user {}", u.id));
     Person {
         source_id: u.id.to_string(),
@@ -505,6 +505,8 @@ mod tests {
             deleted.name, "Zendesk user 1",
             "a deleted person without a name isn't named by their address"
         );
+        let nameless = person(&user(json!({"id": 4, "email": "nan@x.test"})), &orgs);
+        assert_eq!(nameless.name, "Zendesk user 4", "nor is anyone else");
         let suspended = person(
             &user(json!({"id": 2, "email": "s@x.test", "active": true, "suspended": true})),
             &orgs,

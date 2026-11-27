@@ -100,6 +100,10 @@ pub enum Outcome {
     /// Deleted at the source and no one here: credited to the placeholder,
     /// with their name kept and nothing else.
     Deleted,
+    /// Shares an address with someone an earlier run brought across as an
+    /// account this person can't be: credited to the placeholder, with
+    /// their name and address kept, and reported.
+    Unjoined,
 }
 
 impl Outcome {
@@ -117,6 +121,7 @@ impl Outcome {
             Outcome::Withheld => "address held elsewhere (placeholder)",
             Outcome::Placeholder => "no email (placeholder author)",
             Outcome::Deleted => "deleted at the source (placeholder)",
+            Outcome::Unjoined => "address brought across as someone else (placeholder)",
         }
     }
 
@@ -124,7 +129,7 @@ impl Outcome {
     pub fn on_placeholder(self) -> bool {
         matches!(
             self,
-            Outcome::Withheld | Outcome::Placeholder | Outcome::Deleted
+            Outcome::Withheld | Outcome::Placeholder | Outcome::Deleted | Outcome::Unjoined
         )
     }
 }
@@ -164,7 +169,7 @@ impl Resolved {
 
     /// Credited to the placeholder in their stead.
     pub fn withheld(&self) -> bool {
-        self.outcome == Outcome::Withheld
+        matches!(self.outcome, Outcome::Withheld | Outcome::Unjoined)
     }
 
     /// Deleted at the source and credited to the placeholder.
@@ -481,8 +486,8 @@ pub fn plan(
 ) -> QueryResult<PeoplePlan> {
     let facts = facts(conn, groups, opts)?;
     let mut decisions = Vec::new();
-    let mut existing: Vec<(Uuid, &AddressGroup)> = Vec::new();
-    let mut fresh: Vec<&AddressGroup> = Vec::new();
+    let mut existing: Vec<(Uuid, AddressGroup)> = Vec::new();
+    let mut fresh: Vec<AddressGroup> = Vec::new();
     for g in groups {
         let group_mapped = g
             .members
@@ -500,7 +505,7 @@ pub fn plan(
             let outcome = if facts.mapped.contains_key(&m.source_id) {
                 Outcome::Mapped
             } else if !joins {
-                Outcome::Withheld
+                Outcome::Unjoined
             } else {
                 outcome
             };
@@ -510,6 +515,15 @@ pub fn plan(
                 target_email: target_email.clone(),
             });
         }
+        // With people withheld from the account, its fill is the resolved
+        // members' only.
+        let resolved_only;
+        let g = if joins {
+            g
+        } else {
+            resolved_only = resolved_part(g, &facts);
+            &resolved_only
+        };
         if outcome.on_placeholder() || !needs_profile(g, &facts) || profiled_before(g, &facts) {
             continue;
         }
@@ -517,7 +531,7 @@ pub fn plan(
             Outcome::Requester
             | Outcome::AgentCreated
             | Outcome::FormerStaff
-            | Outcome::Inactive => fresh.push(g),
+            | Outcome::Inactive => fresh.push(g.clone()),
             _ => {
                 let account = group_mapped.copied().or_else(|| {
                     target_email
@@ -526,7 +540,7 @@ pub fn plan(
                         .map(|h| h.uuid)
                 });
                 if let Some(uuid) = account.filter(|u| owns_address(g, *u, &facts)) {
-                    existing.push((uuid, g));
+                    existing.push((uuid, g.clone()));
                 }
             }
         }
@@ -595,6 +609,13 @@ pub fn plan(
 /// address here and its seat is no higher than the group's least privilege.
 /// Otherwise (an agent mapped to a staff member here, say) they would be
 /// credited to someone the address isn't, depending on which ran first.
+///
+/// They join whenever deciding the group now would land on that same
+/// account (one of the workspace's people holding the address, an account
+/// from elsewhere within reach, or the staff member the agent map names),
+/// so splitting the people over runs ends as one run would. Otherwise only
+/// an account that holds the address and sits no higher than the group's
+/// least privilege takes them.
 fn may_join(
     conn: &mut DbConnection,
     g: &AddressGroup,
@@ -602,11 +623,39 @@ fn may_join(
     facts: &Facts,
     opts: &PeopleOptions<'_>,
 ) -> QueryResult<bool> {
+    let (outcome, target) = decide(&g.rep, facts, opts);
+    let same = matches!(
+        outcome,
+        Outcome::Member | Outcome::Known | Outcome::Reused | Outcome::AgentMapped
+    ) && target
+        .as_deref()
+        .and_then(|t| facts.holders.get(&t.to_lowercase()))
+        .is_some_and(|h| h.uuid == account);
+    if same {
+        return Ok(true);
+    }
     if !owns_address(g, account, facts) {
         return Ok(false);
     }
     let seat = workspaces::membership(conn, opts.scope.workspace_id, account)?.map(|m| m.role);
     Ok(seat_fits(g.rep.role, seat.as_deref()))
+}
+
+/// The group without the members the id map doesn't have yet: those an
+/// earlier run brought across, decided as among themselves (the others at
+/// the address still lowering their privilege).
+fn resolved_part(g: &AddressGroup, facts: &Facts) -> AddressGroup {
+    let members: Vec<Person> = g
+        .members
+        .iter()
+        .filter(|m| facts.mapped.contains_key(&m.source_id))
+        .cloned()
+        .collect();
+    AddressGroup {
+        rep: representative(&members, &g.others),
+        members,
+        others: g.others.clone(),
+    }
 }
 
 /// Someone at the group's address had their profile fill done by an
@@ -829,8 +878,8 @@ pub fn apply(
                         for m in &unmapped {
                             out.problems.push(format!(
                                 "{}: shares an address with someone brought across before as \
-                                 an account here that doesn't hold it or has a higher seat, so \
-                                 credited to the placeholder author",
+                                 an account here this person can't be, so credited to the \
+                                 placeholder author",
                                 display_name(m, opts.scope.source)
                             ));
                         }
@@ -875,7 +924,17 @@ pub fn apply(
             }
         };
 
-        if !group.outcome.on_placeholder() && !withheld_joiners && needs_profile(g, &facts) {
+        // With people withheld from the account, its fill is the resolved
+        // members' only, from what they have.
+        let resolved_only;
+        let fill_group = if withheld_joiners {
+            resolved_only = resolved_part(g, &facts);
+            &resolved_only
+        } else {
+            g
+        };
+        if !group.outcome.on_placeholder() && needs_profile(fill_group, &facts) {
+            let g = fill_group;
             // Written only to an account made for this address, or one that
             // holds it, and only once per address; otherwise the fill is
             // recorded as done with nothing written.
@@ -903,7 +962,7 @@ pub fn apply(
                 }
                 Some(_) => group.clone(),
                 None if withheld_joiners => {
-                    Resolved::new(placeholder, false, false, Outcome::Withheld)
+                    Resolved::new(placeholder, false, false, Outcome::Unjoined)
                 }
                 None => group.clone(),
             };

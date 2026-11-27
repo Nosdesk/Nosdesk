@@ -1289,14 +1289,27 @@ pub struct CustomerAttachment {
 }
 
 /// The name an imported reply's author had at the source, from what the
-/// import kept on it.
+/// import kept on it. A name that is an address (an older import named
+/// nameless people after theirs) is never shown: the author is named by
+/// their source id instead.
 fn imported_author_name(metadata: Option<&serde_json::Value>) -> Option<String> {
-    let name = metadata?
-        .get("import")?
-        .get("author_name")?
-        .as_str()?
-        .trim();
-    (!name.is_empty()).then(|| name.chars().take(255).collect())
+    let import = metadata?.get("import")?;
+    let text = |k: &str| import.get(k).and_then(|v| v.as_str()).map(str::trim);
+    let email = text("author_email").filter(|e| !e.is_empty());
+    match text("author_name").filter(|n| !n.is_empty()) {
+        Some(name)
+            if !name.contains('@') && email.is_none_or(|e| !e.eq_ignore_ascii_case(name)) =>
+        {
+            Some(name.chars().take(255).collect())
+        }
+        _ => {
+            let id = text("author").filter(|id| !id.is_empty())?;
+            let source = crate::services::imports::helpdesk::people::source_title(
+                text("source").unwrap_or_default(),
+            );
+            Some(format!("{source} user {id}"))
+        }
+    }
 }
 
 /// The ticket's public thread, oldest first, with authors (workspace persona

@@ -770,11 +770,39 @@ fn pre_marker_refusal(manifest: &bundle::Manifest, persons: &[bundle::Person]) -
 /// Why `--create-agents` can't be used on this bundle, when it can't: one
 /// written before people records said who was limited staff at the source
 /// reads them all as full agents, and would seat them.
-fn create_agents_refusal(manifest: &bundle::Manifest, create_agents: bool) -> Option<String> {
-    (create_agents && manifest.person_detail < bundle::PERSON_DETAIL).then(|| {
-        "this bundle predates recording who was limited staff at the source (light agents, \
-         chat-only agents, contributors), so --create-agents would make them agents here. Run \
-         again with --refetch to read the source again, or without --create-agents."
+///
+/// Nor can it on a bundle whose people came only from the API fill (an
+/// export without Zendesk's users export): the fill asks for the people the
+/// tickets name and no one else, so the bundle can't see an end user who
+/// shares a staff member's mailbox, and would seat an agent on it.
+fn create_agents_refusal(
+    manifest: &bundle::Manifest,
+    persons: &[bundle::Person],
+    create_agents: bool,
+) -> Option<String> {
+    if !create_agents {
+        return None;
+    }
+    if manifest.person_detail < bundle::PERSON_DETAIL {
+        return Some(
+            "this bundle predates recording who was limited staff at the source (light agents, \
+             chat-only agents, contributors), so --create-agents would make them agents here. \
+             Run again with --refetch to read the source again, or without --create-agents."
+                .to_string(),
+        );
+    }
+    let from_fill_only = manifest.people_source == Some(bundle::PeopleSource::Export)
+        && manifest
+            .counts
+            .get(bundle::PEOPLE_IN_EXPORT)
+            .copied()
+            .unwrap_or(0)
+            == 0;
+    (from_fill_only && persons.iter().any(|p| p.role.is_staff())).then(|| {
+        "this bundle's people came only from the API fill, which can't see who else uses a \
+         staff member's address, so --create-agents could seat an agent on a mailbox an end \
+         user shares. Map each agent with --map-agent instead, or run again with --refetch \
+         giving Zendesk's users export as another --export-zip."
             .to_string()
     })
 }
@@ -862,6 +890,11 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
         plan.people_detail.sharing = sharing_note(conn, &raised, &persons, &organizations)?;
 
         let sharers = address_sharers(&b, &found.mentioned, &persons)?;
+        let persons_for_refusal: Vec<bundle::Person> = persons
+            .iter()
+            .filter(|p| p.role.is_staff())
+            .cloned()
+            .collect();
         let refusal = pre_marker_refusal(&m, &persons);
         let groups = people::group_by_address(persons, sharers);
         plan.people_detail.shared_addresses = groups.iter().filter(|g| g.shared()).count() as u64;
@@ -911,7 +944,7 @@ pub async fn plan(pool: &Pool, bundle: &Bundle, opts: &LoadOptions) -> Result<Pl
             .as_ref()
             .and_then(|missing| missing.refusal(o.allow_missing_people))
             .or(refusal)
-            .or_else(|| create_agents_refusal(&m, o.create_agents));
+            .or_else(|| create_agents_refusal(&m, &persons_for_refusal, o.create_agents));
         plan.estimated_minutes = (plan.tickets - plan.tickets_imported_already) / (50 * 60) + 1;
         Ok(plan)
     })
@@ -1075,7 +1108,9 @@ pub async fn load(
                 .as_ref()
                 .and_then(|m| m.refusal(opts.allow_missing_people))
                 .or_else(|| prepared.pre_marker.clone())
-                .or_else(|| create_agents_refusal(&prepared.manifest, opts.create_agents));
+                .or_else(|| {
+                    create_agents_refusal(&prepared.manifest, &prepared.staff, opts.create_agents)
+                });
             match refusal {
                 Some(why) => Err(LoadError::Refused(why)),
                 // Stopped while the bundle was read: nothing written yet.
@@ -1116,6 +1151,8 @@ struct Prepared {
     people_total: u64,
     /// Why the bundle is too old for the people it holds, when it is.
     pre_marker: Option<String>,
+    /// The staff among the people the tickets mention.
+    staff: Vec<bundle::Person>,
     /// Lines of people.jsonl that couldn't be read.
     bad_people: u64,
     missing: Option<MissingPeople>,
@@ -1130,11 +1167,17 @@ fn prepare(bundle: &Bundle) -> Result<Prepared, LoadError> {
         missing_people(bundle, &manifest, &found.mentioned, &persons, bad_people)?;
     let people_total = persons.len() as u64;
     let pre_marker = pre_marker_refusal(&manifest, &persons);
+    let staff = persons
+        .iter()
+        .filter(|p| p.role.is_staff())
+        .cloned()
+        .collect();
     let sharers = address_sharers(bundle, &found.mentioned, &persons)?;
     Ok(Prepared {
         manifest,
         found,
         pre_marker,
+        staff,
         groups: people::group_by_address(persons, sharers),
         people_total,
         bad_people,
@@ -1290,6 +1333,7 @@ async fn write_all(
         groups,
         people_total,
         pre_marker: _,
+        staff: _,
         bad_people,
         missing,
         gone: _,
