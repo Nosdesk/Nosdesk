@@ -518,7 +518,14 @@ pub async fn process_event(
             // the request. Best effort, in a savepoint so a failure here can't
             // abort the ingest.
             if let Err(e) = conn.transaction(|c| {
-                add_copied_participants(c, &ticket, &msg.recipients, sender_uuid, &sender_email)
+                add_copied_participants(
+                    c,
+                    &ticket,
+                    &msg.recipients,
+                    sender_uuid,
+                    &sender_email,
+                    msg.sender_auth == crate::services::channels::SenderAuth::Pass,
+                )
             }) {
                 tracing::warn!(error = ?e, ticket_id = ticket.id, "inbound: could not add copied participants");
             }
@@ -692,7 +699,10 @@ fn add_copied_participants(
     recipients: &[String],
     sender_uuid: uuid::Uuid,
     sender_email: &str,
+    sender_auth_passed: bool,
 ) -> Result<(), diesel::result::Error> {
+    let domain_of = |address: &str| address.rsplit_once('@').map(|(_, d)| d.trim().to_string());
+    let sender_domain = domain_of(sender_email);
     for address in recipients {
         let address = address.trim();
         if address.is_empty() || address.eq_ignore_ascii_case(sender_email) {
@@ -709,10 +719,26 @@ fn add_copied_participants(
         {
             continue;
         }
-        // Added under the system actor (NULL added_by, full text): a Cc'd person
-        // already got the sender's own message from the sender's server, so our
-        // mail adds no reach.
-        crate::repository::ticket_watchers::add_watcher(conn, ticket.id, user.uuid, true)?;
+        // An address on the sender's own domain, copied on a message that
+        // passed DMARC, counts as the team's choice (a system write, NULL
+        // added_by, full text). Any other is recorded as added by the sender,
+        // so mail about the ticket names it only by number, with no names and
+        // no quoted history, until that person writes on it; staff replies
+        // still reach them.
+        let same_domain = sender_domain.as_deref().is_some_and(|sender| {
+            domain_of(address).is_some_and(|copied| copied.eq_ignore_ascii_case(sender))
+        });
+        if sender_auth_passed && same_domain {
+            crate::repository::ticket_watchers::add_watcher(conn, ticket.id, user.uuid, true)?;
+        } else {
+            crate::repository::ticket_watchers::add_watcher_added_by(
+                conn,
+                ticket.id,
+                user.uuid,
+                true,
+                sender_uuid,
+            )?;
+        }
     }
     Ok(())
 }

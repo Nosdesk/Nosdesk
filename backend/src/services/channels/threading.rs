@@ -138,10 +138,11 @@ pub fn parse_subject_ticket_number(subject: &str) -> Option<i32> {
 /// Returned string does NOT include the `<…>` angle brackets; the caller
 /// (lettre) adds them when writing the header.
 pub fn format_outbound_message_id(ticket_id: i32, comment_id: i32, domain: &str) -> String {
-    // A short random suffix keeps the ID unique even if the same
-    // (ticket, comment) pair is retried.
-    let random: u32 = rand::random();
-    format!("ticket-{ticket_id}.comment-{comment_id}.{random:08x}@{domain}")
+    // A random suffix keeps the ID unique even if the same (ticket, comment)
+    // pair is retried, and unguessable: a reply that names it shows its
+    // sender received our mail (`services::ticket_mail_redaction`).
+    let random: u128 = rand::random();
+    format!("ticket-{ticket_id}.comment-{comment_id}.{random:032x}@{domain}")
 }
 
 /// Format a subject line for outbound replies: `[#N] original`, N the

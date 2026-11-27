@@ -154,6 +154,26 @@ pub fn add_watcher(
     insert_watcher(conn, ticket_id, user_uuid, auto_added, None, None)
 }
 
+/// [`add_watcher`] recording `added_by` as who put them on the ticket rather
+/// than the user the write runs as: inbound mail copying an address in on the
+/// sender's say-so (`services::ticket_mail_redaction`).
+pub fn add_watcher_added_by(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    user_uuid: Uuid,
+    auto_added: bool,
+    added_by: Uuid,
+) -> QueryResult<bool> {
+    insert_watcher(
+        conn,
+        ticket_id,
+        user_uuid,
+        auto_added,
+        None,
+        Some(Some(added_by)),
+    )
+}
+
 /// [`add_watcher`] with the internal-notes setting given rather than the
 /// column's default, as a merge carries it over from the sources.
 pub fn add_watcher_with_notify(

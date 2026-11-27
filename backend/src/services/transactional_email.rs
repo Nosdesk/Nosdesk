@@ -38,13 +38,15 @@ use crate::utils::email::{EmailBranding, EmailService};
 /// Generate a globally-unique Message-ID for a transactional send.
 /// Domain is derived from `SMTP_FROM_EMAIL` (the address the email
 /// will be sent from) so inbound bounce DSNs can correlate via
-/// the same domain. A short random tail keeps the ID unique even
+/// the same domain. A random tail keeps the ID unique even
 /// when the idempotency key collapses a retry — the queue row
 /// stamps the Message-ID at enqueue and reuses it on every send
 /// attempt, so the recipient's MUA dedupes correctly.
 fn make_message_id(prefix: &str, domain: &str) -> String {
-    let random: u32 = rand::random();
-    format!("{prefix}.{random:08x}@{domain}")
+    // 128 random bits: a reply naming it shows its sender received our mail
+    // (`services::ticket_mail_redaction`), so it mustn't be guessable.
+    let random: u128 = rand::random();
+    format!("{prefix}.{random:032x}@{domain}")
 }
 
 /// Extract the domain part of `from_email`. Falls back to

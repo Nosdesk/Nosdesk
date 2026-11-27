@@ -698,3 +698,227 @@ async fn an_emailed_reply_counts_only_when_it_passed_dmarc() {
     let update = d.deliver(d.status_update(&ticket)).await;
     assert!(update.subject.contains(TITLE), "{}", update.subject);
 }
+
+/// A workspace member (a requester, not staff) with `address` as their primary
+/// address.
+fn copied_member(d: &Desk, name: &str, address: &str) -> Uuid {
+    use backend::schema::workspace_members as m;
+    let person = d.outsider(name, address);
+    diesel::insert_into(m::table)
+        .values((
+            m::workspace_id.eq(d.ws.workspace_id),
+            m::user_uuid.eq(person),
+            m::role.eq("member"),
+        ))
+        .execute(&mut d.db.conn())
+        .expect("seat the member");
+    person
+}
+
+/// Mail into the inbox from `from`, copying `cc`, with the receiving server's
+/// DMARC verdict and the ids it answers.
+fn inbound(from: &str, cc: &str, dmarc: &str, id: &str, in_reply_to: &[&str]) -> String {
+    let threading = if in_reply_to.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "In-Reply-To: {}\r\nReferences: {}\r\n",
+            in_reply_to[0],
+            in_reply_to.join(" ")
+        )
+    };
+    format!(
+        "Authentication-Results: mx.example.com; dmarc={dmarc} header.from=example\r\n\
+         From: {from}\r\nTo: support@example.com\r\nCc: {cc}\r\nSubject: Laptop\r\n\
+         Message-ID: <{id}>\r\n{threading}Date: Mon, 1 Jan 2024 09:00:00 +0000\r\n\r\n\
+         It won't start.\r\n"
+    )
+}
+
+/// What mail about `ticket` to `person` may show, as every queue path asks.
+fn text_for(
+    d: &Desk,
+    ticket: i32,
+    person: Uuid,
+) -> backend::services::ticket_mail_redaction::TicketMailText {
+    d.run(|c| {
+        Ok(
+            backend::services::ticket_mail_redaction::ticket_mail_redaction_by_id(
+                c,
+                ticket,
+                backend::services::ticket_mail_redaction::Recipient::User(person),
+            ),
+        )
+    })
+}
+
+/// Mail we sent `to`, under `message_id`.
+fn sent_to(d: &Desk, to: &str, message_id: &str) {
+    d.run(|c| {
+        backend::repository::outbound_emails::enqueue(
+            c,
+            backend::models::NewOutboundEmail {
+                channel_id: None,
+                ticket_id: None,
+                comment_id: None,
+                recipient: to.into(),
+                subject: "Update".into(),
+                body_text: "Update".into(),
+                body_html: None,
+                message_id: message_id.into(),
+                in_reply_to: None,
+                references_list: vec![],
+                headers_json: serde_json::json!({}),
+                correlation_id: None,
+                idempotency_key: None,
+                sender_identity: backend::models::outbound_email_sender_identity::WORKSPACE.into(),
+                mail_class: backend::models::outbound_email_mail_class::TRANSACTIONAL.into(),
+            },
+        )
+        .map(|_| ())
+    });
+}
+
+/// An address copied on inbound mail counts as the team's choice only when
+/// the message passed DMARC and the address is on the sender's own domain.
+/// Any other is the sender's choice, and gets the ticket by number until it
+/// writes on it, which a reply that passed DMARC does.
+#[actix_rt::test]
+async fn a_copied_address_gets_the_ticket_only_from_its_senders_authenticated_domain() {
+    use backend::services::ticket_mail_redaction::TicketMailText;
+    let d = desk();
+    let inbox = crate::channel_backlog::Inbox::on(None, d.pool.clone(), d.ws.clone());
+    let colleague = copied_member(&d, "Colleague", "colleague@acme.example");
+    let friend = copied_member(&d, "Friend", "friend@other.example");
+    let unchecked = copied_member(&d, "Unchecked", "unchecked@acme.example");
+    let at = chrono::Utc::now();
+
+    let same_domain = crate::channel_backlog::opened(
+        inbox
+            .receive(
+                &inbound(
+                    "sam@acme.example",
+                    "colleague@acme.example",
+                    "pass",
+                    "cc-1@acme.example",
+                    &[],
+                ),
+                at,
+            )
+            .await,
+    );
+    assert_eq!(d.added_by(same_domain, colleague), None);
+    assert_eq!(text_for(&d, same_domain, colleague), TicketMailText::Full);
+
+    let cross_domain = crate::channel_backlog::opened(
+        inbox
+            .receive(
+                &inbound(
+                    "sam@acme.example",
+                    "friend@other.example",
+                    "pass",
+                    "cc-2@acme.example",
+                    &[],
+                ),
+                at,
+            )
+            .await,
+    );
+    let sender = inbox.ticket(cross_domain).requester_uuid;
+    assert_eq!(d.added_by(cross_domain, friend), sender);
+    assert_eq!(text_for(&d, cross_domain, friend), TicketMailText::Redacted);
+
+    let no_verdict = crate::channel_backlog::opened(
+        inbox
+            .receive(
+                &inbound(
+                    "sam@acme.example",
+                    "unchecked@acme.example",
+                    "none",
+                    "cc-3@acme.example",
+                    &[],
+                ),
+                at,
+            )
+            .await,
+    );
+    assert_eq!(
+        text_for(&d, no_verdict, unchecked),
+        TicketMailText::Redacted
+    );
+
+    // The copied friend replies, and the reply passed DMARC: they wrote on it.
+    let replied = inbox
+        .receive(
+            &inbound(
+                "friend@other.example",
+                "sam@acme.example",
+                "pass",
+                "cc-4@other.example",
+                &["<cc-2@acme.example>"],
+            ),
+            chrono::Utc::now(),
+        )
+        .await;
+    assert!(
+        matches!(replied, backend::services::channels::pipeline::PipelineOutcome::ReplyAppended { ticket_id, .. } if ticket_id == cross_domain),
+        "{replied:?}"
+    );
+    assert_eq!(text_for(&d, cross_domain, friend), TicketMailText::Full);
+}
+
+/// An emailed reply with no DMARC verdict still counts when it answers mail we
+/// sent that same address: only a recipient knows the Message-ID. Naming one
+/// we sent someone else doesn't count.
+#[actix_rt::test]
+async fn a_reply_to_mail_we_sent_the_address_counts_without_dmarc() {
+    use backend::services::ticket_mail_redaction::TicketMailText;
+    let d = desk();
+    let inbox = crate::channel_backlog::Inbox::on(None, d.pool.clone(), d.ws.clone());
+    let unchecked = copied_member(&d, "Unchecked", "unchecked@acme.example");
+    let ticket = crate::channel_backlog::opened(
+        inbox
+            .receive(
+                &inbound(
+                    "sam@acme.example",
+                    "unchecked@acme.example",
+                    "none",
+                    "ask-1@acme.example",
+                    &[],
+                ),
+                chrono::Utc::now(),
+            )
+            .await,
+    );
+    assert_eq!(text_for(&d, ticket, unchecked), TicketMailText::Redacted);
+    sent_to(&d, "someone-else@acme.example", "theirs.0001@nosdesk.test");
+    sent_to(&d, "unchecked@acme.example", "ours.0002@nosdesk.test");
+
+    inbox
+        .receive(
+            &inbound(
+                "unchecked@acme.example",
+                "sam@acme.example",
+                "none",
+                "ask-2@acme.example",
+                &["<theirs.0001@nosdesk.test>", "<ask-1@acme.example>"],
+            ),
+            chrono::Utc::now(),
+        )
+        .await;
+    assert_eq!(text_for(&d, ticket, unchecked), TicketMailText::Redacted);
+
+    inbox
+        .receive(
+            &inbound(
+                "Unchecked@Acme.example",
+                "sam@acme.example",
+                "none",
+                "ask-3@acme.example",
+                &["<ours.0002@nosdesk.test>", "<ask-1@acme.example>"],
+            ),
+            chrono::Utc::now(),
+        )
+        .await;
+    assert_eq!(text_for(&d, ticket, unchecked), TicketMailText::Full);
+}

@@ -9,12 +9,14 @@
 //!
 //! Someone outside the team gets the full text when:
 //! - they have written on the ticket themselves since it was filed (a portal
-//!   reply, or an emailed reply the channel accepted), on any ticket; or
+//!   reply, or an emailed reply that passed DMARC or answers mail we sent the
+//!   address); or
 //! - the ticket has no stranger provenance and they are its requester, or the
 //!   team put them on it (`ticket_watchers.added_by` is staff, or a system
-//!   write such as inbound mail copying in a Cc), or they put themselves on
-//!   it (following it), or they aren't on it at all (an approver or a person
-//!   a rule names: the team chose them).
+//!   write such as inbound mail copying in an address on the sender's own
+//!   domain under a DMARC pass), or they put themselves on it (following it),
+//!   or they aren't on it at all (an approver or a person a rule names: the
+//!   team chose them).
 //!
 //! Otherwise the mail names it only as "request #N". A person a requester
 //! added gets the number until they write on it themselves, so a requester
@@ -172,10 +174,14 @@ fn on_team(conn: &mut DbConnection, workspace_id: i32, people: &[Uuid]) -> Query
 /// it was filed. The description a form files with the ticket is written in
 /// the same transaction, at the same instant, so it doesn't count; nor does
 /// viewing the ticket, which a link a mail scanner opens can do. A comment
-/// that arrived by email counts only when the message passed DMARC
-/// (`channel_metadata.sender_auth`, which the inbound pipeline stamps): a
-/// forged `From` must not stand for the address it names. Other comments
-/// (the portal, a chat channel) count as they are.
+/// that arrived by email counts only with proof that its sender holds the
+/// address, since a forged `From` must not stand for the address it names:
+/// the message passed DMARC (`channel_metadata.sender_auth`, which the
+/// inbound pipeline stamps), or it replies to mail we sent that address (its
+/// In-Reply-To or References, kept as `channel_metadata.references`, names
+/// the Message-ID we stamped or the one our relay delivered it under, which
+/// only a recipient knows). Other comments (the portal, a chat channel)
+/// count as they are.
 fn engaged(conn: &mut DbConnection, ticket: &Ticket, people: &[Uuid]) -> QueryResult<bool> {
     use crate::schema::comments as c;
     use diesel::prelude::*;
@@ -192,7 +198,19 @@ fn engaged(conn: &mut DbConnection, ticket: &Ticket, people: &[Uuid]) -> QueryRe
             .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(
                 "(channel_metadata->>'provider' IS NULL \
                   OR channel_metadata->>'provider' NOT LIKE 'email%' \
-                  OR channel_metadata->>'sender_auth' = 'pass')",
+                  OR channel_metadata->>'sender_auth' = 'pass' \
+                  OR EXISTS ( \
+                    SELECT 1 FROM channel_messages cm \
+                    JOIN outbound_emails o \
+                      ON lower(o.recipient) = lower(cm.from_address) \
+                    CROSS JOIN LATERAL jsonb_array_elements_text( \
+                      CASE WHEN jsonb_typeof(comments.channel_metadata->'references') = 'array' \
+                      THEN comments.channel_metadata->'references' \
+                      ELSE '[]'::jsonb END) AS r(ref) \
+                    WHERE cm.external_id = comments.channel_metadata->>'external_id' \
+                      AND cm.comment_id = comments.id \
+                      AND cm.direction = 'inbound' \
+                      AND btrim(r.ref, '<> ') IN (o.message_id, o.provider_message_id)))",
             )),
     ))
     .get_result(conn)

@@ -2070,7 +2070,8 @@ fn execute_notify(
                 .unwrap_or_else(|| "nosdesk.local".to_string()),
         ),
     };
-    let random: u32 = rand::random();
+    // Unguessable: a reply naming it shows its sender received our mail.
+    let random: u128 = rand::random();
     let queued = crate::repository::outbound_emails::enqueue_or_suppress(
         conn,
         crate::models::NewOutboundEmail {
@@ -2082,7 +2083,7 @@ fn execute_notify(
             body_text: body.text,
             body_html: Some(body.html),
             message_id: format!(
-                "ticket-{}.rule-{}.{random:08x}@{domain}",
+                "ticket-{}.rule-{}.{random:032x}@{domain}",
                 ticket.id, rule.id
             ),
             in_reply_to,
