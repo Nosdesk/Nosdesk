@@ -955,21 +955,37 @@ async fn a_reply_to_mail_we_sent_the_address_counts_without_dmarc() {
             .await,
     );
     assert_eq!(text_for(&d, ticket, unchecked), TicketMailText::Redacted);
-    sent_to(&d, "someone-else@acme.example", "theirs.0001@nosdesk.test");
-    sent_to(&d, "unchecked@acme.example", "ours.0002@nosdesk.test");
+    let fresh = "0123456789abcdef0123456789abcdef";
+    let theirs = format!("theirs.{fresh}@nosdesk.test");
+    let old = "old.0002abcd@nosdesk.test";
+    let ours = format!("ours.{fresh}@nosdesk.test");
+    sent_to(&d, "someone-else@acme.example", &theirs);
+    sent_to(&d, "unchecked@acme.example", old);
+    sent_to(&d, "unchecked@acme.example", &ours);
+    let mut n = 1;
+    let replies = &inbox;
+    let mut reply = |refs: Vec<String>| {
+        n += 1;
+        let refs: Vec<&str> = refs.iter().map(String::as_str).collect();
+        let raw = inbound(
+            "unchecked@acme.example",
+            "sam@acme.example",
+            "none",
+            &format!("ask-{n}@acme.example"),
+            &refs,
+        );
+        async move { replies.receive(&raw, chrono::Utc::now()).await }
+    };
+    let thread = "<ask-1@acme.example>".to_string();
 
-    inbox
-        .receive(
-            &inbound(
-                "unchecked@acme.example",
-                "sam@acme.example",
-                "none",
-                "ask-2@acme.example",
-                &["<theirs.0001@nosdesk.test>", "<ask-1@acme.example>"],
-            ),
-            chrono::Utc::now(),
-        )
-        .await;
+    // Mail we sent someone else; an old 32-bit id about no ticket; ours, but
+    // past the first 20 ids.
+    reply(vec![format!("<{theirs}>"), thread.clone()]).await;
+    reply(vec![format!("<{old}>"), thread.clone()]).await;
+    let mut long: Vec<String> = vec![thread.clone()];
+    long.extend((0..19).map(|i| format!("<filler-{i}@acme.example>")));
+    long.push(format!("<{ours}>"));
+    reply(long).await;
     assert_eq!(text_for(&d, ticket, unchecked), TicketMailText::Redacted);
 
     inbox
@@ -978,8 +994,8 @@ async fn a_reply_to_mail_we_sent_the_address_counts_without_dmarc() {
                 "Unchecked@Acme.example",
                 "sam@acme.example",
                 "none",
-                "ask-3@acme.example",
-                &["<ours.0002@nosdesk.test>", "<ask-1@acme.example>"],
+                "ask-9@acme.example",
+                &[&format!("<{ours}>"), "<ask-1@acme.example>"],
             ),
             chrono::Utc::now(),
         )

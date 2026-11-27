@@ -177,11 +177,15 @@ fn on_team(conn: &mut DbConnection, workspace_id: i32, people: &[Uuid]) -> Query
 /// that arrived by email counts only with proof that its sender holds the
 /// address, since a forged `From` must not stand for the address it names:
 /// the message passed DMARC (`channel_metadata.sender_auth`, which the
-/// inbound pipeline stamps), or it replies to mail we sent that address (its
-/// In-Reply-To or References, kept as `channel_metadata.references`, names
-/// the Message-ID we stamped or the one our relay delivered it under, which
-/// only a recipient knows). Other comments (the portal, a chat channel)
-/// count as they are.
+/// inbound pipeline stamps), or it replies to mail we sent that address (one
+/// of the first 20 ids in its In-Reply-To and References, kept as
+/// `channel_metadata.references`, names the Message-ID we stamped or the one
+/// our relay delivered it under, which only a recipient knows). That mail must
+/// be about this ticket, or carry a Message-ID with 128 random bits: older
+/// ids had 32, and mail about another ticket names that ticket's ids. The
+/// lookup goes through the `lower(recipient)` index, so it reads only mail to
+/// that address. Other comments (the portal, a chat channel) count as they
+/// are.
 fn engaged(conn: &mut DbConnection, ticket: &Ticket, people: &[Uuid]) -> QueryResult<bool> {
     use crate::schema::comments as c;
     use diesel::prelude::*;
@@ -206,11 +210,14 @@ fn engaged(conn: &mut DbConnection, ticket: &Ticket, people: &[Uuid]) -> QueryRe
                     CROSS JOIN LATERAL jsonb_array_elements_text( \
                       CASE WHEN jsonb_typeof(comments.channel_metadata->'references') = 'array' \
                       THEN comments.channel_metadata->'references' \
-                      ELSE '[]'::jsonb END) AS r(ref) \
+                      ELSE '[]'::jsonb END) WITH ORDINALITY AS r(ref, n) \
                     WHERE cm.external_id = comments.channel_metadata->>'external_id' \
                       AND cm.comment_id = comments.id \
                       AND cm.direction = 'inbound' \
-                      AND btrim(r.ref, '<> ') IN (o.message_id, o.provider_message_id)))",
+                      AND r.n <= 20 \
+                      AND btrim(r.ref, '<> ') IN (o.message_id, o.provider_message_id) \
+                      AND (o.ticket_id = comments.ticket_id \
+                           OR o.message_id ~ '\\.[0-9a-f]{32}@')))",
             )),
     ))
     .get_result(conn)
