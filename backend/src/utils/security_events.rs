@@ -72,12 +72,31 @@ pub fn record_security_event(
     conn: &mut DbConnection,
     event: SecurityEventInput<'_>,
 ) -> QueryResult<usize> {
-    use crate::schema::security_events;
-
     let (ip_address, user_agent) = match event.request {
         Some(req) => (request_ip(req), request_user_agent(req)),
         None => (None, None),
     };
+    insert_event(conn, event, ip_address, user_agent)
+}
+
+/// [`record_security_event`] for work done after its request was answered:
+/// the client comes from `origin` (`event.request` is not read).
+pub fn record_security_event_from(
+    conn: &mut DbConnection,
+    event: SecurityEventInput<'_>,
+    origin: &crate::utils::client_ip::RequestOrigin,
+) -> QueryResult<usize> {
+    let ip_address = origin.ip.and_then(|ip| ip.to_string().parse().ok());
+    insert_event(conn, event, ip_address, origin.user_agent.clone())
+}
+
+fn insert_event(
+    conn: &mut DbConnection,
+    event: SecurityEventInput<'_>,
+    ip_address: Option<IpNetwork>,
+    user_agent: Option<String>,
+) -> QueryResult<usize> {
+    use crate::schema::security_events;
 
     let row = NewSecurityEvent {
         user_uuid: event.user_uuid,

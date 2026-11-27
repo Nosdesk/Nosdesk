@@ -1,21 +1,21 @@
 //! The request form answers every address the same way, so it can't be asked
 //! whether an address has an account here or anywhere on the deployment.
 //!
-//! With confirmation on or off, a new address, one whose unverified account is
-//! reused, and one with a verified account (whose submission is set aside for
-//! a sign-in) get one status and one body. Nothing ticket-derived is in it:
-//! no ticket id or number, no status link, no word on whether mail went out.
-//! The body says what to do if you already have an account.
+//! Through the form's own route, with confirmation on or off: a new address,
+//! one whose unverified account is reused, one with a verified account, one
+//! held as a verified secondary in another case, and (with confirmation on)
+//! one with too many requests waiting all get one status, one set of headers
+//! and one body. Nothing ticket-derived is in it, and the body says what to do
+//! if you already have an account. What became of each submission is decided
+//! after the answer goes out, so the answer's timing doesn't depend on it.
 
 #![allow(clippy::expect_used)]
 
 use std::sync::Arc;
 
-use actix_web::http::StatusCode;
+use actix_web::{web, App};
 use diesel::prelude::*;
 
-use backend::handlers::guest::{file_guest_submission, GuestSubmission};
-use backend::models::TicketPriority;
 use backend::repository::user_helpers::{find_or_create_guest_user, GuestUserResult};
 use backend::services::search::SearchService;
 use backend::sync::session::run_in_workspace;
@@ -27,7 +27,7 @@ use crate::portal_session::context_of;
 const REF: &str = "test:guest_form_answer";
 
 struct Form {
-    _db: TestDb,
+    db: TestDb,
     pool: TestPool,
     a: i32,
     b: i32,
@@ -36,11 +36,29 @@ struct Form {
     storage: Arc<dyn Storage>,
 }
 
-fn form() -> Form {
+/// Two workspaces; B's request form is on, with confirmation as given.
+fn form(verification_required: bool) -> Form {
     common::ensure_test_keyring();
     let db = TestDb::new();
     let seeded = common::seed_two_workspaces(&mut db.pool_with_size(2).get().expect("conn"));
-    let pool = db.runtime_pool(4);
+    let b = seeded.b.workspace_id;
+    let pool = db.runtime_pool(6);
+    // A new workspace's settings row is made on first read.
+    run_in_workspace(&pool, REF, b, |c| {
+        backend::repository::site_settings::get_site_settings(c).map(|_| ())
+    })
+    .expect("settings row");
+    {
+        use backend::schema::site_settings as ss;
+        let rows = diesel::update(ss::table.filter(ss::workspace_id.eq(b)))
+            .set((
+                ss::guest_tickets_enabled.eq(true),
+                ss::guest_ticket_email_verification.eq(verification_required),
+            ))
+            .execute(&mut db.pool_with_size(1).get().expect("conn"))
+            .expect("turn the form on");
+        assert_eq!(rows, 1);
+    }
     let search_dir = tempfile::tempdir().expect("search dir");
     let search = Arc::new(SearchService::new(search_dir.path(), &pool).expect("search"));
     let storage_dir = tempfile::tempdir().expect("storage dir");
@@ -49,8 +67,8 @@ fn form() -> Form {
     });
     Form {
         a: seeded.a.workspace_id,
-        b: seeded.b.workspace_id,
-        _db: db,
+        b,
+        db,
         pool,
         _dirs: (search_dir, storage_dir),
         search,
@@ -58,7 +76,38 @@ fn form() -> Form {
     }
 }
 
+/// The form's challenge for `ws`, solved, as a browser sends it. Issued ten
+/// seconds ago, so it is past the minimum age.
+fn solved_challenge(ws: i32) -> serde_json::Value {
+    use ring::hmac;
+    let secret = std::env::var("JWT_SECRET").expect("JWT_SECRET");
+    let outer = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
+    let key = hmac::Key::new(
+        hmac::HMAC_SHA256,
+        hmac::sign(&outer, b"nosdesk-form-challenge-v1").as_ref(),
+    );
+    let now = chrono::Utc::now().timestamp();
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let c = backend::utils::form_challenge::issue_with(&key, ws, now - 10, 7, &nonce);
+    serde_json::json!({
+        "challenge": c.challenge,
+        "salt": c.salt,
+        "signature": c.signature,
+        "number": 7,
+    })
+}
+
+#[derive(QueryableByName)]
+struct Count {
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    n: i64,
+}
+
 impl Form {
+    fn superuser(&self) -> backend::db::DbConnection {
+        self.db.pool_with_size(1).get().expect("conn")
+    }
+
     /// A guest account of workspace A, which B's form reuses.
     fn guest_of_a(&self, email: &str) {
         run_in_workspace(
@@ -73,96 +122,156 @@ impl Form {
         .expect("guest");
     }
 
-    /// An account with `email` as its verified primary address.
-    fn verified_account(&self, email: &str) {
-        let mut c = self._db.pool_with_size(1).get().expect("conn");
-        let user = common::insert_plain_user(&mut c, "Verified Person");
-        diesel::insert_into(backend::schema::user_emails::table)
-            .values(&backend::models::NewUserEmail {
-                user_uuid: user,
-                email: email.into(),
-                email_type: "personal".into(),
-                is_primary: true,
-                is_verified: true,
-                source: None,
-            })
-            .execute(&mut c)
-            .expect("email");
+    /// A member of B with these addresses: (address, primary, verified).
+    fn member_of_b(&self, addresses: &[(&str, bool, bool)]) -> uuid::Uuid {
+        let mut c = self.superuser();
+        let user = common::insert_plain_user(&mut c, "Account Holder");
+        for (email, is_primary, is_verified) in addresses {
+            diesel::insert_into(backend::schema::user_emails::table)
+                .values(&backend::models::NewUserEmail {
+                    user_uuid: user,
+                    email: (*email).into(),
+                    email_type: "personal".into(),
+                    is_primary: *is_primary,
+                    is_verified: *is_verified,
+                    source: None,
+                })
+                .execute(&mut c)
+                .expect("email");
+        }
+        common::seat(&mut c, self.b, user, "member");
+        user
     }
 
-    /// Tickets B holds for a requester with `email`.
+    /// Tickets B holds for a requester with `email`, in any case.
     fn tickets_for(&self, email: &str) -> i64 {
-        use backend::schema::{tickets, user_emails};
-        let mut c = self._db.pool_with_size(1).get().expect("conn");
-        tickets::table
-            .inner_join(
-                user_emails::table.on(user_emails::user_uuid
-                    .nullable()
-                    .eq(tickets::requester_uuid)),
-            )
-            .filter(tickets::workspace_id.eq(self.b))
-            .filter(user_emails::email.eq(email))
-            .count()
-            .get_result(&mut c)
-            .expect("count")
+        diesel::sql_query(
+            "SELECT count(*) AS n FROM tickets t JOIN user_emails e \
+             ON e.user_uuid = t.requester_uuid \
+             WHERE t.workspace_id = $1 AND lower(e.email) = lower($2)",
+        )
+        .bind::<diesel::sql_types::Integer, _>(self.b)
+        .bind::<diesel::sql_types::Text, _>(email)
+        .get_result::<Count>(&mut self.superuser())
+        .expect("count")
+        .n
     }
 
-    /// Submit B's form from `email` and read the answer.
-    async fn submit(
-        &self,
-        email: &str,
-        verification_required: bool,
-    ) -> (StatusCode, serde_json::Value) {
+    /// The addresses `user`'s portal sign-in links were sent to.
+    fn sign_in_links_to(&self, user: uuid::Uuid) -> Vec<String> {
+        use backend::schema::reset_tokens as rt;
+        rt::table
+            .filter(rt::user_uuid.eq(user))
+            .filter(rt::token_type.eq("portal_magic_link"))
+            .select(rt::metadata)
+            .load::<Option<serde_json::Value>>(&mut self.superuser())
+            .expect("tokens")
+            .into_iter()
+            .filter_map(|m| m?.get("sent_to")?.as_str().map(str::to_string))
+            .collect()
+    }
+
+    /// Submit B's form from `email` through its route, and read the answer:
+    /// status, headers (but the date) and body.
+    async fn submit(&self, email: &str) -> (u16, Vec<(String, String)>, serde_json::Value) {
         let ctx = context_of(&mut self.pool.get().expect("conn"), self.b);
-        let req = actix_web::test::TestRequest::default().to_http_request();
-        let submission = GuestSubmission {
-            email,
-            name: "Sam",
-            title: "Printer jammed",
-            description: "It jams on every page.",
-            priority: TicketPriority::Medium,
-            category_id: None,
-            verification_required,
-            lookup_token: uuid::Uuid::new_v4(),
-        };
-        let resp = file_guest_submission(
-            &self.pool,
-            &self.search,
-            &self.storage,
-            &req,
-            &ctx,
-            &submission,
-            &[],
+        let app = actix_web::test::init_service(
+            App::new()
+                .app_data(web::Data::new(self.pool.clone()))
+                .app_data(web::Data::new(self.search.clone()))
+                .app_data(web::Data::new(self.storage.clone()))
+                .app_data(web::Data::new(ctx))
+                .wrap(actix_web::middleware::from_fn(resolve_workspace))
+                .service(web::scope("/api/public").configure(backend::handlers::guest::config)),
         )
-        .await
-        .expect("answered");
-        let status = resp.status();
-        let bytes = actix_web::body::to_bytes(resp.into_body())
-            .await
-            .expect("body");
-        (status, serde_json::from_slice(&bytes).expect("json"))
+        .await;
+        let req = actix_web::test::TestRequest::post()
+            .uri("/api/public/tickets")
+            .set_json(serde_json::json!({
+                "name": "Sam",
+                "email": email,
+                "title": "Printer jammed",
+                "description": "It jams on every page.",
+                "challenge": solved_challenge(self.b),
+            }))
+            .to_request();
+        let resp = actix_web::test::call_service(&app, req).await;
+        let status = resp.status().as_u16();
+        let mut headers: Vec<(String, String)> = resp
+            .headers()
+            .iter()
+            .filter(|(k, _)| k.as_str() != "date")
+            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+            .collect();
+        headers.sort();
+        let body: serde_json::Value = actix_web::test::read_body_json(resp).await;
+        (status, headers, body)
+    }
+
+    /// Wait for the filings the answers left running, until `done` holds.
+    async fn until(&self, what: &str, done: impl Fn() -> bool) {
+        for _ in 0..200 {
+            if done() {
+                return;
+            }
+            actix_web::rt::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        panic!("timed out waiting for {what}");
     }
 }
 
-async fn one_answer_for_every_address(verification_required: bool) {
-    let f = form();
-    let tag = if verification_required { "on" } else { "off" };
-    let fresh = format!("new-{tag}@guest.example");
-    let reused = format!("reused-{tag}@guest.example");
-    let claimed = format!("claimed-{tag}@guest.example");
-    f.guest_of_a(&reused);
-    f.verified_account(&claimed);
+/// Stands in for the workspace-context middleware: every request is for the
+/// workspace the app was given.
+async fn resolve_workspace(
+    req: actix_web::dev::ServiceRequest,
+    next: actix_web::middleware::Next<impl actix_web::body::MessageBody>,
+) -> Result<actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>, actix_web::Error> {
+    use actix_web::HttpMessage as _;
+    if let Some(ctx) = req.app_data::<web::Data<backend::extractors::WorkspaceContext>>() {
+        let ctx = ctx.get_ref().clone();
+        req.extensions_mut().insert(ctx);
+    }
+    next.call(req).await
+}
 
-    let answers = [
-        f.submit(&fresh, verification_required).await,
-        f.submit(&reused, verification_required).await,
-        f.submit(&claimed, verification_required).await,
+async fn one_answer_for_every_address(verification_required: bool) {
+    let f = form(verification_required);
+    let tag = if verification_required { "on" } else { "off" };
+    let fresh = format!("new-{tag}@example.com");
+    let reused = format!("reused-{tag}@example.com");
+    let claimed = format!("claimed-{tag}@example.com");
+    f.guest_of_a(&reused);
+    let holder = f.member_of_b(&[(&claimed, true, true)]);
+    let alias_holder = f.member_of_b(&[
+        (&format!("primary-{tag}@example.com"), true, true),
+        (&format!("Alias-{tag}@Example.com"), false, true),
+    ]);
+    let alias_typed = format!("ALIAS-{tag}@example.COM");
+
+    let mut answers = vec![
+        f.submit(&fresh).await,
+        f.submit(&reused).await,
+        f.submit(&claimed).await,
+        f.submit(&alias_typed).await,
     ];
+    if verification_required {
+        // An address with three requests waiting is told the same about a
+        // fourth, which is not filed.
+        let busy = format!("busy-{tag}@example.com");
+        for n in 1..=3 {
+            answers.push(f.submit(&busy).await);
+            f.until("a held request", || f.tickets_for(&busy) == n)
+                .await;
+        }
+        answers.push(f.submit(&busy).await);
+        actix_web::rt::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert_eq!(f.tickets_for(&busy), 3, "the fourth is not filed");
+    }
     for answer in &answers {
         assert_eq!(answer, &answers[0], "the same answer for every address");
     }
-    let (status, body) = &answers[0];
-    assert_eq!(*status, StatusCode::ACCEPTED);
+    let (status, _, body) = &answers[0];
+    assert_eq!(*status, 202);
     let keys: Vec<&str> = body
         .as_object()
         .expect("object")
@@ -184,11 +293,33 @@ async fn one_answer_for_every_address(verification_required: bool) {
         )
     );
 
-    // The answers match while the outcomes don't: the claimed address filed
-    // nothing, the others filed their request.
-    assert_eq!(f.tickets_for(&fresh), 1);
-    assert_eq!(f.tickets_for(&reused), 1);
-    assert_eq!(f.tickets_for(&claimed), 0);
+    // The answers match while the outcomes don't.
+    f.until("the new address's request", || f.tickets_for(&fresh) == 1)
+        .await;
+    f.until("the reused address's request", || {
+        f.tickets_for(&reused) == 1
+    })
+    .await;
+    f.until("the account holder's sign-in link", || {
+        !f.sign_in_links_to(holder).is_empty()
+    })
+    .await;
+    assert_eq!(
+        f.tickets_for(&claimed),
+        0,
+        "an account holder files nothing"
+    );
+    // The verified secondary is that account's, in any case: the link goes
+    // to the address typed, and nothing is filed.
+    f.until("the alias holder's sign-in link", || {
+        !f.sign_in_links_to(alias_holder).is_empty()
+    })
+    .await;
+    assert_eq!(
+        f.sign_in_links_to(alias_holder),
+        [alias_typed.to_lowercase()]
+    );
+    assert_eq!(f.tickets_for(&alias_typed), 0);
 }
 
 #[actix_web::test]

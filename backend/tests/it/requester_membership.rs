@@ -350,7 +350,7 @@ async fn a_guest_of_another_workspace_confirms_a_held_request() {
     with_actor_context::<_, diesel::result::Error>(&mut conn(&inbox.pool), &actor, |c| {
         backend::handlers::users::send_guest_ticket_confirmation(
             c,
-            &http,
+            &backend::utils::client_ip::RequestOrigin::of(&http),
             guest,
             "held@guest.example",
             b,
