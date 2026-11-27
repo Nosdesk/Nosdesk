@@ -58,7 +58,7 @@ fn main() {
     for ticket_json in tickets_json.tickets {
         println!("Importing ticket: {}", ticket_json.title);
         match backend::sync::session::with_actor_context(&mut conn, &actor, |c| {
-            repository::import_ticket_from_json(c, &ticket_json)
+            repository::import_ticket_from_json(c, &ticket_json, None)
         }) {
             Ok(_) => {
                 imported_count += 1;

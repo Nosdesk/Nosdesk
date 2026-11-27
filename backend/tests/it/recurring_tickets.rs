@@ -501,3 +501,34 @@ fn a_series_without_a_due_date_comes_back_due_on_a_day() {
     let due = due.expect("the next occurrence has a due date");
     assert_eq!(due.time(), chrono::NaiveTime::MIN, "{due}");
 }
+
+/// The next occurrence of a ticket an API token filed keeps its provenance:
+/// its title is the token's, so its mail is redacted the same way
+/// (`services::ticket_mail_redaction`).
+#[test]
+fn a_recurring_api_ticket_comes_back_as_an_api_ticket() {
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(2);
+    let mut conn = pool.get().expect("conn");
+    let ws = common::seed_two_workspaces(&mut conn).a;
+    let ticket = weekly_ticket(&mut conn, &ws);
+    diesel::update(tickets::table.find(ticket))
+        .set(tickets::submitted_via.eq(backend::models::SUBMITTED_VIA_API))
+        .execute(&mut conn)
+        .expect("stamp it a token's");
+
+    let requester = ActorContext::user(ws.member_uuid, None).with_workspace(ws.workspace_id);
+    with_actor_context(&mut conn, &requester, |c| {
+        ticket_ratings::resolve_as_requester(c, ticket, ws.member_uuid, None, None)
+    })
+    .expect("resolve");
+    let system = ActorContext::system("test:recurring_tickets").with_workspace(ws.workspace_id);
+    let via: Vec<Option<String>> = with_actor_context(&mut conn, &system, |c| {
+        tickets::table
+            .filter(tickets::recurrence_template_id.eq(ticket))
+            .select(tickets::submitted_via)
+            .load(c)
+    })
+    .expect("successor");
+    assert_eq!(via, vec![Some("api".to_string())]);
+}

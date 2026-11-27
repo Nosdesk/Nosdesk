@@ -681,7 +681,7 @@ pub async fn create_ticket(
     }
 
     // A token's ticket may be a website relaying a stranger's form, so its
-    // text stays out of mail to the requester until they prove the address
+    // text stays out of mail to the requester until they write on it
     // (services::ticket_mail_redaction). Set here, never from the body.
     if crate::extractors::is_api_token(&req) {
         new_ticket.submitted_via = Some(crate::models::SUBMITTED_VIA_API.to_string());
@@ -760,17 +760,23 @@ fn refuse_staff_columns(auth: &AuthContext, update: &TicketUpdate) -> Result<(),
 /// share, the write (which refuses an assignee who can't work tickets, emits
 /// the matching `ticket.*` sync action and reindexes the ticket), and what
 /// follows it. Returns the row as written.
+///
+/// `by_token` is a request made with an API token: one that sets the title or
+/// the requester stamps the ticket `submitted_via = "api"`, as creating it
+/// would (`services::ticket_mail_redaction`).
 fn save_ticket_update(
     tc: &mut TenantConn,
     search: &Arc<SearchService>,
     auth: &AuthContext,
     ticket_id: i32,
     update: TicketUpdate,
+    by_token: bool,
 ) -> Result<Ticket, ApiError> {
     let update = update
         .client_columns()
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     refuse_staff_columns(auth, &update)?;
+    let restamp = by_token && (update.title.is_some() || update.requester_uuid.is_some());
 
     // Workflow state is set by id, and must be one of this workspace's.
     // closed_at and closed_by follow it in the database
@@ -802,6 +808,10 @@ fn save_ticket_update(
     let updated = tc.run_result(|conn| {
         repository::update_ticket_partial(conn, ticket_id, update, Some(search))
     })?;
+    if restamp {
+        tc.run(|conn| repository::tickets::mark_filed_by_token(conn, ticket_id))
+            .map_err(ApiError::Database)?;
+    }
     Ok(updated)
 }
 
@@ -828,7 +838,14 @@ pub async fn update_ticket(
         return Ok(HttpResponse::Ok().json(existing));
     }
 
-    let saved = save_ticket_update(&mut tc, search_service.get_ref(), &auth, ticket_id, update)?;
+    let saved = save_ticket_update(
+        &mut tc,
+        search_service.get_ref(),
+        &auth,
+        ticket_id,
+        update,
+        crate::extractors::is_api_token(&req),
+    )?;
     // What follows the save can assign the ticket; answer with it as it now
     // stands.
     let ticket = tc
@@ -889,6 +906,7 @@ pub async fn import_tickets_from_json_string(
     auth: AuthContext,
     mut tc: TenantConn,
     tickets_json: web::Json<TicketsJson>,
+    req: HttpRequest,
 ) -> impl Responder {
     if !auth.is_workspace_admin() {
         return errors::forbidden("Forbidden: Only administrators can import tickets");
@@ -897,8 +915,10 @@ pub async fn import_tickets_from_json_string(
     let mut imported_count = 0;
     let mut failed_count = 0;
 
+    // A token's tickets are stamped as a token's are when it creates one.
+    let via = crate::extractors::is_api_token(&req).then_some(crate::models::SUBMITTED_VIA_API);
     for ticket_json in tickets_json.tickets.iter() {
-        match tc.run_result(|conn| repository::import_ticket_from_json(conn, ticket_json)) {
+        match tc.run_result(|conn| repository::import_ticket_from_json(conn, ticket_json, via)) {
             Ok(_) => imported_count += 1,
             Err(_) => failed_count += 1,
         }
@@ -985,6 +1005,7 @@ pub async fn update_ticket_partial(
     auth: AuthContext,
     access: TicketAccess,
     body: web::Json<Value>,
+    req: HttpRequest,
 ) -> Result<HttpResponse, ApiError> {
     let ticket_id = access.ticket_id;
 
@@ -1118,6 +1139,7 @@ pub async fn update_ticket_partial(
         &auth,
         ticket_id,
         ticket_update,
+        crate::extractors::is_api_token(&req),
     )?;
 
     // Answer with the complete ticket as it now stands.

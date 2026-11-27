@@ -312,6 +312,27 @@ fn ticket_created_data(
     Ok(data)
 }
 
+// sync-audit-only: provenance for mail redaction on the server; the ticket's next emit carries it
+/// Stamp `ticket_id` as a token's (`submitted_via = "api"`) after an API token
+/// set its title or requester: its text may now be a website relaying a
+/// stranger's form. An imported ticket keeps its mark (it stays history).
+pub fn mark_filed_by_token(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<usize> {
+    use crate::models::{CSV_IMPORT, EMAIL_BACKLOG, HELPDESK_IMPORT, SUBMITTED_VIA_API};
+    diesel::update(
+        tickets::table.find(ticket_id).filter(
+            tickets::submitted_via
+                .is_null()
+                .or(tickets::submitted_via.ne_all(vec![
+                    CSV_IMPORT,
+                    EMAIL_BACKLOG,
+                    HELPDESK_IMPORT,
+                ])),
+        ),
+    )
+    .set(tickets::submitted_via.eq(SUBMITTED_VIA_API))
+    .execute(conn)
+}
+
 /// Bare create — UI handlers, the import binary, and any caller
 /// without specific channel/portal context land here.
 pub fn create_ticket(conn: &mut DbConnection, new_ticket: NewTicket) -> QueryResult<Ticket> {
@@ -1153,6 +1174,17 @@ fn create_next_occurrence(
             estimate_minutes: closed.estimate_minutes,
             recurrence_rule: Some(rule.to_string()),
             recurrence_template_id: Some(template_id),
+            // Its text is the closed ticket's, so it keeps where that came
+            // from (services::ticket_mail_redaction), but not an import's
+            // mark: a recurrence is a new request, not history.
+            submitted_via: closed
+                .submitted_via
+                .clone()
+                .filter(|via| !crate::models::is_imported_via(Some(via))),
+            verification_state: closed
+                .verification_state
+                .clone()
+                .filter(|state| state == "verified"),
             ..Default::default()
         },
     )?;
@@ -1479,9 +1511,12 @@ pub fn get_complete_ticket(
 
 // Import from JSON. The assignee is checked like a CSV import's: one who
 // can't work tickets in this workspace fails the ticket's import.
+///
+/// `submitted_via` stamps the new ticket: `"api"` for an API token.
 pub fn import_ticket_from_json(
     conn: &mut DbConnection,
     ticket_json: &TicketJson,
+    submitted_via: Option<&str>,
 ) -> Result<Ticket, TicketWriteError> {
     // The import format carries a coarse status string from the source
     // system. Map it to a workflow-state category and pick that category's
@@ -1516,6 +1551,7 @@ pub fn import_ticket_from_json(
         priority,
         requester_uuid: Some(requester),
         assignee_uuid,
+        submitted_via: submitted_via.map(str::to_string),
         ..Default::default()
     };
 
