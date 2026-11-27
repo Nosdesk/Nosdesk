@@ -1,7 +1,6 @@
 import axios from 'axios';
 import type { FormChallenge, FormChallengeSolution } from '../utils/formChallenge';
 import { apiBaseUrl } from '../transport';
-import type { WorkflowStateCategory } from '../types/workflow';
 
 export interface PublicSiteSettings {
   app_name: string;
@@ -12,7 +11,6 @@ export interface PublicSiteSettings {
   guest_tickets_enabled: boolean;
   guest_public_docs_enabled: boolean;
   guest_kb_search_enabled: boolean;
-  guest_ticket_lookup_enabled: boolean;
   guest_help_page_enabled: boolean;
   guest_ticket_attachments_enabled: boolean;
   /** Admin-configured plain-text blurb shown above the submit form. */
@@ -72,17 +70,6 @@ export interface SubmitGuestTicketResponse {
   message: string;
 }
 
-export interface GuestTicketStatus {
-  ticket_id: number;
-  ticket_number: number;
-  title: string;
-  category: WorkflowStateCategory;
-  priority: string;
-  created_at: string;
-  updated_at: string;
-  closed_at: string | null;
-}
-
 export interface PublicDocSummary {
   id: number;
   uuid: string;
@@ -128,11 +115,6 @@ export const publicService = {
     return data;
   },
 
-  async getTicketStatus(token: string): Promise<GuestTicketStatus> {
-    const { data } = await publicApi.get<GuestTicketStatus>(`/tickets/${encodeURIComponent(token)}`);
-    return data;
-  },
-
   async listDocs(): Promise<PublicDocSummary[]> {
     const { data } = await publicApi.get<PublicDocSummary[]>('/docs');
     return data;
@@ -166,7 +148,6 @@ export interface AdminGuestSettings {
   guest_tickets_enabled: boolean;
   guest_public_docs_enabled: boolean;
   guest_kb_search_enabled: boolean;
-  guest_ticket_lookup_enabled: boolean;
   guest_help_page_enabled: boolean;
   guest_ticket_default_priority: string | null;
   guest_ticket_rate_limit_per_hour: number;
@@ -183,7 +164,6 @@ export interface AdminGuestSettingsUpdate {
   guest_tickets_enabled?: boolean;
   guest_public_docs_enabled?: boolean;
   guest_kb_search_enabled?: boolean;
-  guest_ticket_lookup_enabled?: boolean;
   guest_help_page_enabled?: boolean;
   guest_ticket_default_priority?: string | null;
   guest_ticket_rate_limit_per_hour?: number;

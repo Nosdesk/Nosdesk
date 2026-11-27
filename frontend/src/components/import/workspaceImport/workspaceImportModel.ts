@@ -581,13 +581,6 @@ export function offLines(plan: WorkspaceImportPlan | undefined): OffLine[] {
   return out
 }
 
-/** Tokens the import gives new values (guest links to tickets). */
-export function regeneratedTokens(plan: WorkspaceImportPlan | undefined): number {
-  return (plan?.handover ?? [])
-    .filter((h) => h.kind === 'tokens_regenerated')
-    .reduce((n, h) => n + h.rows, 0)
-}
-
 /** What never moves. Fixed: the policy never carries these. */
 export const NOT_MOVING: { label: string; detail: string }[] = [
   { label: 'workspace-import-not-tokens', detail: 'workspace-import-not-tokens-detail' },

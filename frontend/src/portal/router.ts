@@ -62,12 +62,6 @@ const router = createRouter({
       name: 'submit-ticket',
       component: () => import('@/views/public/GuestTicketSubmitView.vue'),
     },
-    {
-      path: '/ticket-status/:token',
-      name: 'ticket-status',
-      component: () => import('@/views/public/GuestTicketStatusView.vue'),
-      props: true,
-    },
     { path: '/docs', name: 'docs', component: () => import('@/views/public/PublicDocsView.vue') },
     {
       path: '/docs/:slug',

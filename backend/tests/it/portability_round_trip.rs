@@ -348,10 +348,10 @@ async fn source(pool: &TestPool) -> Source {
         &mut conn,
         &format!(
             "INSERT INTO tickets (workspace_id, title, workflow_state_id, requester_uuid, \
-               assignee_uuid, created_by, guest_lookup_token, due_date, due_time, \
+               assignee_uuid, created_by, due_date, due_time, \
                start_date, start_time, rank, estimate_minutes) \
              VALUES ($1, 'Projector flickers', {state}, '{rex_uuid}', '{ana_uuid}', \
-               '{}', gen_random_uuid(), '2026-11-27T00:00:00Z', '14:30', \
+               '{}', '2026-11-27T00:00:00Z', '14:30', \
                '2026-11-24T00:00:00Z', '09:15', 'a0V', 120) RETURNING id",
             seed.admin_uuid
         ),
@@ -1324,8 +1324,7 @@ fn is_key(column: &str) -> bool {
 fn set_by_import(table: &str, column: &str) -> bool {
     matches!(
         (table, column),
-        ("tickets", "guest_lookup_token")
-            | ("outbound_emails", "message_id")
+        ("outbound_emails", "message_id")
             | (_, "enabled")
             | ("plugins", "state")
             | (_, "teams_enabled")

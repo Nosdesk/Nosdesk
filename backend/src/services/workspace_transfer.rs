@@ -767,12 +767,6 @@ pub fn render_preview(report: &Value) -> String {
                     s(h, "column"),
                     n(h, "rows")
                 ),
-                "tokens_regenerated" => format!(
-                    "{}.{}: {} lookup tokens renewed, earlier links stop working",
-                    s(h, "table"),
-                    s(h, "column"),
-                    n(h, "rows")
-                ),
                 "plugin_secrets_dropped" => {
                     format!("{} plugin secrets left out, enter them again", n(h, "rows"))
                 }

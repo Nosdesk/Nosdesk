@@ -8,7 +8,7 @@
 use actix_web::http::StatusCode;
 use actix_web::test as http_test;
 use diesel::prelude::*;
-use diesel::sql_types::{BigInt, Bool, Integer, Nullable, Text, Uuid as SqlUuid};
+use diesel::sql_types::{BigInt, Bool, Integer, Nullable, Text};
 use uuid::Uuid;
 
 use backend::middleware::workspace_context::DeploymentMode;
@@ -182,13 +182,12 @@ fn untouched(pool: &TestPool, workspace_id: i32, held: &[String]) -> Vec<Found> 
     .expect("untouched check")
 }
 
-/// The source workspace: a ticket with a guest lookup token, a plugin with a
+/// The source workspace: a ticket, a plugin with a
 /// secret, outbound email with a sealed password, an enabled webhook and an
 /// installed plugin (the fixture's), and a named portal. Exported sealed.
 struct Source {
     seed: WorkspaceSeed,
     ticket_title: String,
-    guest_token: Uuid,
     archive: Vec<u8>,
 }
 
@@ -198,17 +197,15 @@ async fn source(pool: &TestPool) -> Source {
         seed_two_workspaces(&mut conn).a
     };
     let ticket_title = format!("Printer on fire {}", Uuid::new_v4().simple());
-    let guest_token = Uuid::new_v4();
     {
         let mut conn = pool.get().expect("conn");
         diesel::sql_query(
-            "INSERT INTO tickets (workspace_id, title, workflow_state_id, guest_lookup_token) \
+            "INSERT INTO tickets (workspace_id, title, workflow_state_id) \
              VALUES ($1, $2, (SELECT id FROM workflow_states WHERE workspace_id = $1 \
-                              ORDER BY id LIMIT 1), $3)",
+                              ORDER BY id LIMIT 1))",
         )
         .bind::<Integer, _>(seed.workspace_id)
         .bind::<Text, _>(&ticket_title)
-        .bind::<SqlUuid, _>(guest_token)
         .execute(&mut conn)
         .expect("ticket");
         for (key, secret) in [("api-key", true), ("colour", false)] {
@@ -273,7 +270,6 @@ async fn source(pool: &TestPool) -> Source {
     Source {
         seed,
         ticket_title,
-        guest_token,
         archive: body.to_vec(),
     }
 }
@@ -545,8 +541,6 @@ async fn importing_into_workspace_one_serves_the_imported_tickets() {
         email_on: bool,
         #[diesel(sql_type = Bool)]
         sealed_password: bool,
-        #[diesel(sql_type = Nullable<Text>)]
-        guest_token: Option<String>,
     }
     let flags: Flags = diesel::sql_query(
         "SELECT \
@@ -556,8 +550,7 @@ async fn importing_into_workspace_one_serves_the_imported_tickets() {
            (SELECT count(*) FROM plugin_data WHERE workspace_id = 1 AND NOT is_secret) AS settings, \
            (SELECT enabled FROM workspace_email_settings WHERE workspace_id = 1) AS email_on, \
            (SELECT encrypted_smtp_password IS NOT NULL FROM workspace_email_settings \
-              WHERE workspace_id = 1) AS sealed_password, \
-           (SELECT guest_lookup_token::text FROM tickets WHERE workspace_id = 1) AS guest_token",
+              WHERE workspace_id = 1) AS sealed_password",
     )
     .get_result(&mut pool.get().expect("conn"))
     .expect("handover");
@@ -570,16 +563,9 @@ async fn importing_into_workspace_one_serves_the_imported_tickets() {
     );
     assert!(!flags.email_on, "outbound email arrives off");
     assert!(!flags.sealed_password, "the sealed password stays behind");
-    let token = flags.guest_token.expect("a guest lookup token");
-    assert_ne!(
-        token,
-        src.guest_token.to_string(),
-        "guest lookup tokens are new"
-    );
     let handover = serde_json::to_string(&applied.report.handover).expect("handover");
     for kind in [
         "encrypted_setting_dropped",
-        "tokens_regenerated",
         "plugin_secrets_dropped",
         "switched_off",
     ] {

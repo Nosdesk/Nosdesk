@@ -19,7 +19,6 @@ vi.mock('@nosdesk/core/stores/publicSettings', () => ({
   usePublicSettingsStore: () => ({
     settings: {
       guest_tickets_enabled: true,
-      guest_ticket_lookup_enabled: true,
       guest_ticket_attachments_enabled: false,
       request_types: [],
     },

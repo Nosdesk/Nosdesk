@@ -175,13 +175,6 @@ const router = createRouter({
       meta: { layout: 'blank', requiresAuth: false, titleKey: 'route-title-guest-submit-ticket' }
     },
     {
-      path: '/ticket-status/:token',
-      name: 'guest-ticket-status',
-      component: () => import('@/views/public/GuestTicketStatusView.vue'),
-      props: true,
-      meta: { layout: 'blank', requiresAuth: false, titleKey: 'route-title-guest-ticket-status' }
-    },
-    {
       path: '/docs',
       name: 'public-docs-list',
       component: () => import('@/views/public/PublicDocsView.vue'),

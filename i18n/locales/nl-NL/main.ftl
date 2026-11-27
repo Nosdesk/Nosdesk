@@ -2007,8 +2007,6 @@ admin-guest-loading = Gasttoegangsinstellingen laden...
 admin-guest-features-title = Openbare functies
 admin-guest-toggle-tickets-label = Gasttickets accepteren
 admin-guest-toggle-tickets-description = Toont een openbaar ticketformulier op { $url }.
-admin-guest-toggle-lookup-label = Ticketstatus opzoeken voor gasten
-admin-guest-toggle-lookup-description = Laat gasten de status controleren via een privélink die bij indiening wordt teruggegeven.
 admin-guest-toggle-public-docs-label = Openbare documentatie
 admin-guest-toggle-public-docs-description = Maakt pagina's die als 'openbaar' zijn gemarkeerd zonder inloggen beschikbaar op { $url }.
 admin-guest-toggle-kb-search-label = Openbare kennisbankzoekfunctie
@@ -7614,7 +7612,7 @@ plugin-sideload-installing = Installeren...
 plugin-sideload-error-not-zip = Selecteer een .zip-bestand
 plugin-sideload-error-too-large = Bestand moet kleiner zijn dan 2 MB
 plugin-sideload-error-install-failed = Plugin installeren mislukt
-# Gast- en publieke weergaven (GuestTicketSubmitView, GuestTicketStatusView,
+# Gast- en publieke weergaven (GuestTicketSubmitView,
 # PublicDocsView, PublicDocView, HelpView, PublicLayout,
 # FeatureDisabledNotice). Tekst voor niet-aangemelde bezoekers.
 
@@ -7686,20 +7684,6 @@ guest-submit-attach-error-network = Netwerkfout bij het uploaden van het bestand
 guest-submit-size-bytes = { $bytes } B
 guest-submit-size-kb = { $value } kB
 guest-submit-size-mb = { $value } MB
-
-# Gast ticketstatus
-guest-status-loading-aria = Ticket laden
-guest-status-disabled-title = Status opzoeken is niet beschikbaar
-guest-status-disabled-message = Het opzoeken van de ticketstatus voor gasten is momenteel uitgeschakeld.
-guest-status-ticket-number = Ticket #{ $id }
-guest-status-priority = Prioriteit
-guest-status-opened = Geopend
-guest-status-last-updated = Laatst bijgewerkt
-guest-status-closed = Gesloten
-guest-status-reply-prefix = Wil je reageren?
-guest-status-reply-suffix = om een reactie toe te voegen.
-guest-status-not-found-title = Ticket niet gevonden
-guest-status-not-found-message = De link kan verlopen zijn of verkeerd zijn overgetypt.
 
 # Lijst met publieke documentatie
 public-docs-loading-aria = Documentatie laden
@@ -8180,7 +8164,6 @@ route-title-mfa-setup = MFA-instelling vereist
 route-title-accept-invitation = Uitnodiging accepteren
 route-title-onboarding = Instellen
 route-title-guest-submit-ticket = Ticket indienen
-route-title-guest-ticket-status = Ticketstatus
 route-title-documentation = Documentatie
 route-title-help = Hulp
 route-title-dashboard = Dashboard
@@ -11788,12 +11771,6 @@ workspace-import-off-plugins-hint = Voer de geheimen opnieuw in en zet daarna el
 workspace-import-off-widget = Helpwidget
 workspace-import-off-widget-detail = Komt uitgeschakeld binnen.
 workspace-import-off-widget-hint = Zet deze weer aan vanuit de instellingen.
-workspace-import-off-guest-links = Gastlinks
-workspace-import-off-guest-links-detail =
-    { $count ->
-        [one] 1 ticket krijgt een nieuwe gastlink. Een link die voor de verhuizing is verstuurd, werkt niet meer.
-       *[other] { $count } tickets krijgen nieuwe gastlinks. Links die voor de verhuizing zijn verstuurd, werken niet meer.
-    }
 workspace-import-off-none = Niets komt uitgeschakeld binnen.
 workspace-import-off-rule = De regel: alles wat met de buitenwereld praat, komt uitgeschakeld binnen, zodat een import nooit e-mail verstuurt, een webhook activeert of een verzoek aanneemt voordat u ernaar hebt gekeken.
 

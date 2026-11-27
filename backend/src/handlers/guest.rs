@@ -21,10 +21,7 @@ use crate::db::{DbConnection, Pool};
 use crate::errors::{self, ApiError};
 use crate::extractors::WorkspaceContext;
 use crate::handlers::helpers;
-use crate::models::{
-    NewAttachment, NewTicket, PublicSiteSettings, SiteSettings, TicketPriority,
-    WorkflowStateCategory,
-};
+use crate::models::{NewAttachment, NewTicket, PublicSiteSettings, SiteSettings, TicketPriority};
 use crate::repository::user_helpers::GuestUserResult;
 use crate::repository::{self, site_settings, user_helpers};
 use crate::services::search::indexing_tasks;
@@ -46,7 +43,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/settings", web::get().to(get_public_settings))
         .route("/tickets", web::post().to(submit_guest_ticket))
         .route("/form-challenge", web::get().to(form_challenge))
-        .route("/tickets/{token}", web::get().to(get_guest_ticket_status))
         .route("/files/temp", web::post().to(upload_guest_attachment))
         .route("/docs", web::get().to(list_public_docs))
         .route("/docs/search", web::get().to(search_public_docs))
@@ -368,7 +364,6 @@ pub async fn get_public_settings(
                 "guest_tickets_enabled": false,
                 "guest_public_docs_enabled": false,
                 "guest_kb_search_enabled": false,
-                "guest_ticket_lookup_enabled": false,
                 "guest_help_page_enabled": false,
             })))
         }
@@ -419,7 +414,6 @@ pub struct GuestSubmission<'a> {
     pub priority: TicketPriority,
     pub category_id: Option<i32>,
     pub verification_required: bool,
-    pub lookup_token: Uuid,
 }
 
 /// Why [`create_guest_submission`] wrote nothing.
@@ -471,7 +465,6 @@ pub fn create_guest_submission(
         priority,
         category_id: requested_type,
         verification_required,
-        lookup_token,
     } = *submission;
     // One submission per address at a time, so the pending cap below holds.
     repository::tickets::lock_guest_submissions_for(conn, email)?;
@@ -519,7 +512,6 @@ pub fn create_guest_submission(
         requester_uuid: Some(user.uuid),
         category_id,
         submitted_via: Some("guest".to_string()),
-        guest_lookup_token: Some(lookup_token),
         verification_state: if verification_required {
             Some("pending".to_string())
         } else {
@@ -906,7 +898,6 @@ pub async fn file_guest_submission(
                 priority: filing.priority,
                 category_id: filing.category_id,
                 verification_required,
-                lookup_token: Uuid::new_v4(),
             };
             session::with_actor_context::<_, CreateError>(&mut conn, &actor, |conn| {
                 let created = create_guest_submission(conn, workspace_id, &search, &submission)?;
@@ -1123,81 +1114,6 @@ enum Unqueued {
     Held,
     /// It failed, for this reason.
     Failed(String),
-}
-
-// ---------- Guest ticket status lookup ----------
-
-/// GET /api/public/tickets/{token}
-pub async fn get_guest_ticket_status(
-    pool: web::Data<Pool>,
-    ws: WorkspaceContext,
-    path: web::Path<String>,
-) -> Result<HttpResponse, ApiError> {
-    let token_str = path.into_inner();
-    let token = match Uuid::parse_str(&token_str) {
-        Ok(t) => t,
-        Err(_) => return Err(ApiError::NotFoundMsg("Not found".into())),
-    };
-
-    let mut conn = helpers::db_conn(&pool)?;
-
-    // Workspace-pinned actor: the lookup token is a UUID generated
-    // per ticket, but RLS confines the find_by_lookup_token query
-    // to the current workspace so a token issued on workspace A
-    // can't be probed from workspace B's subdomain.
-    let actor = guest_actor(&ws, "guest:ticket_lookup");
-
-    let outcome = session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
-        let settings = match get_settings(c) {
-            Some(s) => s,
-            None => return Ok(LookupOutcome::SettingsUnavailable),
-        };
-        if !settings.guest_ticket_lookup_enabled {
-            return Ok(LookupOutcome::Disabled);
-        }
-        match repository::tickets::find_by_lookup_token(c, token) {
-            Ok(t) => {
-                let cat = repository::workflow_states::category_of(c, t.workflow_state_id)
-                    .ok()
-                    .flatten()
-                    .unwrap_or(WorkflowStateCategory::Backlog);
-                Ok(LookupOutcome::Found(t, cat))
-            }
-            Err(diesel::result::Error::NotFound) => Ok(LookupOutcome::NotFound),
-            Err(e) => Err(e),
-        }
-    });
-
-    match outcome {
-        Ok(LookupOutcome::Found(t, cat)) => Ok(HttpResponse::Ok().json(json!({
-            "ticket_id": t.id,
-            "ticket_number": t.number,
-            "title": t.title,
-            "category": cat,
-            "priority": t.priority,
-            "created_at": t.created_at,
-            "updated_at": t.updated_at,
-            "closed_at": t.closed_at,
-        }))),
-        Ok(LookupOutcome::NotFound) => Err(ApiError::NotFoundMsg("Not found".into())),
-        Ok(LookupOutcome::Disabled) => Err(ApiError::Forbidden(
-            "Guest ticket status lookup is disabled".into(),
-        )),
-        Ok(LookupOutcome::SettingsUnavailable) => {
-            Err(ApiError::ServiceUnavailable("Service unavailable".into()))
-        }
-        Err(e) => {
-            error!(error = %e, "Error looking up guest ticket");
-            Err(ApiError::Internal("Internal server error".into()))
-        }
-    }
-}
-
-enum LookupOutcome {
-    Found(crate::models::Ticket, WorkflowStateCategory),
-    NotFound,
-    Disabled,
-    SettingsUnavailable,
 }
 
 // ---------- Public documentation ----------

@@ -240,11 +240,6 @@ pub struct Ticket {
     pub closed_by: Option<Uuid>,
     pub category_id: Option<i32>,
     pub submitted_via: Option<String>,
-    /// Opens the guest status page (`/ticket-status/{token}`) for whoever
-    /// holds it, so it is a guest's capability, not ticket data: the guest
-    /// gets it when they submit, and no API response carries it.
-    #[serde(skip_serializing, default)]
-    pub guest_lookup_token: Option<Uuid>,
     pub verification_state: Option<String>,
     /// FK to the channel this ticket originated from (email mailbox, Slack
     /// workspace, etc.). Null for tickets submitted via the normal UI or
@@ -546,8 +541,6 @@ pub struct NewTicket {
     #[serde(skip_deserializing)]
     pub submitted_via: Option<String>,
     #[serde(skip_deserializing)]
-    pub guest_lookup_token: Option<Uuid>,
-    #[serde(skip_deserializing)]
     pub verification_state: Option<String>,
     #[serde(skip_deserializing)]
     pub origin_channel_id: Option<i32>,
@@ -612,8 +605,8 @@ struct ClientTicketColumns {
 
 impl NewTicket {
     /// The client's columns, dropping the ones the server owns: where the
-    /// ticket came from (`submitted_via`, `origin_channel_id`), guest access
-    /// and verification (`guest_lookup_token`, `verification_state`), the
+    /// ticket came from (`submitted_via`, `origin_channel_id`), guest
+    /// verification (`verification_state`), the
     /// inbound pipeline's `triage_state` and `spam_suspected`, and the
     /// recurrence scheduler's `recurrence_template_id`. The same fields carry
     /// `#[serde(skip_deserializing)]` on `NewTicket`, so a body can't set them
@@ -628,7 +621,6 @@ impl NewTicket {
             assignee_uuid,
             category_id,
             submitted_via: _,
-            guest_lookup_token: _,
             verification_state: _,
             origin_channel_id: _,
             triage_state: _,
@@ -1431,7 +1423,6 @@ mod new_ticket_write_tests {
             closed_by: None,
             category_id: Some(10),
             submitted_via: Some("email".into()),
-            guest_lookup_token: Some(Uuid::from_u128(3)),
             verification_state: Some("verified".into()),
             origin_channel_id: Some(20),
             workflow_state_id: 30,
@@ -1476,7 +1467,6 @@ mod new_ticket_write_tests {
             assignee_uuid: Some(Uuid::from_u128(998)),
             category_id: Some(997),
             submitted_via: Some("forged".into()),
-            guest_lookup_token: Some(Uuid::from_u128(996)),
             verification_state: Some("forged".into()),
             origin_channel_id: Some(995),
             triage_state: Some("forged".into()),
@@ -1503,7 +1493,6 @@ mod new_ticket_write_tests {
             assignee_uuid: existing.assignee_uuid,
             category_id: existing.category_id,
             submitted_via: existing.submitted_via.clone(),
-            guest_lookup_token: existing.guest_lookup_token,
             verification_state: existing.verification_state.clone(),
             origin_channel_id: existing.origin_channel_id,
             triage_state: existing.triage_state.clone(),
@@ -1615,7 +1604,6 @@ mod new_ticket_write_tests {
     fn a_new_ticket_takes_none_of_the_server_columns() {
         let out = hostile_body().without_server_columns();
         assert_eq!(out.submitted_via, None);
-        assert_eq!(out.guest_lookup_token, None);
         assert_eq!(out.verification_state, None);
         assert_eq!(out.origin_channel_id, None);
         assert_eq!(out.triage_state, None);
@@ -1645,9 +1633,7 @@ mod new_ticket_write_tests {
     /// A client that reads a ticket can send the body straight back as a PUT.
     #[test]
     fn a_ticket_as_sent_reads_back_as_a_put_body() {
-        let mut ticket = existing_ticket();
-        ticket.guest_lookup_token = None;
-        let wire = serde_json::to_value(&ticket).expect("serialize ticket");
+        let wire = serde_json::to_value(existing_ticket()).expect("serialize ticket");
         let body = serde_json::from_value::<NewTicket>(wire);
         assert!(body.is_ok(), "a GET body is a valid PUT body: {body:?}");
     }
@@ -1661,7 +1647,6 @@ mod new_ticket_write_tests {
             "workflow_state_id": 1,
             "priority": "low",
             "submitted_via": 5,
-            "guest_lookup_token": "",
             "verification_state": [],
             "origin_channel_id": "x",
             "triage_state": {},
@@ -1670,20 +1655,11 @@ mod new_ticket_write_tests {
         }))
         .expect("server columns are not parsed");
         assert_eq!(body.submitted_via, None);
-        assert_eq!(body.guest_lookup_token, None);
         assert_eq!(body.verification_state, None);
         assert_eq!(body.origin_channel_id, None);
         assert_eq!(body.triage_state, None);
         assert_eq!(body.recurrence_template_id, None);
         assert!(!body.spam_suspected);
-    }
-
-    /// The guest lookup token opens the guest status page for whoever holds
-    /// it, so a ticket as the API sends it leaves the token out.
-    #[test]
-    fn a_ticket_is_sent_without_its_guest_lookup_token() {
-        let wire = serde_json::to_value(existing_ticket()).expect("serialize ticket");
-        assert!(wire.get("guest_lookup_token").is_none(), "{wire}");
     }
 }
 

@@ -135,7 +135,6 @@ mod tests {
             closed_by: None,
             category_id: None,
             submitted_via: None,
-            guest_lookup_token: None,
             verification_state: None,
             origin_channel_id: None,
             triage_state: None,

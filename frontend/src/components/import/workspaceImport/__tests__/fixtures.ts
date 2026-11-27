@@ -81,7 +81,6 @@ export const PLAN: WorkspaceImportPlan = {
     { kind: 'switched_off', table: 'channels', column: 'enabled', rows: 1 },
     { kind: 'switched_off', table: 'plugins', column: 'state', rows: 2 },
     { kind: 'plugin_secrets_dropped', rows: 3 },
-    { kind: 'tokens_regenerated', table: 'tickets', column: 'guest_lookup_token', rows: 2412 },
   ],
   references: [
     { table: 'rules', column: 'definition', effect: 'rule_drafted', count: 1 },

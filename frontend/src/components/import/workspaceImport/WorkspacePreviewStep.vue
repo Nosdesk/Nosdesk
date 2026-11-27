@@ -30,7 +30,6 @@ import {
   peopleGroups,
   personOutcome,
   queuedMail,
-  regeneratedTokens,
   tiles,
   typedMatches,
   worthALook,
@@ -65,7 +64,6 @@ const areas = computed(() => areaLines(plan.value))
 const people = computed(() => plan.value?.people ?? [])
 const groups = computed(() => peopleGroups(people.value))
 const off = computed(() => offLines(plan.value))
-const tokens = computed(() => regeneratedTokens(plan.value))
 const unsent = computed(() => queuedMail(plan.value))
 const attention = computed(() => attentionLines(plan.value))
 const ssoOff = computed(() => off.value.some((l) => l.id === 'workspace_identity_providers'))
@@ -317,11 +315,7 @@ function confirm() {
             <p class="text-xs text-tertiary mt-0.5">{{ $t(l.hint, { count: l.count }) }}</p>
           </div>
         </li>
-        <li v-if="tokens > 0" class="flex flex-col sm:flex-row gap-1 sm:gap-3 px-3 py-2.5" data-off="tokens">
-          <span class="sm:w-36 shrink-0 font-medium text-primary">{{ $t('workspace-import-off-guest-links') }}</span>
-          <p class="flex-1 min-w-0 text-primary">{{ $t('workspace-import-off-guest-links-detail', { count: tokens }) }}</p>
-        </li>
-        <li v-if="off.length === 0 && tokens === 0" class="px-3 py-2.5 text-secondary">{{ $t('workspace-import-off-none') }}</li>
+        <li v-if="off.length === 0" class="px-3 py-2.5 text-secondary">{{ $t('workspace-import-off-none') }}</li>
       </ul>
       <p class="px-3 py-2 border-t border-default bg-surface-alt text-xs text-tertiary">{{ $t('workspace-import-off-rule') }}</p>
     </SectionCard>
