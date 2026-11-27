@@ -1350,7 +1350,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "webauthn-rs",
- "webauthn-rs-proto",
+ "webauthn-rs-proto 0.6.2",
  "x509-parser 0.18.1",
  "yrs",
  "zeroize",
@@ -7758,7 +7758,7 @@ dependencies = [
  "url",
  "uuid",
  "webauthn-attestation-ca",
- "webauthn-rs-proto",
+ "webauthn-rs-proto 0.5.5",
  "x509-parser 0.16.0",
 ]
 
@@ -7772,6 +7772,19 @@ dependencies = [
  "base64urlsafedata",
  "serde",
  "serde_json",
+ "url",
+]
+
+[[package]]
+name = "webauthn-rs-proto"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5555714098cd069e3c8b31e58ac14250b9ae185e949c21416bccb55ce8ac8a5c"
+dependencies = [
+ "base64 0.21.7",
+ "serde",
+ "serde_json",
+ "serde_with",
  "url",
 ]
 
