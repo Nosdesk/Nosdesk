@@ -201,7 +201,8 @@ where
             .collect();
 
         Box::pin(async move {
-            // One unthrottled request is one, however many buckets missed it.
+            // One unthrottled request is one, however many buckets missed it,
+            // and a Redis that missed one bucket isn't waited on for the next.
             let mut unreachable: Option<String> = None;
             for (i, key) in keys {
                 let bucket = &limiter.buckets[i];
@@ -219,13 +220,16 @@ where
                         ));
                     }
                     Ok(Err(LimitationError::Client(e))) => {
-                        unreachable.get_or_insert(e.to_string());
+                        unreachable = Some(e.to_string());
+                        break;
                     }
                     Ok(Err(e)) => {
-                        unreachable.get_or_insert(e.to_string());
+                        unreachable = Some(e.to_string());
+                        break;
                     }
                     Err(elapsed) => {
-                        unreachable.get_or_insert(elapsed.to_string());
+                        unreachable = Some(elapsed.to_string());
+                        break;
                     }
                 }
             }

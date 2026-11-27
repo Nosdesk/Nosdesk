@@ -319,6 +319,17 @@ async fn boot_wires_state_and_routes() {
     let auth = statuses!(&app, "/api/auth/no-such-route", client, 31, |_| None);
     assert_eq!(auth[30], 429, "{auth:?}");
 
+    // The account routes and the portal's sign-in share that strict bucket
+    // per client: thirty across them, whichever workspace.
+    let client = fresh_client();
+    let account = statuses!(&app, "/api/account/no-such-route", client, 15, |_| Some(1));
+    let portal = statuses!(&app, "/api/portal/auth/no-such-route", client, 16, |_| {
+        Some(2)
+    });
+    assert_eq!(limited(&account), 0, "{account:?}");
+    assert_eq!(limited(&portal[..15]), 0, "{portal:?}");
+    assert_eq!(portal[15], 429, "the 31st across both: {portal:?}");
+
     // `/api/public` is split per workspace: one tenant spent leaves another.
     let client = fresh_client();
     let form = statuses!(&app, "/api/public/no-such-route", client, 31, |_| Some(1));

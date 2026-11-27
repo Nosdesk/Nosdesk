@@ -1514,7 +1514,7 @@ pub fn build_request_limiters(config: &Config) -> std::io::Result<RequestLimiter
     // helper. Behind a reverse proxy (the standard production shape) per-IP
     // limits track the real client; on a direct connection X-Forwarded-For
     // is ignored so an attacker can't rotate spoofed headers to bypass the
-    // limit. A build failure (a malformed REDIS_URL) is fatal everywhere —
+    // limit. A build failure (a malformed REDIS_URL) is fatal everywhere:
     // there's no in-memory fallback to silently degrade to. Redis going
     // away at runtime lets requests through instead (middleware::rate_limit).
     //
