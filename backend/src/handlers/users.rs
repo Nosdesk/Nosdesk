@@ -466,10 +466,17 @@ pub async fn send_user_invitation(
     // with backoff and respects the suppression list, so an SMTP
     // hiccup mid-onboarding doesn't lose the invitation.
     let locale = crate::repository::user_locale::resolve_effective_locale(conn, user_uuid);
+    // Under the platform's sender: an address nobody has proven gets the
+    // workspace's name in a short plain slot, nothing more.
+    let branding = crate::utils::email_branding::instance_branding_for(
+        conn,
+        &prep.branding.base_url,
+        user_email,
+    );
     match crate::services::transactional_email::enqueue_invitation(
         conn,
         &prep.email_service,
-        &prep.branding,
+        &branding,
         user_email,
         user_name,
         &prep.raw_token,
@@ -487,13 +494,52 @@ pub async fn send_user_invitation(
 /// beyond it.
 pub const GUEST_CONFIRMATIONS_PER_DAY: i64 = 3;
 
+/// Confirmations a workspace's request form may send in a day to addresses
+/// the workspace has never mailed, by default.
+/// `NOSDESK_NEW_ADDRESS_CONFIRMATIONS_PER_DAY` sets it.
+pub const NEW_ADDRESS_CONFIRMATIONS_PER_DAY: i64 = 50;
+
+/// [`NEW_ADDRESS_CONFIRMATIONS_PER_DAY`] for a hosted workspace with a paid
+/// subscription. `NOSDESK_NEW_ADDRESS_CONFIRMATIONS_PER_DAY_PAID` sets it.
+pub const NEW_ADDRESS_CONFIRMATIONS_PER_DAY_PAID: i64 = 500;
+
+/// The day's ceiling on confirmations to new addresses for `workspace_id`.
+/// A workspace is paid when the control plane last reported its
+/// subscription active or past due (`workspaces.billing_status`); a trial, a
+/// cancelled one and every self-hosted workspace (no billing) get the base.
+fn new_address_ceiling(conn: &mut DbConnection, workspace_id: i32) -> i64 {
+    let paid = repository::workspaces::find_by_id(conn, workspace_id)
+        .ok()
+        .flatten()
+        .and_then(|ws| ws.billing_status)
+        .is_some_and(|status| matches!(status.as_str(), "active" | "past_due"));
+    let (var, default) = if paid {
+        (
+            "NOSDESK_NEW_ADDRESS_CONFIRMATIONS_PER_DAY_PAID",
+            NEW_ADDRESS_CONFIRMATIONS_PER_DAY_PAID,
+        )
+    } else {
+        (
+            "NOSDESK_NEW_ADDRESS_CONFIRMATIONS_PER_DAY",
+            NEW_ADDRESS_CONFIRMATIONS_PER_DAY,
+        )
+    };
+    std::env::var(var)
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|n| *n >= 0)
+        .unwrap_or(default)
+}
+
 /// Queue the request form's confirmation email: the same invitation token and
 /// accept flow as [`send_user_invitation`], fixed submission-themed copy, and a
 /// "stop these emails" link. Nothing is sent (the caller answers the same way)
 /// to an address on the workspace's suppression list, which the stop link and
-/// its `List-Unsubscribe` one-click add it to, or beyond
-/// [`GUEST_CONFIRMATIONS_PER_DAY`] for the address. Every check runs before a
-/// token is stored. `conn` must be pinned to the workspace.
+/// its `List-Unsubscribe` one-click add it to, beyond
+/// [`GUEST_CONFIRMATIONS_PER_DAY`] for the address, or to an address the
+/// workspace has never mailed once it has reached its day's ceiling on those
+/// ([`NEW_ADDRESS_CONFIRMATIONS_PER_DAY`]). Every check runs before a token is
+/// stored. `conn` must be pinned to the workspace.
 pub fn send_guest_ticket_confirmation(
     conn: &mut DbConnection,
     origin: &crate::utils::client_ip::RequestOrigin,
@@ -521,6 +567,20 @@ pub fn send_guest_ticket_confirmation(
     if sent_today >= GUEST_CONFIRMATIONS_PER_DAY {
         return SendInvitationResult::Capped;
     }
+    // A workspace begins mailing only so many new addresses a day this way,
+    // whatever its form is fed. An address it has mailed before isn't held.
+    let first_contact = !repository::outbound_emails::has_mailed(conn, user_email).unwrap_or(false);
+    if first_contact {
+        let begun = repository::outbound_emails::count_first_contacts_since(
+            conn,
+            crate::services::transactional_email::GUEST_CONFIRMATION_KEY_PREFIX,
+            since,
+        )
+        .unwrap_or(i64::MAX);
+        if begun >= new_address_ceiling(conn, workspace_id) {
+            return SendInvitationResult::Capped;
+        }
+    }
     let prep = match prepare_invitation_from(
         conn,
         origin,
@@ -536,9 +596,13 @@ pub fn send_guest_ticket_confirmation(
         Err(result) => return result,
     };
     let stop_url = crate::utils::email_stop_link::url(conn, workspace_id, user_email);
+    // It goes under the platform's sender to an address nobody has proven: the
+    // workspace is its name in a short plain slot, nothing more.
+    let branding =
+        crate::utils::email_branding::unproven_recipient_branding(conn, &prep.branding.base_url);
     let row = crate::services::transactional_email::prepare_guest_confirmation(
         &prep.email_service,
-        &prep.branding,
+        &branding,
         user_email,
         &prep.raw_token,
         stop_url.as_deref(),

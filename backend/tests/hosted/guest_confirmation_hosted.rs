@@ -92,6 +92,29 @@ impl Cloud {
             .load(&mut self.db.conn())
             .expect("confirmations")
     }
+
+    /// `count` confirmations queued in `ws` today, each the first mail to a
+    /// new address.
+    fn first_contacts(&self, ws: i32, count: usize) {
+        let mut c = self.db.conn();
+        for i in 0..count {
+            diesel::insert_into(backend::schema::outbound_emails::table)
+                .values((
+                    backend::schema::outbound_emails::workspace_id.eq(ws),
+                    backend::schema::outbound_emails::recipient
+                        .eq(format!("stranger{i}@elsewhere.example")),
+                    backend::schema::outbound_emails::subject.eq("Confirm"),
+                    backend::schema::outbound_emails::body_text.eq("Confirm"),
+                    backend::schema::outbound_emails::message_id
+                        .eq(format!("seed-{ws}-{i}@nosdesk.test")),
+                    backend::schema::outbound_emails::idempotency_key
+                        .eq(format!("{GUEST_CONFIRMATION_KEY_PREFIX}seed-{i}")),
+                    backend::schema::outbound_emails::status.eq("sent"),
+                ))
+                .execute(&mut c)
+                .expect("seed confirmation");
+        }
+    }
 }
 
 fn sent(result: &SendInvitationResult) -> bool {
@@ -155,4 +178,85 @@ async fn the_daily_cap_on_one_address_counts_every_workspace() {
     assert!(matches!(c.confirm(b, to), SendInvitationResult::Capped));
     assert!(matches!(c.confirm(a, to), SendInvitationResult::Capped));
     assert_eq!(c.confirmations(to).len(), 3);
+}
+
+/// Under the platform's sender, the workspace is its name alone: plain text,
+/// one line, at most 40 characters. No logo, and no security note it wrote.
+#[actix_web::test]
+async fn the_confirmation_names_the_workspace_in_a_short_plain_slot() {
+    let c = cloud();
+    let a = c.seeded.a.workspace_id;
+    let long = "Acme Support\nURGENT: verify your account at evil.example today";
+    diesel::update(backend::schema::workspaces::table.find(a))
+        .set(backend::schema::workspaces::name.eq("Workspace Row Name"))
+        .execute(&mut c.db.conn())
+        .expect("rename");
+    run_in_workspace(&c.pool, REF, a, |conn| {
+        backend::repository::site_settings::update_site_settings(
+            conn,
+            backend::models::UpdateSiteSettings {
+                app_name: Some(long.into()),
+                email_security_note_enabled: Some(true),
+                email_security_note_template: Some(Some("TENANT NOTE {{domain}}".into())),
+                ..Default::default()
+            },
+        )
+    })
+    .expect("settings");
+    diesel::update(backend::schema::site_settings::table)
+        .filter(backend::schema::site_settings::workspace_id.eq(a))
+        .set(
+            backend::schema::site_settings::email_logo.eq(Some(serde_json::json!({
+                "url": "/uploads/logo.png", "width": 120, "height": 40,
+                "reads_on_light": true, "reads_on_dark": true
+            }))),
+        )
+        .execute(&mut c.db.conn())
+        .expect("logo");
+
+    let to = "slot@victim.example";
+    assert!(sent(&c.confirm(a, to)));
+    let m = &c.confirmations(to)[0];
+    let slot = "Acme Support URGENT: verify your account";
+    assert_eq!(slot.chars().count(), 40);
+    let html = m.body_html.as_deref().expect("html");
+    for part in [m.subject.as_str(), m.body_text.as_str(), html] {
+        assert!(part.contains(slot), "{part}");
+        assert!(!part.contains("evil.example"), "past the slot: {part}");
+        assert!(!part.contains("Workspace Row Name"), "{part}");
+        assert!(!part.contains("TENANT NOTE"), "{part}");
+        assert!(!part.contains("logo.png"), "{part}");
+    }
+    assert!(!html.contains("<img"), "no logo");
+}
+
+/// A workspace may send confirmations to only so many addresses it has never
+/// mailed in a day; an address it has mailed before isn't held by that, and
+/// a paying workspace gets a higher ceiling.
+#[actix_web::test]
+async fn a_daily_ceiling_holds_confirmations_to_addresses_never_mailed() {
+    use backend::handlers::users::{
+        NEW_ADDRESS_CONFIRMATIONS_PER_DAY, NEW_ADDRESS_CONFIRMATIONS_PER_DAY_PAID,
+    };
+    let c = cloud();
+    let (a, b) = (c.seeded.a.workspace_id, c.seeded.b.workspace_id);
+    c.first_contacts(a, NEW_ADDRESS_CONFIRMATIONS_PER_DAY as usize);
+
+    assert!(matches!(
+        c.confirm(a, "new@victim.example"),
+        SendInvitationResult::Capped
+    ));
+    assert!(c.confirmations("new@victim.example").is_empty());
+    // One A has mailed before: a confirmation to it is no new contact.
+    assert!(sent(&c.confirm(a, "stranger0@elsewhere.example")));
+    // B's ceiling is its own.
+    assert!(sent(&c.confirm(b, "new@victim.example")));
+
+    // Paying lifts the ceiling.
+    const { assert!(NEW_ADDRESS_CONFIRMATIONS_PER_DAY_PAID > NEW_ADDRESS_CONFIRMATIONS_PER_DAY) };
+    diesel::update(backend::schema::workspaces::table.find(a))
+        .set(backend::schema::workspaces::billing_status.eq(Some("active")))
+        .execute(&mut c.db.conn())
+        .expect("paid");
+    assert!(sent(&c.confirm(a, "new@victim.example")));
 }

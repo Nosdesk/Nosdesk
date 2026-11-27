@@ -50,6 +50,71 @@ pub fn get_email_branding(
         })
 }
 
+/// The most of a workspace's name that mail to an unproven address carries.
+pub const UNPROVEN_NAME_SLOT_CHARS: usize = 40;
+
+/// Branding for mail the instance sends under its own identity to an address
+/// nobody has proven: the guest form's confirmation, an invitation, a reset
+/// for an unverified address. Whoever typed the address may not own it, and
+/// the mail leaves under the platform's name, so the workspace gets one thing
+/// in it: its name, as plain text, cut to [`UNPROVEN_NAME_SLOT_CHARS`]. No
+/// logo, no colour of its own and no security note it wrote. The same for
+/// every workspace. `conn` must be pinned to the workspace.
+pub fn unproven_recipient_branding(conn: &mut DbConnection, base_url: &str) -> EmailBranding {
+    // The name the workspace gives its portal and email (`app_name`, which
+    // hosted provisioning sets from the workspace's name); the bootstrap
+    // workspace's own name is a placeholder.
+    let name = site_settings::get_site_settings(conn)
+        .map(|s| s.app_name)
+        .unwrap_or_default();
+    let name = name_slot(&name);
+    EmailBranding {
+        app_name: if name.is_empty() {
+            site_settings::DEFAULT_APP_NAME.to_string()
+        } else {
+            name
+        },
+        base_url: base_url.to_string(),
+        ..EmailBranding::default()
+    }
+}
+
+/// [`get_email_branding`] for instance-identity mail to `recipient`: the
+/// workspace's own branding once an account holding the address has verified
+/// it, [`unproven_recipient_branding`] before.
+pub fn instance_branding_for(
+    conn: &mut DbConnection,
+    base_url: &str,
+    recipient: &str,
+) -> EmailBranding {
+    let proven = crate::repository::user_emails::holders_of(conn, recipient)
+        .map(|rows| rows.iter().any(|e| e.is_verified))
+        .unwrap_or(false);
+    if proven {
+        get_email_branding(conn, base_url, SentFrom::Instance)
+    } else {
+        unproven_recipient_branding(conn, base_url)
+    }
+}
+
+/// `name` as one plain line of at most [`UNPROVEN_NAME_SLOT_CHARS`]
+/// characters: control characters and line breaks become spaces, runs of
+/// whitespace one space.
+pub fn name_slot(name: &str) -> String {
+    let flat: String = name
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    flat.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(UNPROVEN_NAME_SLOT_CHARS)
+        .collect::<String>()
+        .trim_end()
+        .to_string()
+}
+
 /// A logo's stored email copy. One that doesn't parse is left out, and the
 /// letterhead falls back as if there were none.
 fn email_copy(value: Option<&serde_json::Value>) -> Option<EmailLogo> {

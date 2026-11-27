@@ -10,7 +10,6 @@ use crate::models::{PasswordResetCompleteRequest, PasswordResetRequest, Password
 use crate::repository;
 use crate::utils::auth::hash_password;
 use crate::utils::email::EmailService;
-use crate::utils::email_branding::{get_email_branding, SentFrom};
 use crate::utils::reset_tokens::{ResetTokenUtils, TokenType};
 
 /// Rate limiting: Maximum password reset requests per user within time window
@@ -207,7 +206,10 @@ async fn issue_password_reset(
         "background:password_reset",
         workspace_id,
         |conn| {
-            let branding = get_email_branding(conn, &base_url, SentFrom::Instance);
+            // Under the platform's sender: an address nobody has proven gets the
+            // workspace's name in a short plain slot, nothing more.
+            let branding =
+                crate::utils::email_branding::instance_branding_for(conn, &base_url, &user_email);
             let locale = crate::repository::user_locale::resolve_effective_locale(conn, user.uuid);
             crate::services::transactional_email::enqueue_password_reset(
                 conn,

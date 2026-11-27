@@ -741,6 +741,48 @@ pub fn count_recent_to_anywhere(
     }
 }
 
+/// Whether this workspace has queued any mail to `recipient`, in any status.
+/// Case-insensitive. `conn` must be pinned: row security scopes it.
+pub fn has_mailed(conn: &mut DbConnection, recipient: &str) -> QueryResult<bool> {
+    use crate::schema::outbound_emails::dsl as o;
+    diesel::select(diesel::dsl::exists(
+        o::outbound_emails.filter(
+            diesel::dsl::sql::<diesel::sql_types::Bool>("lower(recipient) = ")
+                .bind::<Text, _>(recipient.trim().to_lowercase()),
+        ),
+    ))
+    .get_result(conn)
+}
+
+// sync-audit-only: a read-only scan (raw SELECT), no write
+/// Emails queued since `since` whose key starts with `key_prefix` and that
+/// were this workspace's first mail to their address: how many addresses it
+/// began mailing that way. `conn` must be pinned: row security scopes both
+/// reads to the workspace.
+pub fn count_first_contacts_since(
+    conn: &mut DbConnection,
+    key_prefix: &str,
+    since: chrono::DateTime<chrono::Utc>,
+) -> QueryResult<i64> {
+    #[derive(QueryableByName)]
+    struct Count {
+        #[diesel(sql_type = BigInt)]
+        n: i64,
+    }
+    diesel::sql_query(
+        "SELECT count(*) AS n FROM outbound_emails o \
+         WHERE o.idempotency_key LIKE $1 AND o.created_at >= $2 \
+           AND NOT EXISTS (SELECT 1 FROM outbound_emails p \
+                           WHERE p.workspace_id = o.workspace_id \
+                             AND lower(p.recipient) = lower(o.recipient) \
+                             AND (p.created_at, p.id) < (o.created_at, o.id))",
+    )
+    .bind::<Text, _>(format!("{key_prefix}%"))
+    .bind::<Timestamptz, _>(since)
+    .get_result::<Count>(conn)
+    .map(|c| c.n)
+}
+
 /// The Message-IDs of the latest `limit` emails in `recipient`'s thread about
 /// `ticket_id`, oldest first: the ones queued to them and the ones the ticket
 /// received. A new email to them continues it. Case-insensitive on the
