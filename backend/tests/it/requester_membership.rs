@@ -543,6 +543,29 @@ fn spent(inbox: &Inbox, raw: &str) -> bool {
         .expect("token")
 }
 
+/// Whether any of `user`'s addresses is verified.
+fn address_verified(inbox: &Inbox, user: uuid::Uuid) -> bool {
+    use backend::schema::user_emails as e;
+    e::table
+        .filter(e::user_uuid.eq(user))
+        .filter(e::is_verified.eq(true))
+        .count()
+        .get_result::<i64>(&mut seed_conn(inbox))
+        .expect("count")
+        > 0
+}
+
+/// `user`'s local password identities.
+fn local_identities(inbox: &Inbox, user: uuid::Uuid) -> i64 {
+    use backend::schema::user_auth_identities as i;
+    i::table
+        .filter(i::user_uuid.eq(user))
+        .filter(i::provider_type.eq("local"))
+        .count()
+        .get_result(&mut seed_conn(inbox))
+        .expect("count")
+}
+
 /// Accept a confirmation with a password, as self-hosted's accept page does.
 async fn accept_with_password(inbox: &Inbox, raw: &str) -> u16 {
     let (_dir, search) = search(&inbox.pool);
@@ -616,6 +639,10 @@ async fn a_failed_seat_leaves_the_request_recoverable() {
     );
     assert_eq!(rows_in(&inbox, b, guest), 0);
     assert!(!spent(&inbox, &raw), "the link still works");
+    // Nothing else stuck either: the address is still unproven, so the form
+    // still treats it as a guest's, and no password was set.
+    assert!(!address_verified(&inbox, guest));
+    assert_eq!(local_identities(&inbox, guest), 0);
 
     diesel::sql_query("DROP TRIGGER test_refuse_seat ON workspace_members")
         .execute(&mut seed_conn(&inbox))
@@ -626,4 +653,131 @@ async fn a_failed_seat_leaves_the_request_recoverable() {
         Some("verified")
     );
     assert_eq!(role_in(&inbox.pool, b, guest).as_deref(), Some("member"));
+    assert!(address_verified(&inbox, guest));
+    assert_eq!(local_identities(&inbox, guest), 1);
+}
+
+/// Mint an invitation token for `user` with `metadata`, expiring at
+/// `expires_at`.
+fn invitation_token(
+    inbox: &Inbox,
+    user: uuid::Uuid,
+    metadata: serde_json::Value,
+    expires_at: chrono::DateTime<chrono::Utc>,
+) -> String {
+    use backend::utils::reset_tokens::{ResetTokenUtils, TokenType};
+    let issued = ResetTokenUtils::create_reset_token(user, TokenType::Invitation);
+    backend::repository::reset_tokens::create_reset_token(
+        &mut seed_conn(inbox),
+        &issued.token_hash,
+        user,
+        TokenType::Invitation.as_str(),
+        None,
+        None,
+        expires_at,
+        Some(metadata),
+    )
+    .expect("mint token");
+    issued.raw_token
+}
+
+/// Stands in for the workspace-context middleware: the workspace in app data.
+async fn origin_of(
+    req: actix_web::dev::ServiceRequest,
+    next: actix_web::middleware::Next<impl actix_web::body::MessageBody>,
+) -> Result<actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>, actix_web::Error> {
+    use actix_web::HttpMessage as _;
+    if let Some(ctx) = req.app_data::<web::Data<backend::extractors::WorkspaceContext>>() {
+        let ctx = ctx.get_ref().clone();
+        req.extensions_mut().insert(ctx);
+    }
+    next.call(req).await
+}
+
+/// A confirmation for B's held request, followed on A's origin, is refused as
+/// any bad link is: it would release in B and sign in to A.
+#[actix_web::test]
+async fn a_confirmation_on_another_workspaces_origin_is_refused() {
+    let (inbox, a) = inbox_on_b();
+    let b = inbox.ws.workspace_id;
+    let guest = guest_of(&inbox.pool, a, "elsewhere@guest.example");
+    let created = submit_form(&inbox, "elsewhere@guest.example", true);
+    let raw = guest_confirmation(&inbox, guest, b);
+    let (_dir, search) = search(&inbox.pool);
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(web::Data::new(inbox.pool.clone()))
+            .app_data(web::Data::new(search))
+            .app_data(web::Data::new(context_of(&mut conn(&inbox.pool), a)))
+            .wrap(actix_web::middleware::from_fn(origin_of))
+            .route(
+                "/confirm-guest",
+                web::post().to(backend::handlers::invitation::confirm_guest_submission),
+            ),
+    )
+    .await;
+    let req = actix_web::test::TestRequest::post()
+        .uri("/confirm-guest")
+        .set_json(serde_json::json!({ "token": raw }))
+        .to_request();
+    let status = match actix_web::test::try_call_service(&app, req).await {
+        Ok(r) => r.status().as_u16(),
+        Err(e) => e.as_response_error().status_code().as_u16(),
+    };
+    assert_eq!(status, 400);
+    assert_eq!(
+        state_of(&inbox, created.ticket.id).as_deref(),
+        Some("pending")
+    );
+    assert!(!spent(&inbox, &raw));
+}
+
+/// An expired guest confirmation, accepted with a password, gets the answer
+/// any expired invitation gets.
+#[actix_web::test]
+async fn an_expired_confirmation_is_answered_as_any_expired_invitation() {
+    let (inbox, a) = inbox_on_b();
+    let b = inbox.ws.workspace_id;
+    let guest = guest_of(&inbox.pool, a, "late@guest.example");
+    let past = chrono::Utc::now() - chrono::Duration::hours(1);
+    let expired_guest = invitation_token(
+        &inbox,
+        guest,
+        serde_json::json!({ "source": "guest_ticket_submission", "workspace_id": b }),
+        past,
+    );
+    let expired_invite = invitation_token(&inbox, guest, serde_json::json!({}), past);
+
+    let answer = |raw: String| {
+        let inbox = &inbox;
+        async move {
+            let (_dir, search) = search(&inbox.pool);
+            let app = actix_web::test::init_service(
+                App::new()
+                    .app_data(web::Data::new(inbox.pool.clone()))
+                    .app_data(web::Data::new(search))
+                    .route(
+                        "/accept",
+                        web::post().to(backend::handlers::invitation::accept_invitation),
+                    ),
+            )
+            .await;
+            let req = actix_web::test::TestRequest::post()
+                .uri("/accept")
+                .set_json(serde_json::json!({ "token": raw, "password": "correct horse battery" }))
+                .to_request();
+            let resp = match actix_web::test::try_call_service(&app, req).await {
+                Ok(r) => r.into_parts().1,
+                Err(e) => e.error_response(),
+            };
+            let status = resp.status().as_u16();
+            let body = actix_web::body::to_bytes(resp.into_body())
+                .await
+                .expect("body");
+            (status, body)
+        }
+    };
+    let guest_answer = answer(expired_guest).await;
+    assert_eq!(guest_answer, answer(expired_invite).await);
+    assert_eq!(guest_answer.0, 400);
 }
