@@ -32,6 +32,7 @@ use crate::services::search::SearchService;
 use crate::services::upload_intake::{self as intake, IntakeError, Intaken, Refusal, UploadPolicy};
 use crate::sync::actor::ActorContext;
 use crate::sync::session;
+use crate::utils::client_ip::RequestOrigin;
 use crate::utils::file_validation::{
     FileValidationError, GUEST_ATTACHMENT_TTL_MINUTES, GUEST_MAX_FILES_PER_TICKET,
     GUEST_MAX_FILE_SIZE_MB,
@@ -303,20 +304,21 @@ fn log_guest_event(
     conn: &mut DbConnection,
     user_uuid: Uuid,
     event_type: &str,
-    req: &HttpRequest,
+    origin: &RequestOrigin,
     details: serde_json::Value,
 ) {
-    use crate::utils::security_events::{record_security_event, SecurityEventInput};
+    use crate::utils::security_events::{record_security_event_from, SecurityEventInput};
 
-    if let Err(e) = record_security_event(
+    if let Err(e) = record_security_event_from(
         conn,
         SecurityEventInput {
             user_uuid: Some(user_uuid),
             event_type,
             severity: "info",
             details: Some(details),
-            request: Some(req),
+            request: None,
         },
+        origin,
     ) {
         warn!(error = %e, "Failed to record guest security event");
     }
@@ -382,12 +384,28 @@ const GUEST_TICKETS_PER_WORKSPACE_PER_DAY: u32 = 1000;
 /// Unconfirmed requests one address may have waiting at once.
 const MAX_PENDING_PER_ADDRESS: i64 = 3;
 
-/// The answer to a request that needs its email confirmed. Identical however
-/// the submission went, so it says nothing about the address.
-fn check_your_email() -> HttpResponse {
+/// The answer to every submission that got past validation and the limits:
+/// the same status and body whatever became of it (a new account, a reused
+/// one, an address with an account that must sign in instead, one with too
+/// many requests waiting), so it says nothing about the address. Nothing
+/// ticket-derived is in it, not even with confirmation off, because a
+/// submission for an address with an account files no ticket to describe.
+/// It varies only with the workspace's confirmation setting.
+fn submission_answer(req: &HttpRequest, verification_required: bool) -> HttpResponse {
+    let locale = crate::utils::locale::request_locale(req);
+    let key = if verification_required {
+        "guest-submit-answer-verify"
+    } else {
+        "guest-submit-received-message"
+    };
+    let message = format!(
+        "{} {}",
+        crate::utils::i18n::tr(&locale, key),
+        crate::utils::i18n::tr(&locale, "guest-submit-have-account-hint")
+    );
     HttpResponse::Accepted().json(json!({
-        "verification_required": true,
-        "email_sent": true,
+        "verification_required": verification_required,
+        "message": message,
     }))
 }
 
@@ -410,6 +428,9 @@ pub enum CreateError {
     /// The address already has [`MAX_PENDING_PER_ADDRESS`] unconfirmed
     /// requests; more wait until one is confirmed.
     TooManyPending,
+    /// A held request's confirmation couldn't be queued, so it was not
+    /// filed either.
+    ConfirmationNotQueued,
     Internal,
 }
 
@@ -448,21 +469,29 @@ pub fn create_guest_submission(
         verification_required,
         lookup_token,
     } = *submission;
-    let (user, is_new_guest) = match user_helpers::find_or_create_guest_requester(
-        email,
-        name,
-        workspace_id,
-        conn,
-        Some(search),
-    ) {
-        Ok(GuestUserResult::Created(u)) => (u, true),
-        Ok(GuestUserResult::Existing(u)) => (u, false),
-        Ok(GuestUserResult::EmailClaimed) => return Err(CreateError::EmailClaimed),
-        Err(e) => {
-            error!(error = %e, "Failed to provision guest user");
-            return Err(CreateError::Internal);
-        }
-    };
+    // One submission per address at a time, so the pending cap below holds.
+    repository::tickets::lock_guest_submissions_for(conn, email)?;
+    let (user, is_new_guest) =
+        match user_helpers::find_or_create_guest_user(email, name, conn, Some(search)) {
+            Ok(GuestUserResult::Created(u)) => (u, true),
+            Ok(GuestUserResult::Existing(u)) => {
+                // A reused account may hold seats only elsewhere, and without one
+                // here its View request link and portal sign-in refuse it. A held
+                // request seats it when the address is confirmed
+                // (`invitation::complete_verification`); one that needs no
+                // confirmation is live at once, so it is seated now, as a
+                // mailed-in request's sender is.
+                if !verification_required {
+                    crate::repository::workspaces::join_as_requester(conn, workspace_id, u.uuid)?;
+                }
+                (u, false)
+            }
+            Ok(GuestUserResult::EmailClaimed) => return Err(CreateError::EmailClaimed),
+            Err(e) => {
+                error!(error = %e, "Failed to provision guest user");
+                return Err(CreateError::Internal);
+            }
+        };
 
     // Unconfirmed requests are capped per address, so confirming one
     // email can only ever release a handful.
@@ -593,6 +622,8 @@ pub async fn submit_guest_ticket(
             return Err(ApiError::ServiceUnavailable("Settings unavailable".into()));
         }
     };
+    // Filing takes its own connection; don't hold two.
+    drop(conn);
 
     if !settings.guest_tickets_enabled {
         return Err(ApiError::Forbidden(
@@ -723,166 +754,322 @@ pub async fn submit_guest_ticket(
         }
     }
 
-    // When email verification is enabled, tickets start in a `pending` state
-    // invisible to techs (see ticket_query::apply_filters). The verification
-    // link in the invitation email flips them to `verified` atomically in
-    // accept_invitation::verify_pending_tickets_for_user.
-    let verification_required = settings.guest_ticket_email_verification;
-    let requested_type = body.category_id;
-    let lookup_token = Uuid::new_v4();
-
-    let submission = GuestSubmission {
-        email,
-        name,
-        title,
-        description,
+    let filing = GuestFiling {
+        email: email.to_string(),
+        name: name.to_string(),
+        title: title.to_string(),
+        description: description.to_string(),
         priority,
-        category_id: requested_type,
-        verification_required,
-        lookup_token,
+        category_id: body.category_id,
+        verification_required: settings.guest_ticket_email_verification,
+        attachment_tokens: if settings.guest_ticket_attachments_enabled {
+            body.attachment_tokens.clone()
+        } else {
+            Vec::new()
+        },
     };
-    let create_result = session::with_actor_context::<_, CreateError>(&mut conn, &actor, |conn| {
-        create_guest_submission(conn, ws.workspace_id, search_service.get_ref(), &submission)
-    });
+    let verification_required = filing.verification_required;
 
-    // The same answer whatever the address: an address with an account gets a
-    // sign-in link instead (so the form doesn't reveal who has one), and one
-    // with too many unconfirmed requests gets nothing more until it confirms.
-    let (user, is_new_guest, ticket, first_comment_id) = match create_result {
-        Ok(c) => (c.user, c.is_new_guest, c.ticket, c.first_comment_id),
-        Err(CreateError::EmailClaimed) => {
-            crate::handlers::portal::spawn_sign_in_link(
-                pool.get_ref().clone(),
-                ws.clone(),
-                email.to_string(),
-            );
-            return Ok(check_your_email());
+    // Everything past here depends on the address (whether an account holds
+    // it, how many of its requests wait), so it runs after the answer goes
+    // out, and the answer, its status and its timing are the same for all.
+    let pool = pool.get_ref().clone();
+    let search = search_service.get_ref().clone();
+    let storage = storage.get_ref().clone();
+    let origin = RequestOrigin::of(&req);
+    let workspace_id = ws.workspace_id;
+    spawn_filing(async move {
+        if let Err(e) = file_guest_submission(pool, search, storage, origin, ws, filing).await {
+            error!(workspace_id, error = %e, "Guest submission could not be filed");
         }
-        Err(CreateError::TooManyPending) => return Ok(check_your_email()),
+    });
+    Ok(submission_answer(&req, verification_required))
+}
+
+/// Filings answered but not yet finished; graceful shutdown waits for them
+/// ([`drain_filings`]).
+fn filings() -> &'static tokio_util::task::TaskTracker {
+    static FILINGS: std::sync::OnceLock<tokio_util::task::TaskTracker> = std::sync::OnceLock::new();
+    FILINGS.get_or_init(tokio_util::task::TaskTracker::new)
+}
+
+/// Filings that may run at once. The rest wait for a slot after their
+/// submitter has been answered, so a burst of submissions can't take every
+/// database connection.
+const CONCURRENT_FILINGS: usize = 4;
+
+fn filing_slots() -> Arc<tokio::sync::Semaphore> {
+    static SLOTS: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> = std::sync::OnceLock::new();
+    SLOTS
+        .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(CONCURRENT_FILINGS)))
+        .clone()
+}
+
+/// Run a filing on the system arbiter, which outlives the HTTP workers
+/// through a graceful shutdown, in turn with the others.
+fn spawn_filing(filing: impl std::future::Future<Output = ()> + Send + 'static) {
+    let task = filings().track_future(async move {
+        let Ok(_slot) = filing_slots().acquire_owned().await else {
+            return;
+        };
+        filing.await;
+    });
+    if !actix_web::rt::System::current().arbiter().spawn(task) {
+        error!("Guest submission could not be filed: the system arbiter has stopped");
+    }
+}
+
+/// Wait up to `timeout` for the filings already answered to finish, taking no
+/// more. True when they all did.
+pub async fn drain_filings(timeout: std::time::Duration) -> bool {
+    let tracker = filings();
+    tracker.close();
+    tokio::time::timeout(timeout, tracker.wait()).await.is_ok()
+}
+
+/// A validated request-form submission that passed the limits, owned so it
+/// can be filed after the submitter is answered.
+#[derive(Clone, Debug)]
+pub struct GuestFiling {
+    pub email: String,
+    pub name: String,
+    pub title: String,
+    pub description: String,
+    pub priority: TicketPriority,
+    pub category_id: Option<i32>,
+    pub verification_required: bool,
+    /// Claim tokens for uploads to attach; empty when attachments are off.
+    pub attachment_tokens: Vec<String>,
+}
+
+/// What became of a filed submission. Never told to the submitter.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Filed {
+    /// A ticket was filed (held until confirmation, when that is on).
+    Ticket { ticket_id: i32 },
+    /// The address belongs to an account that signs in instead; a sign-in
+    /// link was offered.
+    Claimed,
+    /// The address has too many requests awaiting confirmation.
+    TooManyPending,
+}
+
+/// File a submission answered already with [`submission_answer`]: find or
+/// make its requester, file the ticket and its first comment, attach its
+/// uploads, record it, and send the confirmation. The database work runs on
+/// the blocking pool.
+///
+/// When email verification is enabled, tickets start in a `pending` state
+/// invisible to techs (see ticket_query::apply_filters). The verification
+/// link in the invitation email flips them to `verified` atomically in
+/// accept_invitation::verify_pending_tickets_for_user.
+pub async fn file_guest_submission(
+    pool: Pool,
+    search: Arc<SearchService>,
+    storage: Arc<dyn Storage>,
+    origin: RequestOrigin,
+    ws: WorkspaceContext,
+    filing: GuestFiling,
+) -> Result<Filed, ApiError> {
+    let actor = guest_actor(&ws, "guest:ticket_create");
+    let workspace_id = ws.workspace_id;
+    let verification_required = filing.verification_required;
+
+    // One transaction: the requester, the ticket, its first comment, and the
+    // confirmation (its token and its queued mail). A held request whose
+    // confirmation can't be queued is rolled back with it, so nothing is left
+    // waiting on a link nobody was sent. With confirmation off the request is
+    // live either way; the courtesy confirmation is a savepoint whose failure
+    // is logged and leaves the request filed.
+    let create_result = {
+        let (pool, search, actor, filing, origin) = (
+            pool.clone(),
+            search.clone(),
+            actor.clone(),
+            filing.clone(),
+            origin.clone(),
+        );
+        web::block(move || {
+            let mut conn = pool.get().map_err(|_| CreateError::Internal)?;
+            let submission = GuestSubmission {
+                email: &filing.email,
+                name: &filing.name,
+                title: &filing.title,
+                description: &filing.description,
+                priority: filing.priority,
+                category_id: filing.category_id,
+                verification_required,
+                lookup_token: Uuid::new_v4(),
+            };
+            session::with_actor_context::<_, CreateError>(&mut conn, &actor, |conn| {
+                let created = create_guest_submission(conn, workspace_id, &search, &submission)?;
+                if verification_required || created.is_new_guest {
+                    match queue_confirmation(conn, &origin, &created, &filing.email, workspace_id) {
+                        Ok(()) => {}
+                        Err(why) if verification_required => {
+                            warn!(
+                                ticket_id = created.ticket.id,
+                                result = %why,
+                                "Guest confirmation could not be queued; the request is not filed"
+                            );
+                            return Err(CreateError::ConfirmationNotQueued);
+                        }
+                        Err(why) => warn!(
+                            ticket_id = created.ticket.id,
+                            result = %why,
+                            "Failed to send guest ticket confirmation email"
+                        ),
+                    }
+                }
+                Ok(created)
+            })
+        })
+        .await
+        .map_err(|_| ApiError::Internal("Filing task failed".into()))?
+    };
+
+    // An address with an account gets a sign-in link instead, and one with
+    // too many unconfirmed requests gets nothing more until it confirms.
+    let created = match create_result {
+        Ok(c) => c,
+        Err(CreateError::EmailClaimed) => {
+            crate::handlers::portal::spawn_sign_in_link(pool, ws, filing.email);
+            return Ok(Filed::Claimed);
+        }
+        Err(CreateError::TooManyPending) => return Ok(Filed::TooManyPending),
+        Err(CreateError::ConfirmationNotQueued) => {
+            return Err(ApiError::Internal(
+                "The confirmation could not be queued".into(),
+            ));
+        }
         Err(CreateError::Internal) => {
             return Err(ApiError::Internal("Failed to create ticket".into()));
         }
     };
+    let ticket_id = created.ticket.id;
+    let user_uuid = created.user.uuid;
 
-    // Claim any referenced attachments. Cap at GUEST_MAX_FILES_PER_TICKET —
+    // Claim any referenced attachments. Cap at GUEST_MAX_FILES_PER_TICKET;
     // silently truncate extras rather than rejecting the submission.
-    if let Some(comment_id) = first_comment_id {
-        if !body.attachment_tokens.is_empty() && settings.guest_ticket_attachments_enabled {
+    if let Some(comment_id) = created.first_comment_id {
+        if !filing.attachment_tokens.is_empty() {
             // A token that does not verify is dropped rather than rejected, the
             // same treatment an expired or already-claimed id has always had:
             // one stale attachment should not cost the submitter their ticket.
-            let ids: Vec<i32> = body
+            let ids: Vec<i32> = filing
                 .attachment_tokens
                 .iter()
                 .take(GUEST_MAX_FILES_PER_TICKET)
                 .filter_map(|token| {
-                    crate::utils::guest_attachment_token::verify(ws.workspace_id, token)
+                    crate::utils::guest_attachment_token::verify(workspace_id, token)
                 })
                 .collect();
             // Scope storage to this workspace so the temp->ticket move
             // stays under the ws/{id}/ prefix.
-            let scoped_storage =
-                WorkspaceScopedStorage::arc(storage.get_ref().clone(), ws.workspace_id);
+            let scoped_storage = WorkspaceScopedStorage::arc(storage.clone(), workspace_id);
             claim_guest_attachments(
-                &mut conn,
+                &pool,
                 &scoped_storage,
-                &ids,
-                ticket.id,
+                ids,
+                ticket_id,
                 comment_id,
-                user.uuid,
+                user_uuid,
                 &actor,
             )
             .await;
         }
     }
 
-    let _ = session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
-        log_guest_event(
-            c,
-            user.uuid,
-            "guest_ticket_submitted",
-            &req,
-            json!({
-                "ticket_id": ticket.id,
-                "email_domain": email.rsplit('@').next().unwrap_or(""),
-                "new_account": is_new_guest,
-            }),
-        );
-        Ok(())
-    });
-
-    // Email dispatch:
-    //   - verification on  → send confirmation every time (the link is also
-    //     the "release my pending ticket" trigger, so even Existing guests
-    //     with multiple pending tickets need a fresh, working link).
-    //   - verification off → only send on new accounts (no ticket-gating
-    //     concern, so re-sending to returning submitters would just be noise).
-    //
-    // The email itself is framed as "confirm your ticket submission" rather
-    // than the generic "welcome / invitation" copy — see
-    // EmailService::send_guest_ticket_confirmation_email.
-    let send_email = verification_required || is_new_guest;
-    let email_sent = if send_email {
-        let workspace_id = ws.workspace_id;
-        let sent =
-            session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |conn| {
-                Ok(crate::handlers::users::send_guest_ticket_confirmation(
-                    conn,
-                    &req,
-                    user.uuid,
-                    email,
-                    workspace_id,
-                ))
-            })
-            .unwrap_or_else(|e| {
-                crate::handlers::users::SendInvitationResult::EmailSendError(e.to_string())
-            });
-        match sent {
-            // At its daily allowance: nothing sent, same answer.
-            crate::handlers::users::SendInvitationResult::Success
-            | crate::handlers::users::SendInvitationResult::Capped => true,
-            other => {
-                warn!(
-                    user_uuid = %user.uuid,
-                    ticket_id = ticket.id,
-                    result = %other,
-                    "Failed to send guest ticket confirmation email"
-                );
-                false
-            }
-        }
-    } else {
-        false
-    };
+    // Best-effort record, in its own transaction so it can't undo the filing.
+    {
+        let (pool, actor) = (pool.clone(), actor.clone());
+        let is_new_guest = created.is_new_guest;
+        let email_domain = filing.email.rsplit('@').next().unwrap_or("").to_string();
+        let _ = web::block(move || {
+            let Ok(mut conn) = pool.get() else {
+                warn!(ticket_id, "Guest submission: no connection to record it");
+                return;
+            };
+            let _ =
+                session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
+                    log_guest_event(
+                        c,
+                        user_uuid,
+                        "guest_ticket_submitted",
+                        &origin,
+                        json!({
+                            "ticket_id": ticket_id,
+                            "email_domain": email_domain,
+                            "new_account": is_new_guest,
+                        }),
+                    );
+                    Ok(())
+                });
+        })
+        .await;
+    }
 
     // Only surface the ticket to techs once it's actually verified. Pending
-    // tickets skip search indexing entirely — accept_invitation picks them
+    // tickets skip search indexing entirely; accept_invitation picks them
     // up at verification time. The verified ticket reaches clients through
     // the sync pool (the repository write emits `ticket.created`).
     if !verification_required {
-        indexing_tasks::spawn_index_ticket(search_service.get_ref().clone(), ticket.clone(), None);
+        indexing_tasks::spawn_index_ticket(search, created.ticket, None);
     }
 
-    info!(
-        ticket_id = ticket.id,
-        email_sent, verification_required, "Guest ticket submitted"
-    );
+    info!(ticket_id, verification_required, "Guest ticket submitted");
 
-    if verification_required {
-        // Don't disclose the ticket id or lookup token yet — the Zendesk-
-        // style UX treats a pending ticket as "not yet submitted" from the
-        // requester's perspective. They get both once they verify.
-        let _ = email_sent;
-        Ok(check_your_email())
-    } else {
-        Ok(HttpResponse::Created().json(json!({
-            "verification_required": false,
-            "ticket_id": ticket.id,
-            "ticket_number": ticket.number,
-            "lookup_token": lookup_token.to_string(),
-            "status_url": format!("/ticket-status/{}", lookup_token),
-            "email_sent": email_sent,
-        })))
+    Ok(Filed::Ticket { ticket_id })
+}
+
+/// Queue a submission's confirmation in a savepoint of the filing's
+/// transaction: its token and its mail, or neither. `Err` says why nothing
+/// was queued.
+///
+/// Email dispatch:
+///   - verification on: send confirmation every time (the link is also the
+///     "release my pending ticket" trigger, so even Existing guests with
+///     multiple pending tickets need a fresh, working link).
+///   - verification off: only send on new accounts (no ticket-gating concern,
+///     so re-sending to returning submitters would just be noise).
+///
+/// The email itself is framed as "confirm your ticket submission" rather than
+/// the generic "welcome / invitation" copy; see
+/// EmailService::send_guest_ticket_confirmation_email. At its daily allowance
+/// nothing more is sent, which still counts as queued: the earlier link works.
+fn queue_confirmation(
+    conn: &mut DbConnection,
+    origin: &RequestOrigin,
+    created: &CreatedSubmission,
+    email: &str,
+    workspace_id: i32,
+) -> Result<(), String> {
+    use crate::handlers::users::SendInvitationResult;
+    enum NotQueued {
+        Db(diesel::result::Error),
+        Refused(String),
+    }
+    impl From<diesel::result::Error> for NotQueued {
+        fn from(e: diesel::result::Error) -> Self {
+            Self::Db(e)
+        }
+    }
+    let outcome = conn.transaction::<_, NotQueued, _>(|c| {
+        match crate::handlers::users::send_guest_ticket_confirmation(
+            c,
+            origin,
+            created.user.uuid,
+            email,
+            workspace_id,
+        ) {
+            SendInvitationResult::Success | SendInvitationResult::Capped => Ok(()),
+            other => Err(NotQueued::Refused(other.to_string())),
+        }
+    });
+    match outcome {
+        Ok(()) => Ok(()),
+        Err(NotQueued::Db(e)) => Err(e.to_string()),
+        Err(NotQueued::Refused(why)) => Err(why),
     }
 }
 
@@ -1454,9 +1641,9 @@ pub async fn upload_guest_attachment(
 /// Anything that fails validation is skipped with a warning — a stuck or
 /// missing attachment must never fail ticket creation.
 async fn claim_guest_attachments(
-    conn: &mut DbConnection,
+    pool: &Pool,
     storage: &Arc<dyn Storage>,
-    attachment_ids: &[i32],
+    attachment_ids: Vec<i32>,
     ticket_id: i32,
     comment_id: i32,
     requester_uuid: Uuid,
@@ -1470,26 +1657,38 @@ async fn claim_guest_attachments(
     // claimed. The IN list is already capped by the caller at
     // GUEST_MAX_FILES_PER_TICKET, so this scales fine. Every id here came out
     // of a verified claim token, so these filters answer "is it still
-    // claimable", not "is it yours" — that question was settled by the
-    // signature.
-    let candidates: Vec<crate::models::Attachment> =
-        match session::with_actor_context(conn, actor, |c| {
-            attachments::table
-                .filter(attachments::id.eq_any(attachment_ids))
-                .filter(attachments::comment_id.is_null())
-                .filter(attachments::uploaded_by.is_null())
-                .filter(attachments::created_at.ge(cutoff))
-                .load(c)
-        }) {
-            Ok(rows) => rows,
-            Err(e) => {
-                warn!(error = %e, ticket_id, "Failed to load guest attachments for claim");
-                return;
-            }
-        };
+    // claimable", not "is it yours"; that question was settled by the
+    // signature. The database work runs on the blocking pool.
+    let candidates = {
+        let (pool, actor) = (pool.clone(), actor.clone());
+        web::block(move || {
+            let mut conn = pool.get().map_err(|e| e.to_string())?;
+            session::with_actor_context(&mut conn, &actor, |c| {
+                attachments::table
+                    .filter(attachments::id.eq_any(&attachment_ids))
+                    .filter(attachments::comment_id.is_null())
+                    .filter(attachments::uploaded_by.is_null())
+                    .filter(attachments::created_at.ge(cutoff))
+                    .load::<crate::models::Attachment>(c)
+            })
+            .map_err(|e| e.to_string())
+        })
+        .await
+    };
+    let candidates = match candidates {
+        Ok(Ok(rows)) => rows,
+        Ok(Err(e)) => {
+            warn!(error = %e, ticket_id, "Failed to load guest attachments for claim");
+            return;
+        }
+        Err(e) => {
+            warn!(error = %e, ticket_id, "Failed to load guest attachments for claim");
+            return;
+        }
+    };
 
-    for mut att in candidates {
-        // URL looks like "/uploads/temp/<uuid>_<name>" — the storage path
+    for att in candidates {
+        // URL looks like "/uploads/temp/<uuid>_<name>"; the storage path
         // the trait wants is relative to uploads/.
         let temp_storage_path = att.url.trim_start_matches("/uploads/").to_string();
         let file_only = temp_storage_path.trim_start_matches("temp/").to_string();
@@ -1500,22 +1699,32 @@ async fn claim_guest_attachments(
             .await
         {
             Ok(_) => {
-                att.url = format!("/uploads/{new_storage_path}");
-                att.comment_id = Some(comment_id);
-                att.uploaded_by = Some(requester_uuid);
-
-                let new_url = att.url.clone();
-                let update_result = session::with_actor_context(conn, actor, |c| {
-                    crate::repository::comments::reparent_attachment(
-                        c,
-                        att.id,
-                        &new_url,
-                        comment_id,
-                        requester_uuid,
-                    )
-                });
-                if let Err(e) = update_result {
-                    warn!(error = %e, attachment_id = att.id, "Failed to update claimed attachment");
+                let new_url = format!("/uploads/{new_storage_path}");
+                let attachment_id = att.id;
+                let (pool, actor) = (pool.clone(), actor.clone());
+                let update_result = web::block(move || {
+                    let mut conn = pool.get().map_err(|e| e.to_string())?;
+                    session::with_actor_context(&mut conn, &actor, |c| {
+                        crate::repository::comments::reparent_attachment(
+                            c,
+                            attachment_id,
+                            &new_url,
+                            comment_id,
+                            requester_uuid,
+                        )
+                    })
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+                })
+                .await;
+                match update_result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        warn!(error = %e, attachment_id, "Failed to update claimed attachment")
+                    }
+                    Err(e) => {
+                        warn!(error = %e, attachment_id, "Failed to update claimed attachment")
+                    }
                 }
             }
             Err(e) => {

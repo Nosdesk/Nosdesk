@@ -147,6 +147,35 @@ fn bucket_key() -> &'static ring::hmac::Key {
     })
 }
 
+/// What work done after a request is answered needs to know about it: the
+/// client address (through [`from_http_request`]), its user agent, and the
+/// workspace its origin resolved. Owned and `Send`, so the work can leave the
+/// request behind.
+#[derive(Clone, Debug, Default)]
+pub struct RequestOrigin {
+    pub ip: Option<IpAddr>,
+    pub user_agent: Option<String>,
+    pub workspace: Option<crate::extractors::WorkspaceContext>,
+}
+
+impl RequestOrigin {
+    pub fn of(req: &actix_web::HttpRequest) -> Self {
+        use actix_web::HttpMessage as _;
+        Self {
+            ip: from_http_request(req),
+            user_agent: req
+                .headers()
+                .get("User-Agent")
+                .and_then(|h| h.to_str().ok())
+                .map(str::to_string),
+            workspace: req
+                .extensions()
+                .get::<crate::extractors::WorkspaceContext>()
+                .cloned(),
+        }
+    }
+}
+
 /// Resolve the client IP from an `actix_web::HttpRequest`.
 pub fn from_http_request(req: &actix_web::HttpRequest) -> Option<IpAddr> {
     let xff = req.headers().get(XFF_HEADER).and_then(|h| h.to_str().ok());

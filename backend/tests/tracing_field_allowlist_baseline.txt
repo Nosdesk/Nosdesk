@@ -127,7 +127,6 @@ src/handlers/files.rs filename
 src/handlers/files.rs thumbnail_url
 src/handlers/files.rs url
 src/handlers/guest.rs domain
-src/handlers/guest.rs email_sent
 src/handlers/guest.rs ip
 src/handlers/guest.rs mime
 src/handlers/guest.rs q

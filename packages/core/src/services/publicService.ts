@@ -62,18 +62,14 @@ export interface GuestAttachmentUpload {
 }
 
 /**
- * Submission response. When `verification_required` is true the ticket is
- * held in a pending-verification state and the submitter must click the
- * confirmation email link before the ticket is surfaced to techs — no
- * ticket id or lookup token is disclosed until then.
+ * Submission response (202). The same for every address: nothing in it says
+ * whether a ticket was filed, so it carries no ticket id, number or status
+ * link. `verification_required` is the workspace's setting: when true the
+ * ticket is held until the submitter follows the confirmation link.
  */
 export interface SubmitGuestTicketResponse {
   verification_required: boolean;
-  email_sent: boolean;
-  ticket_id?: number;
-  ticket_number?: number;
-  lookup_token?: string;
-  status_url?: string;
+  message: string;
 }
 
 export interface GuestTicketStatus {

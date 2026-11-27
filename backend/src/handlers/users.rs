@@ -360,26 +360,37 @@ fn prepare_invitation(
     user_uuid: Uuid,
     metadata: Option<serde_json::Value>,
 ) -> Result<PreparedInvitation, SendInvitationResult> {
+    prepare_invitation_from(
+        conn,
+        &crate::utils::client_ip::RequestOrigin::of(req),
+        user_uuid,
+        metadata,
+    )
+}
+
+/// [`prepare_invitation`] from a request's owned [`RequestOrigin`], for a
+/// caller that has answered the request already.
+///
+/// [`RequestOrigin`]: crate::utils::client_ip::RequestOrigin
+fn prepare_invitation_from(
+    conn: &mut DbConnection,
+    origin: &crate::utils::client_ip::RequestOrigin,
+    user_uuid: Uuid,
+    metadata: Option<serde_json::Value>,
+) -> Result<PreparedInvitation, SendInvitationResult> {
     let invitation_token = crate::utils::reset_tokens::ResetTokenUtils::create_reset_token(
         user_uuid,
         crate::utils::reset_tokens::TokenType::Invitation,
     );
 
-    let ip_address = crate::utils::client_ip::from_http_request(req).map(|ip| ip.to_string());
-    let user_agent = req
-        .headers()
-        .get("User-Agent")
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.to_string());
+    let ip_address = origin.ip.map(|ip| ip.to_string());
+    let user_agent = origin.user_agent.clone();
 
     // The accept page greets with the workspace the person was invited
     // into (and the inviter, when the caller passes one in `metadata`).
     let metadata = {
         let mut m = metadata.unwrap_or_else(|| serde_json::json!({}));
-        if let Some(ws) = req
-            .extensions()
-            .get::<crate::extractors::WorkspaceContext>()
-        {
+        if let Some(ws) = origin.workspace.as_ref() {
             if let Some(obj) = m.as_object_mut() {
                 obj.entry("workspace_name")
                     .or_insert_with(|| serde_json::Value::String(ws.name.clone()));
@@ -407,9 +418,9 @@ fn prepare_invitation(
     // header: a forged Host would let an attacker point the invitation link at a
     // domain they control and harvest the token. If neither a canonical origin
     // nor FRONTEND_URL is configured, refuse to send.
-    let ws_origin = req
-        .extensions()
-        .get::<crate::extractors::WorkspaceContext>()
+    let ws_origin = origin
+        .workspace
+        .as_ref()
         .and_then(|ws| ws.canonical_origin());
     let Some(base_url) = crate::utils::tenant_origin::email_link_base(ws_origin) else {
         return Err(SendInvitationResult::EmailServiceError(
@@ -483,7 +494,7 @@ pub const GUEST_CONFIRMATIONS_PER_DAY: i64 = 3;
 /// workspace.
 pub fn send_guest_ticket_confirmation(
     conn: &mut DbConnection,
-    req: &HttpRequest,
+    origin: &crate::utils::client_ip::RequestOrigin,
     user_uuid: Uuid,
     user_email: &str,
     workspace_id: i32,
@@ -499,9 +510,9 @@ pub fn send_guest_ticket_confirmation(
     if sent_today >= GUEST_CONFIRMATIONS_PER_DAY {
         return SendInvitationResult::Capped;
     }
-    let prep = match prepare_invitation(
+    let prep = match prepare_invitation_from(
         conn,
-        req,
+        origin,
         user_uuid,
         // The workspace rides along so confirming releases the request held
         // here, whatever other workspaces the account belongs to.

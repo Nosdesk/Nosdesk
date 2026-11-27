@@ -1456,3 +1456,76 @@ fn user_webhooks_and_other_members_sync_rows_carry_no_platform_role_or_dashboard
     );
     assert_eq!(data["email"], json!(person.primary));
 }
+
+/// Requester SSO by an address two accounts hold: an agent elsewhere who added
+/// it as an unverified secondary, and its owner, whose verified address it is
+/// in another case. The owner's account decides, so the owner signs in. With
+/// no owner, the squatted address is refused cleanly rather than failing.
+#[test]
+fn requester_sso_decides_on_the_account_an_address_stands_for() {
+    use backend::repository::requester_identities::{resolve, Assertion, IdentityKey, Refused};
+    let fx = Fixture::new();
+    let squatter = fx.account("Agent Elsewhere", &[]);
+    run_in_workspace(&fx.pool, REF, fx.a(), |c| {
+        add_membership(
+            c,
+            fx.a(),
+            squatter.uuid,
+            "agent",
+            SeatWriteAuthority::ControlPlane,
+        )
+    })
+    .expect("agent seat");
+    let owner = fx.account("Address Owner", &[]);
+    let tag = Uuid::new_v4().simple().to_string();
+    let owned = format!("owned-{tag}@victim.test");
+    let squatted = format!("squatted-{tag}@victim.test");
+    fx.read(|c| {
+        for (user, email, is_verified) in [
+            (squatter.uuid, owned.clone(), false),
+            (owner.uuid, owned.to_uppercase(), true),
+            (squatter.uuid, squatted.clone(), false),
+        ] {
+            diesel::insert_into(user_emails::table)
+                .values(&NewUserEmail {
+                    user_uuid: user,
+                    email,
+                    email_type: "work".to_string(),
+                    is_primary: false,
+                    is_verified,
+                    source: Some("manual".to_string()),
+                })
+                .execute(c)?;
+        }
+        Ok(())
+    });
+    let domains = vec!["victim.test".to_string()];
+    let sign_in = |email: &str, sub: &str| {
+        let keys = [IdentityKey {
+            provider_type: "oidc:https://idp.example".to_string(),
+            external_id: sub.to_string(),
+        }];
+        run_in_workspace(&fx.pool, REF, fx.b(), |c| {
+            resolve(
+                c,
+                fx.b(),
+                &domains,
+                &Assertion {
+                    keys: &keys,
+                    email: Some(email),
+                    email_verified: Some(true),
+                    name: Some("Someone"),
+                    via: "test",
+                },
+            )
+        })
+        .expect("resolve")
+    };
+
+    assert_eq!(sign_in(&owned, "sub-owner"), Ok(owner.uuid));
+    assert_eq!(
+        sign_in(&squatted, "sub-stranger"),
+        Err(Refused::StaffElsewhere)
+    );
+    assert!(fx.identities(squatter.uuid).is_empty(), "not linked");
+}

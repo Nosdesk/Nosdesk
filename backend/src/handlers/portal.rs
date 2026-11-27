@@ -516,8 +516,11 @@ pub(crate) fn spawn_sign_in_link(pool: Pool, ctx: WorkspaceContext, email: Strin
 }
 
 /// Email a sign-in link (and code) to the member of `ctx`'s workspace with
-/// `email`, at most five an hour. Does nothing, silently, for an address with
-/// no member here: callers answer the same way either way.
+/// `email`, at most five an hour, at that address. The address may be the
+/// account's primary or a verified secondary, in any case (the rule the guest
+/// form's lookup uses), and is recorded on the token as `sent_to` so signing
+/// in proves that address and no other. Does nothing, silently, for an
+/// address with no member here: callers answer the same way either way.
 pub(crate) fn send_sign_in_link(pool: &Pool, ctx: &WorkspaceContext, email: &str) {
     let email = email.trim().to_lowercase();
     if email.is_empty() || !email.contains('@') {
@@ -531,9 +534,10 @@ pub(crate) fn send_sign_in_link(pool: &Pool, ctx: &WorkspaceContext, email: &str
 
     // Resolve a member of THIS workspace with that email; bail (uniformly) if
     // there is none.
-    let user = match crate::repository::users::get_user_by_email(&email, &mut conn) {
-        Ok(u) => u,
-        Err(_) => return,
+    let user = match crate::repository::user_helpers::account_by_trusted_address(&email, &mut conn)
+    {
+        Ok(Some(u)) => u,
+        _ => return,
     };
     if !crate::middleware::cookie_auth::is_workspace_member(&mut conn, ctx.workspace_id, user.uuid)
     {
@@ -565,17 +569,19 @@ pub(crate) fn send_sign_in_link(pool: &Pool, ctx: &WorkspaceContext, email: &str
         None,
         None,
         token.expires_at,
-        Some(json!({ "code_hash": sign_in_code_hash(user.uuid, &code), "attempts": 0 })),
+        Some(json!({
+            "code_hash": sign_in_code_hash(user.uuid, &code),
+            "attempts": 0,
+            "sent_to": email,
+        })),
     )
     .is_err()
     {
         return;
     }
 
-    let Some(recipient) = crate::repository::user_helpers::get_primary_email(&user.uuid, &mut conn)
-    else {
-        return;
-    };
+    // The address asked for: it is one of theirs, and the one they can read.
+    let recipient = email.clone();
 
     // Link base is the workspace's own canonical origin (the portal host), so
     // the emailed link lands back on the same origin the request came from.
@@ -623,6 +629,28 @@ pub(crate) fn send_sign_in_link(pool: &Pool, ctx: &WorkspaceContext, email: &str
     );
 }
 
+/// The address a sign-in token was sent to; `None` on one minted before
+/// tokens recorded it.
+fn sent_to(metadata: Option<&serde_json::Value>) -> Option<String> {
+    metadata?.get("sent_to")?.as_str().map(str::to_string)
+}
+
+/// Mark verified the address a sign-in proved: the one its token was sent to,
+/// or the primary for a token from before tokens recorded it (they were all
+/// sent to the primary).
+fn mark_signed_in_address_verified(
+    conn: &mut crate::db::DbConnection,
+    user_uuid: uuid::Uuid,
+    sent_to: Option<&str>,
+) -> Result<usize, diesel::result::Error> {
+    match sent_to {
+        Some(address) => {
+            crate::repository::user_emails::mark_address_verified(conn, &user_uuid, address)
+        }
+        None => crate::repository::user_emails::mark_primary_verified(conn, &user_uuid),
+    }
+}
+
 /// `GET /api/portal/auth/callback?token=…` (portal origin, unauthenticated).
 /// Consumes a single-use sign-in token, confirms the subject is a member of the
 /// origin's workspace, and establishes the portal session, redirecting to the
@@ -639,6 +667,14 @@ pub async fn magic_link_callback(
         Ok(c) => c,
         Err(_) => return Err(ApiError::Internal("Database connection failed".into())),
     };
+
+    // The address the link was sent to, read before the token is spent.
+    let sent_to = crate::repository::reset_tokens::find_token_by_hash(
+        &mut conn,
+        &ResetTokenUtils::hash_token(&query.token),
+    )
+    .ok()
+    .and_then(|t| sent_to(t.metadata.as_ref()));
 
     // Single-use: the token is claimed (marked used) atomically here.
     let user_uuid = match crate::repository::reset_tokens::validate_and_consume_token(
@@ -664,7 +700,7 @@ pub async fn magic_link_callback(
 
     // Following the emailed link proves the address, as confirming a guest
     // submission does. Best-effort: the sign-in doesn't depend on it.
-    if let Err(e) = crate::repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
+    if let Err(e) = mark_signed_in_address_verified(&mut conn, user.uuid, sent_to.as_deref()) {
         tracing::warn!(user_uuid = %user.uuid, error = ?e, "portal sign-in: could not mark email verified");
     }
 
@@ -817,7 +853,9 @@ pub async fn sign_in_with_code(
         Ok(c) => c,
         Err(_) => return Err(ApiError::Internal("Database connection failed".into())),
     };
-    let Ok(user) = crate::repository::users::get_user_by_email(&email, &mut conn) else {
+    let Ok(Some(user)) =
+        crate::repository::user_helpers::account_by_trusted_address(&email, &mut conn)
+    else {
         return invalid();
     };
     if !crate::middleware::cookie_auth::is_workspace_member(&mut conn, ctx.workspace_id, user.uuid)
@@ -860,7 +898,11 @@ pub async fn sign_in_with_code(
         Ok(Some(_)) => {}
         _ => return invalid(),
     }
-    if let Err(e) = crate::repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
+    if let Err(e) = mark_signed_in_address_verified(
+        &mut conn,
+        user.uuid,
+        sent_to(token.metadata.as_ref()).as_deref(),
+    ) {
         tracing::warn!(user_uuid = %user.uuid, error = ?e, "sign-in code: could not mark email verified");
     }
     let session = mint_portal_session(

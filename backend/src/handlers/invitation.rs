@@ -173,17 +173,31 @@ pub async fn accept_invitation(
         ));
     }
 
-    // Validate and consume the invitation token
-    let user_uuid = match repository::reset_tokens::validate_and_consume_token(
+    // A guest confirmation (the request form's link, where local passwords
+    // exist) is checked now and spent only once its held request is released
+    // in the workspace it names, as `confirm_guest_submission` does, so a
+    // failed release leaves the link usable. Any other invitation, and a
+    // guest confirmation already used or expired, is spent (or refused) here,
+    // before the password is written, with the same answer.
+    let guest = repository::reset_tokens::find_token_by_hash(
         &mut conn,
-        &request_data.token,
-        TokenType::Invitation.as_str(),
-    ) {
-        Ok(uuid) => uuid,
-        Err(e) => {
-            warn!("Invalid invitation token: {}", e);
-            return Ok(errors::bad_request(e));
-        }
+        &crate::utils::reset_tokens::ResetTokenUtils::hash_token(&request_data.token),
+    )
+    .ok()
+    .filter(|token| is_guest_confirmation(token) && usable_invitation(token));
+    let user_uuid = match &guest {
+        Some(token) => token.user_uuid,
+        None => match repository::reset_tokens::validate_and_consume_token(
+            &mut conn,
+            &request_data.token,
+            TokenType::Invitation.as_str(),
+        ) {
+            Ok(uuid) => uuid,
+            Err(e) => {
+                warn!("Invalid invitation token: {}", e);
+                return Ok(errors::bad_request(e));
+            }
+        },
     };
 
     // Get the user
@@ -207,20 +221,6 @@ pub async fn accept_invitation(
         }
     };
 
-    // Update the user's password hash in user_auth_identities
-    use crate::schema::user_auth_identities;
-    use diesel::prelude::*;
-
-    // First, check if a local auth identity already exists
-    let existing_identity: Option<i32> = user_auth_identities::table
-        .filter(user_auth_identities::user_uuid.eq(&user.uuid))
-        .filter(user_auth_identities::provider_type.eq("local"))
-        .select(user_auth_identities::id)
-        .first(&mut conn)
-        .optional()
-        .ok()
-        .flatten();
-
     // Hosted disables local passwords, so accepting an invitation to set one is
     // not applicable there (staff are control-plane seats, requesters use the
     // portal). Fail cleanly rather than 500 inside the credential writes below.
@@ -228,47 +228,55 @@ pub async fn accept_invitation(
         return Ok(errors::local_auth_disabled());
     }
 
-    if existing_identity.is_some() {
-        // Update existing local auth identity
-        if let Err(e) = repository::user_auth_identities::update_local_password_hash(
-            &mut conn,
-            &user.uuid,
-            &password_hash,
-        ) {
-            error!("Failed to update password hash for invitation: {:?}", e);
-            return Err(ApiError::Internal("Error setting password".into()));
+    match &guest {
+        Some(token) => {
+            // The password and the confirmation commit together, so a failed
+            // release sets no password either.
+            let mut failure = None;
+            let committed =
+                diesel::Connection::transaction::<_, diesel::result::Error, _>(&mut conn, |c| {
+                    let done = store_local_password(c, &user, &password_hash).and_then(|()| {
+                        complete_verification(
+                            &db_pool,
+                            c,
+                            &search_service,
+                            &user,
+                            Completion::GuestPasswordSet,
+                            submitted_in(token),
+                        )
+                    });
+                    done.map_err(|e| {
+                        failure = Some(e);
+                        diesel::result::Error::RollbackTransaction
+                    })
+                });
+            if let Err(e) = committed {
+                return Err(failure.unwrap_or_else(|| {
+                    error!(error = %e, "Guest confirmation with a password failed");
+                    ApiError::Internal("Failed to confirm submission".into())
+                }));
+            }
+            if let Err(e) = repository::reset_tokens::validate_and_consume_token(
+                &mut conn,
+                &request_data.token,
+                TokenType::Invitation.as_str(),
+            ) {
+                // A concurrent accept claimed it first; the release already happened.
+                info!(user_uuid = %user.uuid, error = %e, "Guest confirmation token already claimed");
+            }
         }
-    } else {
-        // Create new local auth identity
-        let user_email = repository::user_helpers::get_primary_email(&user.uuid, &mut conn)
-            .unwrap_or_else(|| format!("user-{}", user.uuid));
-
-        let auth_identity = crate::models::NewUserAuthIdentity {
-            user_uuid: user.uuid,
-            provider_type: "local".to_string(),
-            external_id: user_email.clone(),
-            email: Some(user_email.clone()),
-            metadata: None,
-            password_hash: Some(password_hash.clone()),
-            workspace_id: None,
-        };
-
-        if let Err(e) =
-            repository::user_auth_identities::create_local_identity(auth_identity, &mut conn)
-        {
-            error!("Failed to create auth identity for invitation: {:?}", e);
-            return Err(ApiError::Internal("Error setting password".into()));
+        None => {
+            store_local_password(&mut conn, &user, &password_hash)?;
+            complete_verification(
+                &db_pool,
+                &mut conn,
+                &search_service,
+                &user,
+                Completion::PasswordSet,
+                None,
+            )?;
         }
     }
-
-    complete_verification(
-        &db_pool,
-        &mut conn,
-        &search_service,
-        &user,
-        Completion::PasswordSet,
-        None,
-    )?;
 
     // Log security event for invitation acceptance
     if let Err(e) =
@@ -291,6 +299,62 @@ pub async fn accept_invitation(
     }))
 }
 
+/// Set `user`'s local password to `password_hash`, updating their local
+/// identity or creating it.
+fn store_local_password(
+    conn: &mut DbConnection,
+    user: &crate::models::User,
+    password_hash: &str,
+) -> Result<(), ApiError> {
+    // Update the user's password hash in user_auth_identities
+    use crate::schema::user_auth_identities;
+    use diesel::prelude::*;
+
+    // First, check if a local auth identity already exists
+    let existing_identity: Option<i32> = user_auth_identities::table
+        .filter(user_auth_identities::user_uuid.eq(&user.uuid))
+        .filter(user_auth_identities::provider_type.eq("local"))
+        .select(user_auth_identities::id)
+        .first(conn)
+        .optional()
+        .ok()
+        .flatten();
+
+    if existing_identity.is_some() {
+        // Update existing local auth identity
+        if let Err(e) = repository::user_auth_identities::update_local_password_hash(
+            conn,
+            &user.uuid,
+            password_hash,
+        ) {
+            error!("Failed to update password hash for invitation: {:?}", e);
+            return Err(ApiError::Internal("Error setting password".into()));
+        }
+    } else {
+        // Create new local auth identity
+        let user_email = repository::user_helpers::get_primary_email(&user.uuid, conn)
+            .unwrap_or_else(|| format!("user-{}", user.uuid));
+
+        let auth_identity = crate::models::NewUserAuthIdentity {
+            user_uuid: user.uuid,
+            provider_type: "local".to_string(),
+            external_id: user_email.clone(),
+            email: Some(user_email.clone()),
+            metadata: None,
+            password_hash: Some(password_hash.to_string()),
+            workspace_id: None,
+        };
+
+        if let Err(e) = repository::user_auth_identities::create_local_identity(auth_identity, conn)
+        {
+            error!("Failed to create auth identity for invitation: {:?}", e);
+            return Err(ApiError::Internal("Error setting password".into()));
+        }
+    }
+
+    Ok(())
+}
+
 /// Confirm a guest ticket submission from the emailed link, without setting a
 /// password. Hosted has no local credentials, so the password step of
 /// [`accept_invitation`] can't run there; confirming the address is what
@@ -311,30 +375,23 @@ pub async fn confirm_guest_submission(
     let token_hash = crate::utils::reset_tokens::ResetTokenUtils::hash_token(&request_data.token);
     let token = repository::reset_tokens::find_token_by_hash(&mut conn, &token_hash)
         .map_err(|_| invalid())?;
-    let expires_at = chrono::DateTime::<Utc>::from_naive_utc_and_offset(token.expires_at, Utc);
-    let is_guest = token
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("source"))
-        .and_then(|s| s.as_str())
-        == Some("guest_ticket_submission");
-    if token.token_type != TokenType::Invitation.as_str()
-        || token.is_used
-        || crate::utils::reset_tokens::ResetTokenUtils::is_token_expired(expires_at)
-        || !is_guest
-    {
+    if !is_guest_confirmation(&token) || !usable_invitation(&token) {
         return Err(invalid());
     }
 
     let user = repository::get_user_by_uuid(&token.user_uuid, &mut conn).map_err(|_| invalid())?;
     // The workspace whose form sent the confirmation. A reused account can
     // hold seats in several, and its held request is in this one.
-    let submitted_in = token
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("workspace_id"))
-        .and_then(serde_json::Value::as_i64)
-        .and_then(|id| i32::try_from(id).ok());
+    let submitted_in = submitted_in(&token);
+    // Redeemed on another workspace's origin, the link would release there and
+    // sign in here; it is refused as any other bad link is.
+    let origin_workspace = http_request
+        .extensions()
+        .get::<crate::extractors::WorkspaceContext>()
+        .map(|ctx| ctx.workspace_id);
+    if matches!((submitted_in, origin_workspace), (Some(held), Some(here)) if held != here) {
+        return Err(invalid());
+    }
 
     let released = complete_verification(
         &db_pool,
@@ -405,6 +462,36 @@ pub async fn confirm_guest_submission(
     }))
 }
 
+/// Whether `token` is a request form's confirmation (rather than a staff or
+/// requester invitation).
+fn is_guest_confirmation(token: &crate::models::ResetToken) -> bool {
+    token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("source"))
+        .and_then(|s| s.as_str())
+        == Some("guest_ticket_submission")
+}
+
+/// An unused, unexpired invitation token.
+fn usable_invitation(token: &crate::models::ResetToken) -> bool {
+    let expires_at = chrono::DateTime::<Utc>::from_naive_utc_and_offset(token.expires_at, Utc);
+    token.token_type == TokenType::Invitation.as_str()
+        && !token.is_used
+        && !crate::utils::reset_tokens::ResetTokenUtils::is_token_expired(expires_at)
+}
+
+/// The workspace a guest confirmation's form is in; `None` on one minted
+/// before confirmations recorded it.
+fn submitted_in(token: &crate::models::ResetToken) -> Option<i32> {
+    token
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("workspace_id"))
+        .and_then(serde_json::Value::as_i64)
+        .and_then(|id| i32::try_from(id).ok())
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Completion {
     /// Invitation accepted with a new local password.
@@ -413,6 +500,19 @@ enum Completion {
     /// point of the request, so a failed release is an error the caller
     /// surfaces (the token is still unclaimed and the link can be retried).
     GuestConfirmed,
+    /// Guest submission confirmed by setting a local password: both of the
+    /// above.
+    GuestPasswordSet,
+}
+
+impl Completion {
+    fn sets_password(self) -> bool {
+        matches!(self, Self::PasswordSet | Self::GuestPasswordSet)
+    }
+
+    fn releases_a_guest_request(self) -> bool {
+        matches!(self, Self::GuestConfirmed | Self::GuestPasswordSet)
+    }
 }
 
 /// Steps shared by every token-verified acceptance, returning any guest
@@ -427,10 +527,13 @@ fn complete_verification(
     completion: Completion,
     workspace: Option<i32>,
 ) -> Result<Vec<ReleasedTicket>, ApiError> {
-    // Pre-session (token-verified) flow: resolve the audit workspace once
-    // (the one a guest confirmation names, else the user's primary
-    // membership), then thread it through the audited
-    // writes below (users.password_changed_at and the ticket release). The
+    // Pre-session (token-verified) flow: resolve the audit workspace once,
+    // then thread it through the audited writes below
+    // (users.password_changed_at, the seat and the ticket release). A guest
+    // confirmation names its form's workspace, on the passwordless and the
+    // password path alike, and its request is held there; the user's primary
+    // membership stands in only for a staff or requester invitation, or a
+    // confirmation minted before confirmations named one. The
     // lookup reads workspace_members (RLS-isolated) and is cross-tenant here
     // (token-verified, no request workspace pinned), so it runs elevated;
     // otherwise the runtime role reads no membership and the accept 500s.
@@ -457,10 +560,71 @@ fn complete_verification(
     };
     let actor = crate::sync::actor::ActorContext::user_at_workspace(user.uuid, workspace_id);
 
+    // A guest confirmation is one transaction: the password's timestamp,
+    // the membership stamp, the verified address, the seat and the release.
+    // A failure changes nothing, so the address isn't left verified with its
+    // request still held, and the link can be followed again.
+    let released = if completion.releases_a_guest_request() {
+        crate::sync::session::with_actor_context(conn, &actor, |c| {
+            if completion.sets_password() {
+                repository::users::set_password_changed_at(c, &user.uuid, Utc::now().naive_utc())?;
+            }
+            repository::workspaces::mark_memberships_accepted(c, user.uuid)?;
+            repository::user_emails::mark_primary_verified(c, &user.uuid)?;
+            // A reused account that wrote to this workspace's form from a seat
+            // held elsewhere is seated here, now that the address is proven,
+            // so the released request's requester is a member when its
+            // `ticket.created` goes out and a portal session can be minted.
+            repository::workspaces::join_as_requester(c, workspace_id, user.uuid)?;
+            repository::tickets::verify_pending_tickets_for_user(c, user.uuid)
+        })
+        .map_err(|e| {
+            warn!(user_uuid = %user.uuid, error = %e, "Failed to confirm guest submission");
+            ApiError::Internal("Failed to confirm submission".into())
+        })?
+    } else {
+        accept_invitation_steps(conn, &actor, workspace_id, user, completion)
+    };
+
+    // Each newly-verified ticket goes to the search index so techs pick it
+    // up immediately; the same side-effects that would have fired at submit
+    // time for a non-gated ticket. Released tickets reach clients through
+    // the sync pool (the repository write emits `ticket.created`), and the
+    // rules engine runs on them then.
+    if !released.is_empty() {
+        info!(
+            user_uuid = %user.uuid,
+            count = released.len(),
+            "Released pending guest tickets on invitation acceptance"
+        );
+    }
+    Ok(released
+        .into_iter()
+        .map(|ticket| {
+            let out = ReleasedTicket {
+                id: ticket.id,
+                number: ticket.number,
+            };
+            indexing_tasks::spawn_index_ticket(search_service.get_ref().clone(), ticket, None);
+            out
+        })
+        .collect())
+}
+
+/// A staff or requester invitation's accept steps, each best-effort as it
+/// always was: the password's timestamp, the membership stamp, the verified
+/// address, the seat, and any guest tickets the person had waiting.
+fn accept_invitation_steps(
+    conn: &mut DbConnection,
+    actor: &crate::sync::actor::ActorContext,
+    workspace_id: i32,
+    user: &crate::models::User,
+    completion: Completion,
+) -> Vec<crate::models::Ticket> {
     // Update password_changed_at timestamp in users table
-    if completion == Completion::PasswordSet {
+    if completion.sets_password() {
         let now = Utc::now().naive_utc();
-        if let Err(e) = crate::sync::session::with_actor_context(conn, &actor, |c| {
+        if let Err(e) = crate::sync::session::with_actor_context(conn, actor, |c| {
             repository::users::set_password_changed_at(c, &user.uuid, now)
         }) {
             warn!("Failed to update password_changed_at: {:?}", e);
@@ -473,7 +637,7 @@ fn complete_verification(
     // is display-only (the 403 membership gate checks row existence,
     // not this column), so a best-effort failure here doesn't block the
     // accept. Audited table, so route through with_actor_context.
-    if let Err(e) = crate::sync::session::with_actor_context(conn, &actor, |c| {
+    if let Err(e) = crate::sync::session::with_actor_context(conn, actor, |c| {
         repository::workspaces::mark_memberships_accepted(c, user.uuid)
     }) {
         warn!("Failed to stamp workspace membership accepted_at: {:?}", e);
@@ -486,50 +650,16 @@ fn complete_verification(
         // Don't fail the request for this
     }
 
-    // Release any guest-submission tickets that were waiting on this
-    // verification. Each newly-verified ticket is pushed into the live SSE
-    // stream and the search index so techs pick it up immediately — the
-    // same side-effects that would have fired at submit time for a
-    // non-gated ticket.
-    let mut released_tickets = Vec::new();
-    match crate::sync::session::with_actor_context(conn, &actor, |c| {
+    match crate::sync::session::with_actor_context(conn, actor, |c| {
+        repository::workspaces::join_as_requester(c, workspace_id, user.uuid)?;
         repository::tickets::verify_pending_tickets_for_user(c, user.uuid)
     }) {
-        Ok(released) if !released.is_empty() => {
-            released_tickets = released
-                .iter()
-                .map(|t| ReleasedTicket {
-                    id: t.id,
-                    number: t.number,
-                })
-                .collect();
-            info!(
-                user_uuid = %user.uuid,
-                count = released.len(),
-                "Released pending guest tickets on invitation acceptance"
-            );
-            for ticket in released {
-                // Released, the ticket's `ticket.created` reaches the
-                // workspace, and the rules engine runs on it then.
-                indexing_tasks::spawn_index_ticket(
-                    search_service.get_ref().clone(),
-                    ticket.clone(),
-                    None,
-                );
-                // Released tickets reach clients through the sync pool;
-                // no discrete SSE (the event has no consumer).
-            }
-        }
-        Ok(_) => {}
+        Ok(released) => released,
         Err(e) => {
             warn!(user_uuid = %user.uuid, error = %e, "Failed to release pending tickets");
-            if completion == Completion::GuestConfirmed {
-                return Err(ApiError::Internal("Failed to confirm submission".into()));
-            }
+            Vec::new()
         }
     }
-
-    Ok(released_tickets)
 }
 
 /// A guest ticket a verification released: its id, and the number the

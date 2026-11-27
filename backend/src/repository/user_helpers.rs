@@ -603,8 +603,10 @@ pub fn find_or_provision_requester(
 ///
 /// **Seat:** a created guest gets a `member` seat in the pinned workspace; a
 /// reused one may hold seats only elsewhere. A caller that attributes a ticket
-/// to the result uses [`find_or_create_guest_requester`], or seats it with
-/// [`crate::repository::workspaces::join_as_requester`].
+/// to the result seats it with
+/// [`crate::repository::workspaces::join_as_requester`] once the ticket is
+/// live: the guest form does so when its request needs no confirmation, and
+/// the confirmation does so when it does.
 ///
 /// **Concurrency:** the lookup and insert run inside a single DB transaction.
 /// If a racing insert causes a unique-violation, the transaction retries the
@@ -642,10 +644,20 @@ pub fn find_or_create_guest_user(
             platform_role: None,
         };
 
+        // Stored lowercase, as every lookup compares it, so a later address in
+        // another case can't become a second account's. An address another
+        // account holds only as an unverified secondary (passed over above)
+        // keeps the case it came in: lowercased, it would collide with that
+        // row when the row is lowercase too, and the request would be lost.
+        let stored = if super::user_emails::holders_of(conn, email)?.is_empty() {
+            email.trim().to_lowercase()
+        } else {
+            email.trim().to_string()
+        };
         match create_user_with_email(
             new_user,
             WorkspaceRole::Member,
-            email.to_string(),
+            stored,
             false,
             Some(GUEST_EMAIL_SOURCE.to_string()),
             conn,
@@ -676,24 +688,6 @@ pub fn find_or_create_guest_user(
     })
 }
 
-/// [`find_or_create_guest_user`] for a request landing in `workspace_id` (the
-/// pinned one): a reused account that only ever wrote to another workspace is
-/// seated here as a requester, or the request's View request link and the
-/// portal sign-in refuse it. An existing seat, removed or not, is left alone.
-pub fn find_or_create_guest_requester(
-    email: &str,
-    name: &str,
-    workspace_id: i32,
-    conn: &mut DbConnection,
-    observer: Option<&dyn UserCreatedObserver>,
-) -> Result<GuestUserResult, diesel::result::Error> {
-    let result = find_or_create_guest_user(email, name, conn, observer)?;
-    if let GuestUserResult::Existing(user) = &result {
-        crate::repository::workspaces::join_as_requester(conn, workspace_id, user.uuid)?;
-    }
-    Ok(result)
-}
-
 /// Return the verified / privileged Nosdesk user that owns the given
 /// email (case-insensitive match against ANY of the user's verified
 /// emails — primary or secondary), if any.
@@ -706,58 +700,78 @@ pub fn find_or_create_guest_requester(
 /// impersonation guard: a tech with `tech@yourco.com` primary and
 /// `tech.alias@yourco.com` verified secondary should trigger the
 /// tech-forward branch from either sending address, not just the
-/// primary. A non-verified baseline-user row — typical of the guest-
-/// submission auto-provisioning path — does NOT match.
+/// primary. A non-verified baseline-user row (typical of the guest-
+/// submission auto-provisioning path) does NOT match, and neither does an
+/// unverified secondary of any account, privileged or not: anyone can add
+/// an address to their own account, so a workspace owner who added a
+/// stranger's address would otherwise be handed that stranger's mail.
 pub fn find_verified_user_by_email(
     email: &str,
     conn: &mut DbConnection,
 ) -> Result<Option<User>, diesel::result::Error> {
-    use crate::schema::{user_emails, users};
-
-    let row: Option<(User, bool)> = users::table
-        .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
-        .filter(user_emails::email.ilike(super::escape_like(email)))
-        .select((users::all_columns, user_emails::is_verified))
-        .first::<(User, bool)>(conn)
-        .optional()?;
-
-    let Some((user, is_verified)) = row else {
-        return Ok(None);
-    };
-    if is_verified {
-        return Ok(Some(user));
+    let holders = super::user_emails::holders_of(conn, email)?;
+    // A verified holder first, whichever case it was stored in.
+    if let Some(row) = holders.iter().find(|row| row.is_verified) {
+        return crate::repository::users::get_user_by_uuid(&row.user_uuid, conn).map(Some);
     }
     // A guest auto-provisioned user lands as a baseline member with
     // platform_role = 'user'. Anything privileged (platform admin /
     // audit reviewer, or agent+ in any workspace) must not be impersonated
-    // via the guest path.
-    if !is_baseline_user(conn, &user)? {
-        Ok(Some(user))
-    } else {
-        Ok(None)
+    // via the guest path, through its primary address.
+    for row in holders.iter().filter(|row| row.is_primary) {
+        let user = crate::repository::users::get_user_by_uuid(&row.user_uuid, conn)?;
+        if !is_baseline_user(conn, &user)? {
+            return Ok(Some(user));
+        }
     }
+    Ok(None)
 }
 
-/// Internal helper: load the user by email and classify them as reusable or
-/// claimed based on email-source + verification state.
+/// The one account `email` stands for, compared case-insensitively, under the
+/// rule [`lookup_for_guest`] uses: a primary or verified address of it. A
+/// verified holder wins over unverified primaries; `None` when no account
+/// holds it that way, or more than one does equally.
+pub fn account_by_trusted_address(
+    email: &str,
+    conn: &mut DbConnection,
+) -> Result<Option<User>, diesel::result::Error> {
+    let trusted: Vec<UserEmail> = super::user_emails::holders_of(conn, email)?
+        .into_iter()
+        .filter(|row| row.is_primary || row.is_verified)
+        .collect();
+    let verified: Vec<&UserEmail> = trusted.iter().filter(|row| row.is_verified).collect();
+    let rows: Vec<&UserEmail> = if verified.is_empty() {
+        trusted.iter().collect()
+    } else {
+        verified
+    };
+    let Some(first) = rows.first() else {
+        return Ok(None);
+    };
+    if rows.iter().any(|row| row.user_uuid != first.user_uuid) {
+        return Ok(None);
+    }
+    crate::repository::users::get_user_by_uuid(&first.user_uuid, conn).map(Some)
+}
+
+/// Internal helper: classify the accounts holding `email`, in any case, as
+/// reusable or claimed.
+///
+/// Only a primary or verified address stands for its account: an unverified
+/// secondary is one anyone can add to their own account, so it proves nothing
+/// and is passed over, as the directory link in `oauth_provisioning` does.
+/// Among the rest, a verified address or an account that isn't baseline
+/// claims the address; otherwise the earliest baseline account holding it as
+/// its unverified primary is reused. Case variants held by two accounts never
+/// yield a third.
 fn lookup_for_guest(
     email: &str,
     conn: &mut DbConnection,
 ) -> Result<Option<GuestUserResult>, diesel::result::Error> {
-    use crate::schema::{user_emails, users};
-
-    // Fetch the user and their primary email row together so we can classify.
-    let row: Option<(User, bool)> = users::table
-        .inner_join(user_emails::table.on(users::uuid.eq(user_emails::user_uuid)))
-        .filter(user_emails::email.ilike(super::escape_like(email)))
-        .filter(user_emails::is_primary.eq(true))
-        .select((users::all_columns, user_emails::is_verified))
-        .first::<(User, bool)>(conn)
-        .optional()?;
-
-    let Some((user, is_verified)) = row else {
-        return Ok(None);
-    };
+    let trusted: Vec<UserEmail> = super::user_emails::holders_of(conn, email)?
+        .into_iter()
+        .filter(|row| row.is_primary || row.is_verified)
+        .collect();
 
     // Reuse an existing account as the inbound/guest requester only when it is an
     // UNVERIFIED, BASELINE end-user (platform `User`, workspace role below Agent).
@@ -765,19 +779,24 @@ fn lookup_for_guest(
     // internal-IT "pre-loaded employee" case, workstream F), where the email's
     // `source` is admin/import rather than a guest submission. The source no
     // longer gates reuse; the two guards below are the impersonation envelope:
-    //   - `!is_verified`: never reuse an account that has proven email ownership.
-    //     A verified user should sign in rather than have a spoofable `From`
-    //     attributed to them.
+    //   - no verified holder: never reuse an account that has proven email
+    //     ownership. A verified user should sign in rather than have a
+    //     spoofable `From` attributed to them.
     //   - `is_baseline_user`: never reuse an agent / admin / audit reviewer.
     // So a spoofed `From` can at most open a ticket as an unverified end-user,
     // the same trust the guest channel already extends to any sender address.
-    let reusable = !is_verified && is_baseline_user(conn, &user)?;
-
-    Ok(Some(if reusable {
-        GuestUserResult::Existing(user)
-    } else {
-        GuestUserResult::EmailClaimed
-    }))
+    if trusted.iter().any(|row| row.is_verified) {
+        return Ok(Some(GuestUserResult::EmailClaimed));
+    }
+    let mut reusable = None;
+    for row in &trusted {
+        let user = crate::repository::users::get_user_by_uuid(&row.user_uuid, conn)?;
+        if !is_baseline_user(conn, &user)? {
+            return Ok(Some(GuestUserResult::EmailClaimed));
+        }
+        reusable.get_or_insert(user);
+    }
+    Ok(reusable.map(GuestUserResult::Existing))
 }
 
 /// Helper to get user with their primary email + preferences for
@@ -1263,6 +1282,177 @@ mod tests {
             GuestUserResult::Existing(u) => assert_eq!(u.uuid, created_uuid),
             _ => panic!("expected Existing on repeat submission"),
         }
+    }
+
+    /// An address row of `user` with whether it is primary and verified.
+    fn add_address(
+        conn: &mut DbConnection,
+        user: Uuid,
+        email: &str,
+        is_primary: bool,
+        is_verified: bool,
+    ) {
+        diesel::insert_into(crate::schema::user_emails::table)
+            .values(&crate::models::NewUserEmail {
+                user_uuid: user,
+                email: email.to_string(),
+                email_type: "personal".into(),
+                is_primary,
+                is_verified,
+                source: None,
+            })
+            .execute(conn)
+            .expect("insert address");
+    }
+
+    fn holder_count(conn: &mut DbConnection, email: &str) -> usize {
+        crate::repository::user_emails::holders_of(conn, email)
+            .expect("holders")
+            .len()
+    }
+
+    /// A verified secondary address, typed in another case, belongs to its
+    /// account: the guest path answers claimed and makes no second account.
+    #[test]
+    fn a_verified_secondary_in_another_case_is_claimed() {
+        let mut conn = setup_test_connection();
+        let owner = TestFixtures::create_user(&mut conn, "Alias Owner", "user");
+        add_address(&mut conn, owner.uuid, "owner@corp.example", true, true);
+        add_address(&mut conn, owner.uuid, "Alias@Corp.example", false, true);
+
+        let result =
+            find_or_create_guest_user("alias@corp.example", "Stranger", &mut conn, None).unwrap();
+        assert!(matches!(result, GuestUserResult::EmailClaimed));
+        assert_eq!(holder_count(&mut conn, "alias@corp.example"), 1);
+        assert_eq!(
+            find_verified_user_by_email("ALIAS@corp.example", &mut conn)
+                .unwrap()
+                .map(|u| u.uuid),
+            Some(owner.uuid)
+        );
+    }
+
+    /// An unverified secondary proves nothing about its account, so a
+    /// submission from it is not attributed there.
+    #[test]
+    fn an_unverified_secondary_is_not_reused() {
+        let mut conn = setup_test_connection();
+        let other = TestFixtures::create_user(&mut conn, "Someone Else", "user");
+        add_address(&mut conn, other.uuid, "other@corp.example", true, false);
+        add_address(&mut conn, other.uuid, "Claimed@Corp.example", false, false);
+
+        match find_or_create_guest_user("claimed@corp.example", "Owner", &mut conn, None).unwrap() {
+            GuestUserResult::Created(u) => assert_ne!(u.uuid, other.uuid),
+            _ => panic!("expected a new account"),
+        }
+
+        // Held in exactly the case it arrives in, the row leaves no address
+        // free to give a new account: the request is answered as claimed, as
+        // it was before addresses were stored lowercase.
+        add_address(&mut conn, other.uuid, "same@corp.example", false, false);
+        assert!(matches!(
+            find_or_create_guest_user("same@corp.example", "Owner", &mut conn, None).unwrap(),
+            GuestUserResult::EmailClaimed
+        ));
+    }
+
+    /// An unverified secondary proves nothing for a privileged account
+    /// either: an owner who adds a stranger's address doesn't get their mail.
+    #[test]
+    fn a_privileged_accounts_unverified_secondary_does_not_match_inbound_mail() {
+        let mut conn = setup_test_connection();
+        let owner = TestFixtures::create_user(&mut conn, "Owner", "admin");
+        add_address(&mut conn, owner.uuid, "owner@corp.example", true, true);
+        add_address(&mut conn, owner.uuid, "victim@other.example", false, false);
+
+        assert!(
+            find_verified_user_by_email("victim@other.example", &mut conn)
+                .unwrap()
+                .is_none()
+        );
+        // Nor does the inbound resolver hand it the owner. (Held in exactly
+        // the case it arrives in, the row leaves no address free for a new
+        // account either, so the mail finds no requester.)
+        let requester =
+            find_or_provision_requester("victim@other.example", "Victim", &mut conn, None);
+        assert!(
+            !matches!(&requester, Ok(u) if u.uuid == owner.uuid),
+            "{requester:?}"
+        );
+        // Its primary still stands for it.
+        assert_eq!(
+            find_verified_user_by_email("Owner@Corp.example", &mut conn)
+                .unwrap()
+                .map(|u| u.uuid),
+            Some(owner.uuid)
+        );
+    }
+
+    /// A sign-in resolves an account through a verified secondary, in any
+    /// case, but not through an unverified one.
+    #[test]
+    fn a_sign_in_resolves_a_primary_or_verified_address() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Signer", "user");
+        add_address(&mut conn, user.uuid, "signer@corp.example", true, false);
+        add_address(&mut conn, user.uuid, "Alias@Corp.example", false, true);
+        add_address(&mut conn, user.uuid, "maybe@corp.example", false, false);
+        let found = |c: &mut DbConnection, e: &str| {
+            account_by_trusted_address(e, c).unwrap().map(|u| u.uuid)
+        };
+        assert_eq!(found(&mut conn, "SIGNER@corp.example"), Some(user.uuid));
+        assert_eq!(found(&mut conn, "alias@corp.example"), Some(user.uuid));
+        assert_eq!(found(&mut conn, "maybe@corp.example"), None);
+    }
+
+    /// A guest's address is stored lowercase.
+    #[test]
+    fn a_guest_address_is_stored_lowercase() {
+        let mut conn = setup_test_connection();
+        let user = match find_or_create_guest_user(" Mixed@Case.example ", "Mixed", &mut conn, None)
+            .unwrap()
+        {
+            GuestUserResult::Created(u) => u,
+            _ => panic!("expected Created"),
+        };
+        assert_eq!(
+            get_primary_email(&user.uuid, &mut conn).as_deref(),
+            Some("mixed@case.example")
+        );
+    }
+
+    /// Case variants held by two baseline accounts (from before addresses
+    /// were stored lowercase) reuse the earlier one rather than a third, and
+    /// a verified variant claims the address for every case.
+    #[test]
+    fn case_variants_reuse_the_earliest_or_are_claimed() {
+        let mut conn = setup_test_connection();
+        let first = TestFixtures::create_user(&mut conn, "First", "user");
+        let second = TestFixtures::create_user(&mut conn, "Second", "user");
+        add_address(&mut conn, first.uuid, "twin@corp.example", true, false);
+        add_address(&mut conn, second.uuid, "Twin@Corp.example", true, false);
+        match find_or_create_guest_user("TWIN@corp.example", "Twin", &mut conn, None).unwrap() {
+            GuestUserResult::Existing(u) => assert_eq!(u.uuid, first.uuid),
+            _ => panic!("expected the earlier account"),
+        }
+
+        diesel::update(
+            crate::schema::user_emails::table
+                .filter(crate::schema::user_emails::email.eq("Twin@Corp.example")),
+        )
+        .set(crate::schema::user_emails::is_verified.eq(true))
+        .execute(&mut conn)
+        .unwrap();
+        assert!(matches!(
+            find_or_create_guest_user("twin@corp.example", "Twin", &mut conn, None).unwrap(),
+            GuestUserResult::EmailClaimed
+        ));
+        assert_eq!(
+            find_verified_user_by_email("twin@corp.example", &mut conn)
+                .unwrap()
+                .map(|u| u.uuid),
+            Some(second.uuid)
+        );
     }
 
     /// A long OIDC issuer must survive account creation.

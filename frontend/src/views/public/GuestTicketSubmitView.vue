@@ -20,20 +20,25 @@
       <div class="flex flex-col gap-2">
         <h1 class="text-xl font-semibold text-primary">{{ t('guest-submit-verify-title') }}</h1>
         <p class="text-sm text-secondary">
-          {{ t('guest-submit-verify-message-prefix') }}
+          {{ t('guest-submit-verify-next-prefix') }}
           <span class="text-primary font-medium">{{ submittedEmail }}</span>
-          {{ t('guest-submit-verify-message-suffix') }}
+          {{ t('guest-submit-verify-next-suffix') }}
         </p>
       </div>
       <p class="text-xs text-tertiary">
         {{ t('guest-submit-verify-spam-hint') }}
+      </p>
+      <p class="text-sm text-secondary">
+        {{ t('guest-submit-have-account-hint') }}
+        <RequesterLink to="/login" class="text-accent hover:opacity-90 font-medium">{{ t('guest-submit-sign-in') }}</RequesterLink>
       </p>
       <Button variant="secondary" @click="submitAnother">
         {{ t('guest-submit-another') }}
       </Button>
     </div>
 
-    <!-- Success state: verification not required -->
+    <!-- Success state: verification not required. It says the same for every
+         address, so it shows no ticket number or status link. -->
     <div
       v-else-if="success"
       class="bg-surface border border-default rounded-xl shadow-sm p-6 sm:p-8 flex flex-col gap-5"
@@ -43,47 +48,16 @@
           <Icon name="check" size="md" class="text-status-success-ui" />
         </div>
         <div class="flex-1 min-w-0 flex flex-col gap-1">
-          <h1 class="text-xl font-semibold text-primary">{{ t('guest-submit-success-title') }}</h1>
+          <h1 class="text-xl font-semibold text-primary">{{ t('guest-submit-received-title') }}</h1>
+          <p class="text-sm text-secondary">{{ t('guest-submit-received-message') }}</p>
           <p class="text-sm text-secondary">
-            <template v-if="success.email_sent">
-              {{ t('guest-submit-success-email-prefix') }}
-              <span class="text-primary font-medium">{{ submittedEmail }}</span>
-              {{ t('guest-submit-success-email-suffix') }}
-            </template>
-            <template v-else>
-              {{ t('guest-submit-success-no-email') }}
-            </template>
-            {{ t('guest-submit-success-reference-prefix') }}
-            <span class="text-primary font-mono font-medium">#{{ success.ticket_number ?? success.ticket_id }}</span>.
+            {{ t('guest-submit-have-account-hint') }}
+            <RequesterLink to="/login" class="text-accent hover:opacity-90 font-medium">{{ t('guest-submit-sign-in') }}</RequesterLink>
           </p>
         </div>
       </div>
 
-      <div
-        v-if="lookupEnabled && success.status_url"
-        class="rounded-lg border border-default bg-surface-alt p-4 flex flex-col gap-2"
-      >
-        <div class="text-xs font-medium text-tertiary uppercase tracking-wide">
-          {{ t('guest-submit-track-heading') }}
-        </div>
-        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-          <code class="flex-1 min-w-0 text-xs text-primary font-mono break-all">{{ statusAbsolute }}</code>
-          <Button variant="secondary" size="sm" :icon="copied ? 'check' : 'copy'" @click="copyLink">
-            {{ copied ? t('guest-submit-copied') : t('guest-submit-copy') }}
-          </Button>
-        </div>
-        <p class="text-xs text-tertiary">
-          {{ t('guest-submit-track-hint') }}
-        </p>
-      </div>
-
-      <div class="flex flex-col sm:flex-row gap-2">
-        <LinkButton
-          v-if="lookupEnabled && success.status_url"
-          :to="success.status_url"
-        >
-          {{ t('guest-submit-view-status') }}
-        </LinkButton>
+      <div>
         <Button variant="secondary" @click="submitAnother">
           {{ t('guest-submit-another-short') }}
         </Button>
@@ -283,7 +257,6 @@
 </template>
 
 <script setup lang="ts">
-import LinkButton from '@/components/common/LinkButton.vue'
 import RequesterLink from '@/components/public/RequesterLink.vue';
 import { ref, reactive, computed, onMounted, nextTick } from 'vue';
 import { solveFormChallenge, type FormChallengeSolution } from '@nosdesk/core/utils/formChallenge';
@@ -334,7 +307,6 @@ const MIN_TITLE_CHARS = 3;
 const TITLE_COUNTER_FROM = 200;
 const success = ref<SubmitGuestTicketResponse | null>(null);
 const submittedEmail = ref('');
-const copied = ref(false);
 const attachments = ref<GuestAttachmentUpload[]>([]);
 const uploading = ref(false);
 const attachmentError = ref('');
@@ -364,7 +336,6 @@ const fieldErrors = reactive<Record<FieldKey, string | null>>({
 });
 
 const enabled = computed(() => store.settings?.guest_tickets_enabled === true);
-const lookupEnabled = computed(() => store.settings?.guest_ticket_lookup_enabled === true);
 const attachmentsEnabled = computed(
   () => store.settings?.guest_ticket_attachments_enabled === true
 );
@@ -377,10 +348,6 @@ const articleSearch = computed(() =>
     : null
 );
 const requestType = ref<number | null>(null);
-const statusAbsolute = computed(() =>
-  success.value?.status_url ? `${window.location.origin}${success.value.status_url}` : ''
-);
-
 const contentWidth = computed(() => {
   if (loading.value || !enabled.value || success.value) return NARROW_WIDTH;
   return FORM_WIDTH;
@@ -498,8 +465,6 @@ async function reportSubmitError(e: unknown): Promise<void> {
     } else if (e.response?.status === 403) {
       error.value = t('guest-submit-error-disabled');
       await store.load(true);
-    } else if (e.response?.status === 409) {
-      error.value = t('guest-submit-error-account-exists');
     } else {
       const data = e.response?.data as { error?: string } | undefined;
       error.value = data?.error ?? t('guest-submit-error-generic');
@@ -509,16 +474,6 @@ async function reportSubmitError(e: unknown): Promise<void> {
   }
   // A new challenge for the next attempt (each one works once).
   prepareChallenge();
-}
-
-async function copyLink() {
-  try {
-    await navigator.clipboard.writeText(statusAbsolute.value);
-    copied.value = true;
-    window.setTimeout(() => (copied.value = false), 2000);
-  } catch {
-    // clipboard unavailable
-  }
 }
 
 function submitAnother() {
