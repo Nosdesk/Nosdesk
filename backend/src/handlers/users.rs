@@ -488,10 +488,11 @@ pub const GUEST_CONFIRMATIONS_PER_DAY: i64 = 3;
 
 /// Queue the request form's confirmation email: the same invitation token and
 /// accept flow as [`send_user_invitation`], fixed submission-themed copy, and a
-/// "stop these emails" link. At most [`GUEST_CONFIRMATIONS_PER_DAY`] per
-/// address; beyond that nothing is sent (the caller answers the same way).
-/// Queued, so the suppression list applies. `conn` must be pinned to the
-/// workspace.
+/// "stop these emails" link. Nothing is sent (the caller answers the same way)
+/// to an address on the workspace's suppression list, which the stop link and
+/// its `List-Unsubscribe` one-click add it to, or beyond
+/// [`GUEST_CONFIRMATIONS_PER_DAY`] for the address. Every check runs before a
+/// token is stored. `conn` must be pinned to the workspace.
 pub fn send_guest_ticket_confirmation(
     conn: &mut DbConnection,
     origin: &crate::utils::client_ip::RequestOrigin,
@@ -499,6 +500,13 @@ pub fn send_guest_ticket_confirmation(
     user_email: &str,
     workspace_id: i32,
 ) -> SendInvitationResult {
+    // Transactional mail skips the list at send time (a forged bounce must not
+    // lock anyone out of their account), so this one checks it here. A failed
+    // read sends nothing.
+    if repository::email_suppressions::is_suppressed(conn, workspace_id, user_email).unwrap_or(true)
+    {
+        return SendInvitationResult::Capped;
+    }
     let since = chrono::Utc::now() - chrono::Duration::hours(24);
     let sent_today = repository::outbound_emails::count_recent_to(
         conn,

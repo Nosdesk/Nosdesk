@@ -15,6 +15,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+mod guest_confirmation_hosted;
 mod hosted_admin_workspaces_gate;
 mod hosted_docs_export;
 mod hosted_file_access;
