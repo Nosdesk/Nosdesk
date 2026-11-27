@@ -96,6 +96,44 @@ pub fn users_with_live_tokens(
 }
 
 // sync-audit-only: Sessions / auth tokens (covered by security_events)
+/// Name `ticket_id` on the newest unspent, unexpired request-form confirmation
+/// for `user_uuid` from `workspace_id` that was sent to `address` (compared
+/// case-insensitively) and names its tickets, so following that link releases
+/// this request too. `false` when there is no such confirmation. Locks the row
+/// it adds to until the caller's transaction ends.
+pub fn name_ticket_on_outstanding_confirmation(
+    conn: &mut DbConnection,
+    user_uuid: Uuid,
+    workspace_id: i32,
+    address: &str,
+    ticket_id: i32,
+) -> QueryResult<bool> {
+    use diesel::sql_types::{Integer, Text, Uuid as SqlUuid};
+    let updated = diesel::sql_query(
+        "UPDATE reset_tokens \
+         SET metadata = jsonb_set(metadata, '{ticket_ids}', \
+             (metadata->'ticket_ids') || to_jsonb($4::int)) \
+         WHERE token_hash = ( \
+             SELECT token_hash FROM reset_tokens \
+             WHERE user_uuid = $1 AND token_type = $5 \
+               AND NOT is_used AND expires_at > now() \
+               AND metadata->>'source' = 'guest_ticket_submission' \
+               AND metadata->>'workspace_id' = $2::text \
+               AND jsonb_typeof(metadata->'ticket_ids') = 'array' \
+               AND lower(metadata->>'sent_to') = lower($3) \
+             ORDER BY created_at DESC, token_hash \
+             LIMIT 1 FOR UPDATE)",
+    )
+    .bind::<SqlUuid, _>(user_uuid)
+    .bind::<Integer, _>(workspace_id)
+    .bind::<Text, _>(address.trim())
+    .bind::<Integer, _>(ticket_id)
+    .bind::<Text, _>(crate::utils::reset_tokens::TokenType::Invitation.as_str())
+    .execute(conn)?;
+    Ok(updated > 0)
+}
+
+// sync-audit-only: Sessions / auth tokens (covered by security_events)
 /// Claim a token by hash if it is still unused and unexpired, in one UPDATE,
 /// so two concurrent uses can't both succeed. `None` when it was already spent.
 pub fn claim_unused(

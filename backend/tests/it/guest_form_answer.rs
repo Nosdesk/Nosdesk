@@ -446,3 +446,143 @@ async fn a_held_request_without_its_confirmation_is_not_filed() {
     assert_eq!(f.tickets_for("unlinked@example.com"), 0);
     assert_eq!(f.confirmations_to("unlinked@example.com"), 0);
 }
+
+impl Form {
+    /// `n` request-form confirmations to `to` from workspace A today, as A's
+    /// form would have queued them.
+    fn confirmed_elsewhere(&self, to: &str, n: usize) {
+        for i in 0..n {
+            run_in_workspace(&self.pool, REF, self.a, |c| {
+                backend::repository::outbound_emails::enqueue(
+                    c,
+                    backend::models::NewOutboundEmail {
+                        channel_id: None,
+                        ticket_id: None,
+                        comment_id: None,
+                        recipient: to.into(),
+                        subject: "Confirm".into(),
+                        body_text: "Confirm".into(),
+                        body_html: None,
+                        message_id: format!("elsewhere-{i}@nosdesk.test"),
+                        in_reply_to: None,
+                        references_list: vec![],
+                        headers_json: serde_json::json!({}),
+                        correlation_id: None,
+                        idempotency_key: Some(format!(
+                            "{}elsewhere-{to}-{i}",
+                            backend::services::transactional_email::GUEST_CONFIRMATION_KEY_PREFIX
+                        )),
+                        sender_identity: backend::models::outbound_email_sender_identity::WORKSPACE
+                            .into(),
+                        mail_class: backend::models::outbound_email_mail_class::TRANSACTIONAL
+                            .into(),
+                    },
+                )
+                .map(|_| ())
+            })
+            .expect("seed a confirmation");
+        }
+    }
+
+    /// The confirmation link's token in B's newest confirmation to `to`.
+    fn confirmation_token(&self, to: &str) -> String {
+        use backend::schema::outbound_emails as o;
+        let body: String = o::table
+            .filter(o::workspace_id.eq(self.b))
+            .filter(diesel::dsl::sql::<diesel::sql_types::Bool>(&format!(
+                "lower(recipient) = lower('{to}')"
+            )))
+            .order(o::id.desc())
+            .select(o::body_text)
+            .first(&mut self.superuser())
+            .expect("confirmation");
+        let at =
+            body.find("accept-invitation?token=").expect("link") + "accept-invitation?token=".len();
+        body[at..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .collect()
+    }
+
+    /// B's tickets for `email`, by verification state.
+    fn states_for(&self, email: &str) -> Vec<Option<String>> {
+        #[derive(QueryableByName)]
+        struct State {
+            #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+            verification_state: Option<String>,
+        }
+        diesel::sql_query(
+            "SELECT t.verification_state FROM tickets t JOIN user_emails e \
+             ON e.user_uuid = t.requester_uuid \
+             WHERE t.workspace_id = $1 AND lower(e.email) = lower($2) ORDER BY t.id",
+        )
+        .bind::<diesel::sql_types::Integer, _>(self.b)
+        .bind::<diesel::sql_types::Text, _>(email)
+        .load::<State>(&mut self.superuser())
+        .expect("states")
+        .into_iter()
+        .map(|s| s.verification_state)
+        .collect()
+    }
+}
+
+/// A request whose confirmation is held (here, the address's daily cap) is
+/// named on the link the address was already sent from this workspace, so
+/// that link releases it too.
+#[actix_web::test]
+async fn a_request_held_at_the_cap_is_released_by_the_earlier_link() {
+    let f = form(true);
+    let to = "capped@example.com";
+    f.confirmed_elsewhere(to, 2);
+    f.submit(to).await;
+    f.until("the first request and its link", || {
+        f.tickets_for(to) == 1 && f.confirmations_to(to) == 3
+    })
+    .await;
+    let raw = f.confirmation_token(to);
+    f.submit(to).await;
+    f.until("the held request", || f.tickets_for(to) == 2).await;
+    assert_eq!(f.confirmations_to(to), 3, "nothing more is sent");
+
+    let search_dir = tempfile::tempdir().expect("search dir");
+    let search = SearchService::new(search_dir.path(), &f.pool).expect("search");
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(web::Data::new(f.pool.clone()))
+            .app_data(web::Data::new(Arc::new(search)))
+            .route(
+                "/confirm-guest",
+                web::post().to(backend::handlers::invitation::confirm_guest_submission),
+            ),
+    )
+    .await;
+    let req = actix_web::test::TestRequest::post()
+        .uri("/confirm-guest")
+        .set_json(serde_json::json!({ "token": raw }))
+        .to_request();
+    assert_eq!(actix_web::test::call_service(&app, req).await.status(), 200);
+    assert_eq!(
+        f.states_for(to),
+        vec![Some("verified".to_string()), Some("verified".to_string())]
+    );
+}
+
+/// A request whose confirmation is held with no earlier link outstanding is
+/// not filed, so nothing waits on a link nobody was sent. It is answered as
+/// any other.
+#[actix_web::test]
+async fn a_request_held_with_no_earlier_link_is_not_filed() {
+    let f = form(true);
+    let (status, _, body) = f.submit("linked@example.com").await;
+    let to = "full@example.com";
+    f.confirmed_elsewhere(to, 3);
+    let answer = f.submit(to).await;
+    assert_eq!((answer.0, &answer.2), (status, &body));
+    f.until("the other request", || {
+        f.tickets_for("linked@example.com") == 1
+    })
+    .await;
+    actix_web::rt::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(f.tickets_for(to), 0);
+    assert_eq!(f.confirmations_to(to), 3);
+}
