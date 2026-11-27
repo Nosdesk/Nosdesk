@@ -142,3 +142,17 @@ async fn the_stop_link_stops_the_confirmations() {
     assert_eq!(c.confirmations(to).len(), 1, "nothing more queued in A");
     assert!(sent(&c.confirm(b, to)), "B's list is its own");
 }
+/// The cap of three a day per address holds across workspaces: two from A
+/// and one from B use it up, and B's next is held.
+#[actix_web::test]
+async fn the_daily_cap_on_one_address_counts_every_workspace() {
+    let c = cloud();
+    let (a, b) = (c.seeded.a.workspace_id, c.seeded.b.workspace_id);
+    let to = "target@victim.example";
+    assert!(sent(&c.confirm(a, to)));
+    assert!(sent(&c.confirm(a, to)));
+    assert!(sent(&c.confirm(b, to)));
+    assert!(matches!(c.confirm(b, to), SendInvitationResult::Capped));
+    assert!(matches!(c.confirm(a, to), SendInvitationResult::Capped));
+    assert_eq!(c.confirmations(to).len(), 3);
+}

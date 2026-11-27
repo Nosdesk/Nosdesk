@@ -709,6 +709,38 @@ pub fn count_recent_to(
         .get_result(conn)
 }
 
+/// Emails queued to `recipient` since `since` whose idempotency key starts
+/// with `key_prefix`, in every workspace on the deployment. A cap on one kind
+/// of mail to one address has to count all of them, or each workspace adds
+/// its own allowance. Case-insensitive on the address; every status counts.
+///
+/// Reads through the bypass role inside a savepoint that is then rolled back
+/// (as `user_helpers::is_staff_anywhere` does), so the caller's transaction
+/// carries on with its own role, actor and pin. Returns only a count.
+pub fn count_recent_to_anywhere(
+    conn: &mut DbConnection,
+    recipient: &str,
+    key_prefix: &str,
+    since: chrono::DateTime<chrono::Utc>,
+) -> QueryResult<i64> {
+    use diesel::Connection;
+    let mut count = None;
+    let outcome = conn.transaction::<(), DieselError, _>(|conn| {
+        let actor = crate::sync::actor::ActorContext::system("repository:count_recent_to_anywhere");
+        // cross-tenant: how many of one kind of mail one address got from every workspace, for a cap that must hold across them; a count only, and rolled back with the savepoint.
+        let n = crate::sync::session::with_actor_bypass_context(conn, &actor, |conn| {
+            count_recent_to(conn, recipient, key_prefix, since)
+        })?;
+        count = Some(n);
+        Err(DieselError::RollbackTransaction)
+    });
+    match (count, outcome) {
+        (Some(n), _) => Ok(n),
+        (None, Err(e)) => Err(e),
+        (None, Ok(())) => Err(DieselError::NotFound),
+    }
+}
+
 /// The Message-IDs of the latest `limit` emails in `recipient`'s thread about
 /// `ticket_id`, oldest first: the ones queued to them and the ones the ticket
 /// received. A new email to them continues it. Case-insensitive on the

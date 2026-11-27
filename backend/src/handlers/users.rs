@@ -481,9 +481,10 @@ pub async fn send_user_invitation(
     }
 }
 
-/// Confirmation emails one address gets from the request form in a day.
-/// Enough for someone who submits a few requests before confirming; a form
-/// can't be used to keep mailing an address beyond it.
+/// Confirmation emails one address gets from request forms in a day, across
+/// every workspace on the deployment. Enough for someone who submits a few
+/// requests before confirming; forms can't be used to keep mailing an address
+/// beyond it.
 pub const GUEST_CONFIRMATIONS_PER_DAY: i64 = 3;
 
 /// Queue the request form's confirmation email: the same invitation token and
@@ -507,8 +508,10 @@ pub fn send_guest_ticket_confirmation(
     {
         return SendInvitationResult::Capped;
     }
+    // Counted across every workspace on the deployment: an address gets the
+    // allowance once, however many workspaces' forms name it.
     let since = chrono::Utc::now() - chrono::Duration::hours(24);
-    let sent_today = repository::outbound_emails::count_recent_to(
+    let sent_today = repository::outbound_emails::count_recent_to_anywhere(
         conn,
         user_email,
         crate::services::transactional_email::GUEST_CONFIRMATION_KEY_PREFIX,
