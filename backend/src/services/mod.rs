@@ -41,6 +41,7 @@ pub mod step_up;
 pub mod sync_outbox;
 pub mod template_vars;
 pub mod ticket_dates;
+pub mod ticket_mail_redaction;
 pub mod ticket_plan;
 pub mod ticket_updates;
 pub mod transactional_email;

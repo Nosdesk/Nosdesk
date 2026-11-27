@@ -123,6 +123,14 @@ pub struct UpdateBrandingRequest {
     /// the built-in localized default.
     #[serde(default)]
     pub email_security_note_template: Option<String>,
+    /// Whether a requester gets "we've received your request" when one is
+    /// filed for them. Omitted = leave alone.
+    #[serde(default)]
+    pub requester_ack_enabled: Option<bool>,
+    /// Custom body for that acknowledgement, with the auto-ack's variables.
+    /// Omitted = leave alone, empty string = the built-in wording.
+    #[serde(default)]
+    pub requester_ack_template: Option<String>,
 }
 
 // GET /api/admin/branding/config - The workspace's branding settings, for the
@@ -266,6 +274,23 @@ pub async fn update_branding_config(
         }
     }
 
+    // The requester acknowledgement takes the auto-ack's variables.
+    if let Some(ref tmpl) = body.requester_ack_template {
+        if !tmpl.trim().is_empty() {
+            let unknown = crate::utils::template_variables::unknown_variables(
+                tmpl,
+                crate::utils::template_variables::AUTO_ACK_VARIABLES,
+            );
+            if !unknown.is_empty() {
+                return Err(ApiError::BadRequest(format!(
+                    "Unknown acknowledgement variables: {}. Supported: {}.",
+                    unknown.join(", "),
+                    crate::utils::template_variables::AUTO_ACK_VARIABLES.join(", ")
+                )));
+            }
+        }
+    }
+
     // Same allow-list rule for the security note. Empty / blank clears
     // back to the built-in localized default.
     if let Some(ref tmpl) = body.email_security_note_template {
@@ -308,6 +333,13 @@ pub async fn update_branding_config(
             Some(s.clone())
         }
     });
+    let requester_ack_template_change = body.requester_ack_template.as_ref().map(|s| {
+        if s.trim().is_empty() {
+            None
+        } else {
+            Some(s.clone())
+        }
+    });
 
     let update = UpdateSiteSettings {
         app_name: body.app_name.clone(),
@@ -321,6 +353,8 @@ pub async fn update_branding_config(
         channel_auto_ack_template: auto_ack_template_change,
         email_security_note_enabled: body.email_security_note_enabled,
         email_security_note_template: security_note_template_change,
+        requester_ack_enabled: body.requester_ack_enabled,
+        requester_ack_template: requester_ack_template_change,
         ..Default::default()
     };
 

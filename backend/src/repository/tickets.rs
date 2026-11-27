@@ -388,6 +388,20 @@ pub fn create_ticket_with_annotation(
     annotation: TicketCreationAnnotation,
     link_project_id: Option<i32>,
 ) -> QueryResult<Ticket> {
+    create_ticket_acknowledged(conn, new_ticket, annotation, link_project_id, true)
+}
+
+/// [`create_ticket_with_annotation`], saying whether the requester hears
+/// "we've received your request". `false` stamps `created_via.acknowledge`,
+/// which the notification deriver reads; the workspace's own setting
+/// (`site_settings.requester_ack_enabled`) applies on top.
+pub fn create_ticket_acknowledged(
+    conn: &mut DbConnection,
+    new_ticket: NewTicket,
+    annotation: TicketCreationAnnotation,
+    link_project_id: Option<i32>,
+    acknowledge: bool,
+) -> QueryResult<Ticket> {
     conn.transaction(|conn| {
         let ticket: Ticket = diesel::insert_into(tickets::table)
             .values(&new_ticket)
@@ -426,12 +440,15 @@ pub fn create_ticket_with_annotation(
         // and friends when present. Always emitted (even when all
         // annotation fields are None) so the renderer can rely on a
         // stable shape rather than probing for missing keys.
-        let created_via = json!({
+        let mut created_via = json!({
             "source": annotation.source,
             "from_email": annotation.from_email,
             "from_name": annotation.from_name,
             "subject": annotation.subject,
         });
+        if !acknowledge {
+            created_via["acknowledge"] = json!(false);
+        }
         let data = ticket_created_data(conn, &ticket, created_via)?;
         emit::record(
             conn,

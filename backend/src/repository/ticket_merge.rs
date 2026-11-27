@@ -966,7 +966,20 @@ pub fn enqueue_merge_notifications(
             body = format!("{body}\n\n{note}");
         }
         let message_id = format_outbound_message_id(destination.id, source.id, &reply_domain);
-        let subject = format_outbound_subject(destination.number, &destination.title);
+        // The destination's title is the subject, unless a stranger may have
+        // filed it and its requester hasn't proven the address since.
+        let destination_title = if crate::services::ticket_mail_redaction::ticket_mail_redaction(
+            conn,
+            destination,
+            crate::services::ticket_mail_redaction::Recipient::Address(&recipient),
+        )
+        .is_redacted()
+        {
+            ""
+        } else {
+            destination.title.as_str()
+        };
+        let subject = format_outbound_subject(destination.number, destination_title);
         let headers_json = match &reply_to {
             Some(address) => serde_json::json!({ "Reply-To": address }),
             None => serde_json::json!({}),

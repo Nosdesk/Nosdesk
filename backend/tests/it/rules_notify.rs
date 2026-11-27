@@ -511,3 +511,124 @@ async fn people_a_step_cannot_use_are_refused_at_save() {
         assert_eq!(status, StatusCode::CREATED, "{trigger}: {body}");
     }
 }
+
+/// What a stranger typed as a ticket's title and their name.
+const STRANGER_TITLE: &str = "Refund waiting at title-marker.example";
+const STRANGER_NAME: &str = "Name Marker";
+
+/// A ticket filed for `ws`'s member `via` a route nobody vouches for (an API
+/// token, as a website relaying a form uses, or the request form without
+/// confirmation): the title and the requester's name are whatever was typed.
+fn stranger_ticket(h: &Harness, ws: &WorkspaceSeed, via: &str) -> i32 {
+    diesel::update(users::table.find(ws.member_uuid))
+        .set(users::name.eq(STRANGER_NAME))
+        .execute(&mut h.db.conn())
+        .expect("name the requester");
+    h.as_admin(ws, |c| {
+        let open = backend::repository::workflow_states::default_state(c)?;
+        backend::repository::tickets::create_ticket(
+            c,
+            backend::models::NewTicket {
+                title: STRANGER_TITLE.to_string(),
+                workflow_state_id: open.id,
+                requester_uuid: Some(ws.member_uuid),
+                submitted_via: Some(via.to_string()),
+                ..Default::default()
+            },
+        )
+    })
+    .id
+}
+
+fn names_the_ticket(m: &OutboundEmail) -> bool {
+    [STRANGER_TITLE, STRANGER_NAME].iter().any(|marker| {
+        m.subject.contains(marker)
+            || m.body_text.contains(marker)
+            || m.body_html.as_deref().is_some_and(|h| h.contains(marker))
+    })
+}
+
+/// Wait for the relay, which queues a reply off the run, to queue `count`.
+async fn mail_settled(
+    h: &Harness,
+    ws: &WorkspaceSeed,
+    ticket: i32,
+    count: usize,
+) -> Vec<OutboundEmail> {
+    let mut sent = Vec::new();
+    for _ in 0..50 {
+        sent = mail(h, ws, ticket);
+        if sent.len() >= count {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    sent
+}
+
+/// On a ticket a stranger may have filed, a notify step and an automated
+/// reply name the ticket by number and leave the requester's name out until
+/// the requester proves their address; the reply's subject is "Re: [#N]".
+/// After proof they name it again.
+#[actix_rt::test]
+async fn rule_mail_about_a_strangers_ticket_names_it_once_the_address_is_proven() {
+    for via in [
+        backend::models::SUBMITTED_VIA_API,
+        backend::models::SUBMITTED_VIA_GUEST,
+    ] {
+        rule_mail_names_the_ticket_once_proven(via).await;
+    }
+}
+
+async fn rule_mail_names_the_ticket_once_proven(via: &str) {
+    let h = Harness::new();
+    let a = &h.seeded.a;
+    email(&h, a.member_uuid, "requester@example.com");
+    let agent = member(&h, a, "Sam Agent", "agent");
+    let steps = json!([
+        notify(json!({ "recipient": "requester" })),
+        { "kind": "reply", "config": {
+            "visibility": "public",
+            "body": "Hi {{customer_name}}, about {{ticket_title}}.",
+            "send_as_uuid": agent,
+        } },
+    ]);
+    h.rule(a, Spec::live(Trigger::TicketCreated, steps.clone()));
+    h.rule(a, Spec::live(Trigger::TicketUpdated, steps));
+    let ticket = stranger_ticket(&h, a, via);
+    let number: i32 = h.as_admin(a, |c| {
+        backend::repository::tickets::get_ticket_by_id(c, ticket).map(|t| t.number)
+    });
+    h.drain().await;
+
+    let sent = mail_settled(&h, a, ticket, 2).await;
+    assert_eq!(sent.len(), 2, "the notify and the relayed reply: {sent:?}");
+    for m in &sent {
+        assert_eq!(m.recipient, "requester@example.com");
+        assert!(!names_the_ticket(m), "{m:?}");
+    }
+    assert_eq!(sent[0].subject, format!("[#{number}] About #{number}"));
+    let reply = sent
+        .iter()
+        .find(|m| m.comment_id.is_some())
+        .expect("the reply");
+    assert_eq!(reply.subject, format!("Re: [#{number}]"));
+    assert!(
+        reply.body_text.contains(&format!("about #{number}")),
+        "{}",
+        reply.body_text
+    );
+
+    backend::repository::user_emails::mark_primary_verified(&mut h.db.conn(), &a.member_uuid)
+        .expect("prove the address");
+    h.set_priority(a, ticket, backend::models::TicketPriority::High);
+    h.drain().await;
+    let sent = mail_settled(&h, a, ticket, 4).await;
+    assert!(sent.len() >= 4, "{sent:?}");
+    for m in &sent[2..] {
+        assert!(
+            m.subject.contains(STRANGER_TITLE) || m.body_text.contains(STRANGER_TITLE),
+            "named after proof: {m:?}"
+        );
+    }
+}

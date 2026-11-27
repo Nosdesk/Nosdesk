@@ -210,6 +210,7 @@ mod recurring_tickets;
 mod refusals_reach_the_client;
 mod reply_sent_twice;
 mod requester_asset_visibility;
+mod requester_mail_redaction;
 mod requester_membership;
 mod retention_jobs_audit_context;
 mod route_auth_funnel_lint;

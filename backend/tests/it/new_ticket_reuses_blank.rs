@@ -202,6 +202,7 @@ fn presses_that_arrive_together_get_one_ticket() {
                             actor: &actor,
                         },
                         requester,
+                        None,
                     )? {
                         BlankTicket::Reused(t) | BlankTicket::Made(t, _) => {
                             Ok::<_, diesel::result::Error>(t.id)

@@ -18,6 +18,11 @@
 //! callers that genuinely want fire-and-forget still have the
 //! old methods). Once the migration settles, the old async-send
 //! methods become deprecated.
+//!
+//! Mail about a ticket goes through
+//! [`ticket_mail_redaction`](crate::services::ticket_mail_redaction) before it
+//! is queued: [`enqueue_notification`] and [`enqueue_participant_added`] here,
+//! and the other sites listed on `repository::outbound_emails`.
 
 use diesel::result::Error as DieselError;
 use ring::digest;
@@ -500,14 +505,26 @@ pub fn enqueue_participant_added(
     locale: &unic_langid::LanguageIdentifier,
 ) -> Result<OutboundEmail, DieselError> {
     let ticket_id = ticket.id;
-    let (subject, body_html, body_text) = svc.compose_participant_added(
-        adder_name,
-        ticket.number,
-        &ticket.title,
-        view_url,
-        branding,
-        locale,
-    );
+    // The adder is the requester, so on a ticket a stranger may have filed
+    // both their name and the title stay out until the address is proven.
+    let redacted = crate::services::ticket_mail_redaction::ticket_mail_redaction(
+        conn,
+        ticket,
+        crate::services::ticket_mail_redaction::Recipient::User(recipient_uuid),
+    )
+    .is_redacted();
+    let (subject, body_html, body_text) = if redacted {
+        svc.compose_participant_added_redacted(ticket.number, view_url, branding, locale)
+    } else {
+        svc.compose_participant_added(
+            adder_name,
+            ticket.number,
+            &ticket.title,
+            view_url,
+            branding,
+            locale,
+        )
+    };
     let row = NewOutboundEmail {
         channel_id: None,
         ticket_id: Some(ticket_id),
@@ -666,21 +683,34 @@ pub fn prepare_notification(
     }
 }
 
+/// The words of a notification email: its subject, heading, body and the
+/// person it's from (empty for none).
+#[derive(Debug, Clone)]
+pub struct NotificationText {
+    pub subject: String,
+    pub title: String,
+    pub body: String,
+    pub actor_name: String,
+}
+
 /// Enqueue a ticket-activity notification email. The key includes
 /// the recipient so multi-recipient fanout (a comment with N
 /// watchers) produces N rows rather than collapsing; it also
 /// includes the source event id so the same (event, recipient)
 /// pair is exactly-once even across retries.
+///
+/// `redacted` is the same email naming its ticket by number alone, with the
+/// ticket's id. It goes instead of `text` when
+/// [`ticket_mail_redaction`](crate::services::ticket_mail_redaction) says the
+/// recipient may not see the ticket's own text.
 #[allow(clippy::too_many_arguments)]
 pub fn enqueue_notification(
     conn: &mut DbConnection,
     svc: &EmailService,
     branding: &EmailBranding,
     recipient: &str,
-    subject: &str,
-    title: &str,
-    body: &str,
-    actor_name: &str,
+    text: NotificationText,
+    redacted: Option<(i32, NotificationText)>,
     cta_url: &str,
     cta_label: Option<&str>,
     feedback: Option<&crate::utils::email::FeedbackLinks>,
@@ -688,14 +718,29 @@ pub fn enqueue_notification(
     recipient_uuid: &str,
     locale: &unic_langid::LanguageIdentifier,
 ) -> Result<OutboundEmail, DieselError> {
+    use crate::services::ticket_mail_redaction::{ticket_mail_redaction_by_id, Recipient};
+    let text = match redacted {
+        Some((ticket_id, redacted)) => {
+            let to = match uuid::Uuid::parse_str(recipient_uuid) {
+                Ok(uuid) => Recipient::User(uuid),
+                Err(_) => Recipient::Address(recipient),
+            };
+            if ticket_mail_redaction_by_id(conn, ticket_id, to).is_redacted() {
+                redacted
+            } else {
+                text
+            }
+        }
+        None => text,
+    };
     let row = prepare_notification(
         svc,
         branding,
         recipient,
-        subject,
-        title,
-        body,
-        actor_name,
+        &text.subject,
+        &text.title,
+        &text.body,
+        &text.actor_name,
         cta_url,
         cta_label,
         feedback,

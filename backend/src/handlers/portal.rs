@@ -763,10 +763,9 @@ pub async fn ticket_link_callback(
         Ok(u) => u,
         Err(_) => return Ok(sign_in_error_redirect()),
     };
-    // The link came to their inbox, which proves the address, as the magic link does.
-    if let Err(e) = crate::repository::user_emails::mark_primary_verified(&mut conn, &user.uuid) {
-        tracing::warn!(user_uuid = %user.uuid, error = ?e, "ticket link: could not mark email verified");
-    }
+    // Opening the link proves nothing about the address: it is good for days
+    // and any number of uses, and mail scanners open every link on delivery.
+    // Only a sign-in link or code, or a confirmation POST, verifies it.
     let session = mint_portal_session(
         &user,
         ctx.workspace_uuid,

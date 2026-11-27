@@ -232,8 +232,14 @@ pub fn set_primary(
 }
 
 // sync-audit-only: user_emails is a contact-detail table with no audit trigger and no sync aggregate; nothing subscribes to email add/update/remove
-/// Mark a user's primary email as verified. Used on invitation accept,
-/// where receiving the invite proves ownership of that address.
+/// Mark a user's primary email as verified and proven now. Only for a step
+/// that proves the address: an invitation or request confirmation (a POST), a
+/// portal sign-in link or code (single use), or the workspace's own sign-in
+/// vouching for it. A multi-use link in an email ("View request", "Review
+/// request") proves nothing, since mail scanners open every link on delivery,
+/// so it must not call this. `proven_at` is what lets mail about a ticket a
+/// stranger filed carry the ticket's text
+/// (`services::ticket_mail_redaction`).
 pub fn mark_primary_verified(
     conn: &mut DbConnection,
     user_uuid: &Uuid,
@@ -243,8 +249,26 @@ pub fn mark_primary_verified(
             .filter(user_emails::user_uuid.eq(user_uuid))
             .filter(user_emails::is_primary.eq(true)),
     )
-    .set(user_emails::is_verified.eq(true))
+    .set((
+        user_emails::is_verified.eq(true),
+        user_emails::proven_at.eq(Some(Utc::now())),
+    ))
     .execute(conn)
+}
+
+/// When `user`'s primary address last proved itself (see
+/// [`mark_primary_verified`]), `None` if it never has.
+pub fn primary_proven_at(
+    conn: &mut DbConnection,
+    user_uuid: &Uuid,
+) -> QueryResult<Option<chrono::DateTime<chrono::Utc>>> {
+    user_emails::table
+        .filter(user_emails::user_uuid.eq(user_uuid))
+        .filter(user_emails::is_primary.eq(true))
+        .select(user_emails::proven_at)
+        .first::<Option<chrono::DateTime<chrono::Utc>>>(conn)
+        .optional()
+        .map(Option::flatten)
 }
 
 // sync-audit-only: user_emails is a contact-detail table with no audit trigger and no sync aggregate; nothing subscribes to email add/update/remove
@@ -291,7 +315,10 @@ pub fn mark_verified_if_matches(
             .filter(user_emails::user_uuid.eq(user_uuid))
             .filter(user_emails::email.eq(address)),
     )
-    .set(user_emails::is_verified.eq(true))
+    .set((
+        user_emails::is_verified.eq(true),
+        user_emails::proven_at.eq(Some(Utc::now())),
+    ))
     .execute(conn)
 }
 

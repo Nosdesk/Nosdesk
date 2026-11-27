@@ -544,6 +544,11 @@ pub struct UserEmail {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub created_by: Option<Uuid>,
+    /// When the address last proved itself (a sign-in link or code, or a
+    /// confirmation POST); see `repository::user_emails::mark_primary_verified`.
+    /// Server-side only.
+    #[serde(default, skip_serializing)]
+    pub proven_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Insertable)]

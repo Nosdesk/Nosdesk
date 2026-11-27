@@ -110,7 +110,10 @@ notif-ticket-status-changed = [{ $app }] Status gewijzigd: { $title }
 notif-comment-added = [{ $app }] Nieuwe reactie: { $title }
 notif-mentioned = [{ $app }] { $actor } heeft u genoemd
 notif-ticket-referenced = [{ $app }] { $actor } heeft uw ticket vermeld
-notif-ticket-created-requester = [{ $app }] We hebben je verzoek ontvangen: { $title }
+# MACHINE TRANSLATION, pending native review
+notif-ticket-created-requester = [{ $app }] We hebben uw verzoek #{ $number } ontvangen
+notif-ticket-redacted = [{ $app }] Update over verzoek #{ $number }
+notif-redacted-body = Er is een update over verzoek #{ $number }.
 notif-doc-page-updated = [{ $app }] Pagina bijgewerkt: { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
 # MACHINE TRANSLATION, pending native review
@@ -130,6 +133,9 @@ participant-added-title = Je bent toegevoegd aan een aanvraag
 participant-added-body = { $adder } heeft je toegevoegd aan aanvraag #{ $id }: { $title }.
 participant-added-replies = Je ontvangt de antwoorden van het team per e-mail en kunt erop reageren.
 participant-added-cta = Aanvraag bekijken
+# MACHINE TRANSLATION, pending native review
+participant-added-subject-redacted = [{ $app }] U bent toegevoegd aan aanvraag #{ $id }
+participant-added-body-redacted = U bent toegevoegd aan aanvraag #{ $id }.
 notif-footer-preferences = U ontvangt deze e-mail vanwege uw meldingsvoorkeuren.
 # Notification digest (machine, pending native review)
 notif-digest-subject = [{ $app }] { $count ->
@@ -2587,6 +2593,18 @@ admin-channels-email-auto-ack-success-saved = Ontvangstbevestiging bijgewerkt
 # Verplaatste ontvangstbevestiging (machine, na te kijken door een moedertaalspreker).
 admin-channels-email-auto-ack-elsewhere = De automatische ontvangstbevestiging stel je in op de pagina E-mailbezorging
 admin-email-auto-ack-error-save = Opslaan van de automatische ontvangstbevestiging mislukt. Probeer het opnieuw.
+# MACHINE TRANSLATION, pending native review
+admin-requester-ack-heading = Ontvangstbevestiging van verzoeken
+admin-requester-ack-subtitle = Laat de aanvrager per e-mail weten dat een verzoek is aangekomen wanneer het via het portaal, het aanvraagformulier of de API wordt ingediend.
+admin-requester-ack-toggle-label = Ontvangstbevestiging versturen
+admin-requester-ack-toggle-description = Een integratie kan deze voor één verzoek overslaan door acknowledge op false te zetten.
+admin-requester-ack-template-label = Aangepast bericht
+admin-requester-ack-template-placeholder = Hallo {"{{"}customer_first_name{"}}"}, we hebben uw verzoek #{"{{"}ticket_id{"}}"} ontvangen en nemen contact met u op.
+admin-requester-ack-template-hint = Laat leeg voor het standaardbericht, dat het verzoek bij zijn nummer noemt. Alleen platte tekst.
+admin-requester-ack-unproven-hint = Een verzoek via de API, of via het aanvraagformulier zonder e-mailbevestiging, kan van iedereen komen. Zolang de aanvrager het adres niet heeft bevestigd, toont de titel alleen het nummer en wordt de naam weggelaten.
+admin-requester-ack-save = Ontvangstbevestiging opslaan
+admin-requester-ack-success-saved = Ontvangstbevestiging van verzoeken bijgewerkt
+admin-requester-ack-error-save = Opslaan van de ontvangstbevestiging van verzoeken mislukt. Probeer het opnieuw.
 # Beveiligingsnotitie (machine, na te kijken door een moedertaalspreker).
 admin-email-security-note-heading = Beveiligingsnotitie
 # Machine, nog na te kijken door moedertaalspreker.

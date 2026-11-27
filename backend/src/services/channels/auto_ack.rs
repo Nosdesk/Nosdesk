@@ -427,6 +427,8 @@ mod tests {
             portal_share_staff_requests: false,
             requester_asset_visibility: "all".into(),
             currency_code: None,
+            requester_ack_enabled: true,
+            requester_ack_template: None,
         }
     }
 

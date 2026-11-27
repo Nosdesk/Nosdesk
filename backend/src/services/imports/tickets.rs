@@ -221,6 +221,7 @@ impl Importer for TicketImporter {
                 due_time: None,
                 start_time: None,
                 estimate_minutes: None,
+                acknowledge: None,
             };
             // create_ticket emits the ticket.created sync event in the
             // transaction, so imported tickets reach the activity feed,

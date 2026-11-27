@@ -113,7 +113,10 @@ notif-ticket-status-changed = [{ $app }] Statut modifié : { $title }
 notif-comment-added = [{ $app }] Nouveau commentaire : { $title }
 notif-mentioned = [{ $app }] { $actor } vous a mentionné
 notif-ticket-referenced = [{ $app }] { $actor } a mentionné votre ticket
-notif-ticket-created-requester = [{ $app }] Nous avons bien reçu votre demande : { $title }
+# MACHINE TRANSLATION, pending native review
+notif-ticket-created-requester = [{ $app }] Nous avons bien reçu votre demande n° { $number }
+notif-ticket-redacted = [{ $app }] Mise à jour de la demande n° { $number }
+notif-redacted-body = La demande n° { $number } a été mise à jour.
 notif-doc-page-updated = [{ $app }] Page mise à jour : { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
 # MACHINE TRANSLATION, pending native review
@@ -133,6 +136,9 @@ participant-added-title = Vous avez été ajouté à une demande
 participant-added-body = { $adder } vous a ajouté à la demande n° { $id } : { $title }.
 participant-added-replies = Vous recevrez les réponses de l'équipe par e-mail et pourrez y répondre.
 participant-added-cta = Voir la demande
+# MACHINE TRANSLATION, pending native review
+participant-added-subject-redacted = [{ $app }] Vous avez été ajouté à la demande n° { $id }
+participant-added-body-redacted = Vous avez été ajouté à la demande n° { $id }.
 notif-footer-preferences = Vous recevez cet e-mail en raison de vos préférences de notification.
 # Notification digest (machine, pending native review)
 notif-digest-subject = [{ $app }] { $count ->
@@ -2591,6 +2597,18 @@ admin-channels-email-auto-ack-success-saved = Accusé de réception mis à jour
 # Accusé de réception déplacé (machine, à relire par un locuteur natif).
 admin-channels-email-auto-ack-elsewhere = L'accusé de réception automatique se règle sur la page Distribution des e-mails
 admin-email-auto-ack-error-save = Échec de l'enregistrement de l'accusé de réception automatique. Veuillez réessayer.
+# MACHINE TRANSLATION, pending native review
+admin-requester-ack-heading = Accusé de réception des demandes
+admin-requester-ack-subtitle = Quand une demande est déposée via le portail, le formulaire de demande ou l'API, informer le demandeur par e-mail qu'elle est bien arrivée.
+admin-requester-ack-toggle-label = Envoyer un accusé de réception
+admin-requester-ack-toggle-description = Une intégration peut l'omettre pour une demande en envoyant acknowledge à false.
+admin-requester-ack-template-label = Message personnalisé
+admin-requester-ack-template-placeholder = Bonjour {"{{"}customer_first_name{"}}"}, nous avons bien reçu votre demande n° {"{{"}ticket_id{"}}"} et reviendrons vers vous.
+admin-requester-ack-template-hint = Laissez vide pour le message par défaut, qui désigne la demande par son numéro. Texte brut uniquement.
+admin-requester-ack-unproven-hint = Une demande déposée via l'API, ou via le formulaire sans confirmation par e-mail, peut venir de n'importe qui. Tant que le demandeur n'a pas confirmé son adresse, son titre est remplacé par son numéro et le nom est omis.
+admin-requester-ack-save = Enregistrer l'accusé de réception
+admin-requester-ack-success-saved = Accusé de réception des demandes mis à jour
+admin-requester-ack-error-save = Échec de l'enregistrement de l'accusé de réception des demandes. Veuillez réessayer.
 # Note de sécurité (machine, à relire par un locuteur natif).
 admin-email-security-note-heading = Note de sécurité
 # Machine, à relire par un locuteur natif.

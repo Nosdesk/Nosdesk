@@ -630,7 +630,9 @@ pub async fn create_ticket(
 ) -> Result<HttpResponse, ApiError> {
     // A client sets only the columns it owns, and someone who doesn't handle
     // tickets files one the way the portal does.
-    let mut new_ticket = ticket.into_inner().without_server_columns();
+    let body = ticket.into_inner();
+    let acknowledge = body.acknowledge.unwrap_or(true);
+    let mut new_ticket = body.without_server_columns();
     crate::services::ticket_plan::check_new(&new_ticket)
         .map_err(|e| ApiError::BadRequest(e.to_string()))?;
     if !auth.can_handle_tickets() {
@@ -678,7 +680,22 @@ pub async fn create_ticket(
         })?;
     }
 
-    match tc.run(|conn| repository::create_ticket(conn, new_ticket)) {
+    // A token's ticket may be a website relaying a stranger's form, so its
+    // text stays out of mail to the requester until they prove the address
+    // (services::ticket_mail_redaction). Set here, never from the body.
+    if crate::extractors::is_api_token(&req) {
+        new_ticket.submitted_via = Some(crate::models::SUBMITTED_VIA_API.to_string());
+    }
+
+    match tc.run(|conn| {
+        repository::tickets::create_ticket_acknowledged(
+            conn,
+            new_ticket,
+            repository::tickets::TicketCreationAnnotation::default(),
+            None,
+            acknowledge,
+        )
+    }) {
         Ok(ticket) => {
             // The rules engine assigns it from its `ticket.created`.
 
@@ -915,7 +932,8 @@ pub async fn create_empty_ticket(
     };
 
     let search = search_service.get_ref();
-    let blank = tc.transaction(|db| blank_ticket(db, user_uuid));
+    let via = crate::extractors::is_api_token(&req).then_some(crate::models::SUBMITTED_VIA_API);
+    let blank = tc.transaction(|db| blank_ticket(db, user_uuid, via));
 
     let (ticket, made) = match blank {
         Ok(BlankTicket::Reused(ticket)) => (ticket, false),

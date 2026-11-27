@@ -374,6 +374,13 @@ pub struct Ticket {
     pub estimate_minutes: Option<i32>,
 }
 
+/// `submitted_via` of a ticket an API token created. The server sets it; a
+/// body can't. See `services::ticket_mail_redaction`.
+pub const SUBMITTED_VIA_API: &str = "api";
+
+/// `submitted_via` of a ticket the anonymous request form created.
+pub const SUBMITTED_VIA_GUEST: &str = "guest";
+
 /// `submitted_via` of a ticket a CSV import made.
 pub const CSV_IMPORT: &str = "csv_import";
 
@@ -525,6 +532,11 @@ pub struct NewTicket {
     )]
     pub start_time: Option<NaiveTime>,
     pub estimate_minutes: Option<i32>,
+    /// `false` on `POST /api/tickets` files the ticket without the
+    /// requester's acknowledgement. Not a column, and never serialized.
+    #[serde(default, skip_serializing)]
+    #[diesel(skip_insertion)]
+    pub acknowledge: Option<bool>,
 }
 
 /// The columns of a ticket a client sets, split from a `NewTicket` by
@@ -577,6 +589,7 @@ impl NewTicket {
             due_time,
             start_time,
             estimate_minutes,
+            acknowledge: _,
         } = self;
         ClientTicketColumns {
             title,
@@ -1424,6 +1437,7 @@ mod new_ticket_write_tests {
             due_time: None,
             start_time: None,
             estimate_minutes: None,
+            acknowledge: Some(false),
         }
     }
 
@@ -1450,6 +1464,7 @@ mod new_ticket_write_tests {
             due_time: existing.due_time,
             start_time: existing.start_time,
             estimate_minutes: existing.estimate_minutes,
+            acknowledge: None,
         }
     }
 

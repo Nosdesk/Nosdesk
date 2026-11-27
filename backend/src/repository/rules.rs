@@ -1685,11 +1685,23 @@ fn execute_reply(
     let app_name = crate::repository::site_settings::get_site_settings(conn)
         .map(|s| s.app_name)
         .unwrap_or_else(|_| "Nosdesk".to_string());
+    // A reply the rule sends on its own goes to the requester as a reply from
+    // the team, with nobody reading it first: on a ticket a stranger may have
+    // filed, it names the ticket by number and leaves the requester's name
+    // out until they prove the address (services::ticket_mail_redaction). An
+    // agent applying the rule writes the reply as their own.
+    use crate::services::ticket_mail_redaction::{self as redaction, Recipient};
+    let redacted = ctx.source != ApplySource::Manual
+        && ticket.requester_uuid.is_some_and(|r| {
+            redaction::ticket_mail_redaction(conn, ticket, Recipient::User(r)).is_redacted()
+        });
+    let redacted_ticket = redacted.then(|| redaction::redacted_copy(ticket));
+    let requester = if redacted { None } else { requester };
     // A plain-text template keeps its line breaks in the HTML comment.
     let rendered = crate::services::template_vars::render(
         &crate::utils::content::reply_template_html(&raw_body),
         &crate::services::template_vars::TemplateContext {
-            ticket,
+            ticket: redacted_ticket.as_ref().unwrap_or(ticket),
             requester: requester.as_ref(),
             agent: Some(&agent),
             app_name: &app_name,
@@ -1982,9 +1994,16 @@ fn execute_notify(
     let app_name = crate::repository::site_settings::get_site_settings(conn)
         .map(|s| s.app_name)
         .unwrap_or_else(|_| "Nosdesk".to_string());
+    // A stranger may have filed the ticket: the title and the requester's
+    // name stay out of mail to someone outside the team until the requester
+    // proves the address.
+    use crate::services::ticket_mail_redaction::{self as redaction, Recipient};
+    let redacted =
+        redaction::ticket_mail_redaction(conn, ticket, Recipient::Address(&to_email)).is_redacted();
+    let redacted_ticket = redacted.then(|| redaction::redacted_copy(ticket));
     let template = crate::services::template_vars::TemplateContext {
-        ticket,
-        requester: requester.as_ref(),
+        ticket: redacted_ticket.as_ref().unwrap_or(ticket),
+        requester: if redacted { None } else { requester.as_ref() },
         agent: author.as_ref(),
         app_name: &app_name,
         event: None,

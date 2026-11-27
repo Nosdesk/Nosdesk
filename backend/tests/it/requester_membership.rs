@@ -208,7 +208,7 @@ async fn a_guest_of_another_workspace_who_mails_in_can_open_their_request() {
     );
 }
 
-/// Redeeming a link in A verifies the address, so their next mail to B takes
+/// Signing in from A verifies the address, so their next mail to B takes
 /// the verified-sender branch instead of the guest reuse.
 #[actix_web::test]
 async fn a_requester_verified_in_another_workspace_who_mails_in_can_open_their_request() {

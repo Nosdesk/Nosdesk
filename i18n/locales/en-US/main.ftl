@@ -154,7 +154,12 @@ notif-ticket-status-changed = [{ $app }] Status changed: { $title }
 notif-comment-added = [{ $app }] New comment on: { $title }
 notif-mentioned = [{ $app }] { $actor } mentioned you
 notif-ticket-referenced = [{ $app }] { $actor } mentioned your ticket
-notif-ticket-created-requester = [{ $app }] We've received your request: { $title }
+notif-ticket-created-requester = [{ $app }] We've received your request #{ $number }
+# Subject and body of automatic mail that names a request only by its
+# number: a stranger may have filed it, and the requester hasn't confirmed
+# their address since.
+notif-ticket-redacted = [{ $app }] Update on request #{ $number }
+notif-redacted-body = There's an update on request #{ $number }.
 notif-doc-page-updated = [{ $app }] Page updated: { $title }
 notif-asset-low-stock = [{ $app }] Low stock: { $title }
 notif-sla-breached = [{ $app }] SLA breached: { $title }
@@ -174,6 +179,8 @@ participant-added-title = You've been added to a request
 participant-added-body = { $adder } added you to request #{ $id }: { $title }.
 participant-added-replies = You'll get the team's replies by email, and you can reply to them.
 participant-added-cta = View request
+participant-added-subject-redacted = [{ $app }] You've been added to request #{ $id }
+participant-added-body-redacted = You've been added to request #{ $id }.
 notif-footer-preferences = You're receiving this because of your notification preferences.
 # Notification digest: one plain-text summary per workspace of the
 # notifications someone chose to get as a digest.
@@ -2481,6 +2488,19 @@ admin-channels-email-auto-ack-save = Save auto-ack
 admin-channels-email-auto-ack-success-saved = Auto-acknowledgement updated
 admin-channels-email-auto-ack-elsewhere = Auto-acknowledgement is set on the Email delivery page
 admin-email-auto-ack-error-save = Could not save the auto-acknowledgement. Please try again.
+# Request acknowledgement: the email a requester gets when a request is filed
+# through the portal, the request form or the API.
+admin-requester-ack-heading = Request acknowledgement
+admin-requester-ack-subtitle = When a request is filed through the portal, the request form or the API, email the requester that it arrived.
+admin-requester-ack-toggle-label = Send request acknowledgement
+admin-requester-ack-toggle-description = An integration can skip it for one request by sending acknowledge set to false.
+admin-requester-ack-template-label = Custom message
+admin-requester-ack-template-placeholder = Hi {"{{"}customer_first_name{"}}"}, we've received your request #{"{{"}ticket_id{"}}"} and will be in touch.
+admin-requester-ack-template-hint = Leave blank for the built-in message, which names the request by its number. Plain text only.
+admin-requester-ack-unproven-hint = A request filed through the API, or through the request form without email confirmation, may come from anyone. Until the requester confirms their address, its title shows as its number and the name is left out.
+admin-requester-ack-save = Save acknowledgement
+admin-requester-ack-success-saved = Request acknowledgement updated
+admin-requester-ack-error-save = Could not save the request acknowledgement. Please try again.
 admin-email-security-note-heading = Security note
 admin-email-security-note-subtitle = Add an anti-phishing line to the end of emails from this workspace, replies included, so recipients can tell a genuine message from a spoof.
 admin-email-security-note-toggle-label = Show security note

@@ -296,6 +296,9 @@ pub async fn create_ticket_in_project(
         title: title.to_string(),
         workflow_state_id: body.workflow_state_id,
         requester_uuid,
+        // As POST /api/tickets stamps a token's ticket (ticket_mail_redaction).
+        submitted_via: crate::extractors::is_api_token(&req)
+            .then(|| crate::models::SUBMITTED_VIA_API.to_string()),
         ..Default::default()
     };
 

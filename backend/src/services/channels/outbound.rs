@@ -217,6 +217,24 @@ fn hold_if_watching(
 /// the HTTP handler would slow down comment posting. The spawn body is
 /// now milliseconds (no SMTP roundtrip), but it's still off the
 /// critical path.
+/// The subject of `to`'s copy of a reply: the thread's, or "Re: [#N]" when a
+/// stranger may have filed the ticket and its requester hasn't proven the
+/// address since (`services::ticket_mail_redaction`). The body is the team's
+/// own words either way.
+fn reply_subject(
+    conn: &mut crate::db::DbConnection,
+    ticket: &crate::models::Ticket,
+    to: &str,
+    subject: &str,
+) -> String {
+    use crate::services::ticket_mail_redaction::{ticket_mail_redaction, Recipient};
+    if ticket_mail_redaction(conn, ticket, Recipient::Address(to)).is_redacted() {
+        format!("Re: [#{}]", ticket.number)
+    } else {
+        subject.to_string()
+    }
+}
+
 pub fn enqueue_for_comment(
     ticket: crate::models::Ticket,
     comment: crate::models::Comment,
@@ -277,12 +295,13 @@ pub fn enqueue_for_comment(
                             let body =
                                 with_request_link(conn, &ticket, to_uuid, base.clone(), true);
                             let body = with_security_note(body, note.as_deref());
+                            let copy_subject = reply_subject(conn, &ticket, &to_email, &subject);
                             let mut new_row = reply_row(
                                 None,
                                 ticket.id,
                                 &comment,
                                 to_email,
-                                subject.clone(),
+                                copy_subject,
                                 body,
                                 format_outbound_message_id(ticket.id, comment.id, &domain),
                                 in_reply_to,
@@ -366,12 +385,13 @@ pub fn enqueue_for_comment(
                     let body = with_security_note(body, note.as_deref());
                     let body =
                         super::quote_previous::maybe_prepend_quote(conn, &channel, &ticket, body);
+                    let copy_subject = reply_subject(conn, &ticket, &to_email, &subject);
                     let mut new_row = reply_row(
                         Some(channel.id),
                         thread.ticket_id,
                         &comment,
                         to_email,
-                        subject.clone(),
+                        copy_subject,
                         body,
                         format_outbound_message_id(thread.ticket_id, comment.id, &reply_domain),
                         in_reply_to,

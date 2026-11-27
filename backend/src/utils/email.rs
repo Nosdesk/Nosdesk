@@ -1877,6 +1877,52 @@ impl EmailService {
         branding: &EmailBranding,
         locale: &unic_langid::LanguageIdentifier,
     ) -> (String, String, String) {
+        self.participant_added(
+            ("participant-added-subject", "participant-added-body"),
+            adder_name,
+            ticket_number,
+            ticket_title,
+            view_url,
+            branding,
+            locale,
+        )
+    }
+
+    /// [`Self::compose_participant_added`] naming neither the request's title
+    /// nor who added them: the request is known by its number alone (see
+    /// `services::ticket_mail_redaction`).
+    pub fn compose_participant_added_redacted(
+        &self,
+        ticket_number: i32,
+        view_url: &str,
+        branding: &EmailBranding,
+        locale: &unic_langid::LanguageIdentifier,
+    ) -> (String, String, String) {
+        self.participant_added(
+            (
+                "participant-added-subject-redacted",
+                "participant-added-body-redacted",
+            ),
+            "",
+            ticket_number,
+            "",
+            view_url,
+            branding,
+            locale,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn participant_added(
+        &self,
+        (subject_key, body_key): (&str, &str),
+        adder_name: &str,
+        ticket_number: i32,
+        ticket_title: &str,
+        view_url: &str,
+        branding: &EmailBranding,
+        locale: &unic_langid::LanguageIdentifier,
+    ) -> (String, String, String) {
         let template = EmailTemplate::new(branding);
         let tr = |key: &str, args: &[(&str, fluent_bundle::FluentValue<'static>)]| {
             crate::utils::i18n::tr_with(locale, key, args)
@@ -1900,7 +1946,7 @@ impl EmailService {
             EmailLayout {
                 headline: &headline,
                 body: vec![
-                    text(tr("participant-added-body", &args(true))),
+                    text(tr(body_key, &args(true))),
                     text(tr("participant-added-replies", &[])),
                 ],
                 cta: Some(Cta {
@@ -1915,10 +1961,10 @@ impl EmailService {
         );
         let mut subject_args = args(false);
         subject_args.push(("app", branding.app_name.clone().into()));
-        let subject = tr("participant-added-subject", &subject_args);
+        let subject = tr(subject_key, &subject_args);
         let body_text = format!(
             "{}\n\n{}\n\n{}: {view_url}\n",
-            tr("participant-added-body", &args(false)),
+            tr(body_key, &args(false)),
             tr("participant-added-replies", &[]),
             tr("participant-added-cta", &[]),
         );
@@ -3571,6 +3617,16 @@ B88KQSZwPfTv4qlBKPZXpb3vrKIOynaKzM7b7aZYs3LPZwTUb1yq
                     "Kyle",
                     42,
                     "Printer fire",
+                    "https://desk.example.com/tickets/42",
+                    branding,
+                    &locale,
+                )
+                .2,
+            ),
+            (
+                "participant added, by number",
+                svc.compose_participant_added_redacted(
+                    42,
                     "https://desk.example.com/tickets/42",
                     branding,
                     &locale,

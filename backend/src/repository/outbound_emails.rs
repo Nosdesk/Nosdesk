@@ -18,6 +18,23 @@
 //! `pending` (or `failed` for backoff). Combined with the deterministic
 //! `Message-ID` persisted at enqueue, this is at-least-once delivery
 //! with consumer-side dedupe (the receiving MTA / customer MUA).
+//!
+//! # Mail about a ticket
+//!
+//! Every producer of mail about a ticket asks
+//! [`ticket_mail_redaction`](crate::services::ticket_mail_redaction) what the
+//! recipient may see before it composes, so a ticket a stranger filed doesn't
+//! carry their text to an address nobody has proven. The producers that do:
+//! notification email (`transactional_email::enqueue_notification`), the
+//! participant-added notice (`transactional_email::enqueue_participant_added`),
+//! the rules engine's `notify` and automated `reply` steps
+//! (`repository::rules`), merge notices (`ticket_merge::enqueue_merge_notifications`)
+//! and the subject of staff replies (`channels::outbound::enqueue_for_comment`).
+//! Producers that don't, and why: the email channel's auto-ack is a direct
+//! send replying to a mail's own sender with its own subject; the request
+//! form's confirmation is fixed text; account mail, the digest and the
+//! bug-report alert carry no ticket text. A new producer of mail about a
+//! ticket calls the check, or says here why not.
 
 use crate::db::DbConnection;
 use crate::models::{outbound_email_status, NewOutboundEmail, OutboundEmail};
@@ -34,6 +51,9 @@ pub const DEFAULT_BATCH_SIZE: i64 = 10;
 // sync-audit-only: internal worker queue; delivery state surfaced via admin queue view
 /// Insert a new row in the queue. The trigger fires `pg_notify` so the
 /// listener wakes immediately.
+///
+/// A row about a ticket must have been composed from
+/// `services::ticket_mail_redaction` (see the module docs).
 pub fn enqueue(
     conn: &mut DbConnection,
     new_row: NewOutboundEmail,
@@ -60,6 +80,9 @@ pub fn enqueue(
 /// Returns the row in whichever state it ended up:
 ///   * Fresh insert → newly-pending row, ready for the worker.
 ///   * Conflict     → the previously-enqueued row, unchanged.
+///
+/// A row about a ticket must have been composed from
+/// `services::ticket_mail_redaction` (see the module docs).
 pub fn enqueue_idempotent(
     conn: &mut DbConnection,
     new_row: NewOutboundEmail,
@@ -119,6 +142,9 @@ pub fn enqueue_idempotent(
 ///
 /// Returns the row in its final state (either pending or
 /// suppressed) so the caller can log + report without a refetch.
+///
+/// A row about a ticket must have been composed from
+/// `services::ticket_mail_redaction` (see the module docs).
 pub fn enqueue_or_suppress(
     conn: &mut DbConnection,
     new_row: NewOutboundEmail,

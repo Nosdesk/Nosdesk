@@ -27,6 +27,17 @@ const REF: &str = "test:ticket_create_columns";
 
 /// POST /api/tickets as `user` in `ws`; the new ticket's id.
 async fn create_as(pool: &TestPool, ws: &WorkspaceSeed, user: Uuid, body: &Value) -> i32 {
+    create_with(pool, ws, user, body, false).await
+}
+
+/// [`create_as`], with an API token of `user`'s when `token` is set.
+async fn create_with(
+    pool: &TestPool,
+    ws: &WorkspaceSeed,
+    user: Uuid,
+    body: &Value,
+    token: bool,
+) -> i32 {
     let account =
         backend::repository::users::get_user_by_uuid(&user, &mut pool.get().expect("conn"))
             .expect("load user");
@@ -64,6 +75,13 @@ async fn create_as(pool: &TestPool, ws: &WorkspaceSeed, user: Uuid, body: &Value
                 req.extensions_mut().insert(claims.clone());
                 req.extensions_mut()
                     .insert(RequestContext::new(corr, actor.clone()));
+                if token {
+                    req.extensions_mut()
+                        .insert(backend::middleware::api_token::ApiTokenRequest {
+                            token_uuid: Uuid::new_v4(),
+                            made_for_someone_else: false,
+                        });
+                }
                 srv.call(req)
             })
             .route(
@@ -189,5 +207,81 @@ async fn a_new_ticket_takes_only_the_clients_columns() {
             resolution_notes: Some("Replaced the cable".to_string()),
         },
         "staff set the rest, and none of the server's columns"
+    );
+}
+
+/// The `created_via` of the ticket's `ticket.created` event.
+fn created_via(pool: &TestPool, ws: i32, id: i32) -> Value {
+    use backend::schema::sync_actions as s;
+    run_in_workspace(pool, REF, ws, |c| {
+        s::table
+            .filter(s::event_type.eq("ticket.created"))
+            .filter(s::aggregate_id.eq(id.to_string()))
+            .select(s::data)
+            .first::<Value>(c)
+    })
+    .expect("ticket.created")["created_via"]
+        .clone()
+}
+
+/// A ticket an API token creates is stamped `submitted_via = "api"` by the
+/// server, whatever the body says, and `acknowledge: false` files it without
+/// the requester's acknowledgement. A session's ticket is stamped nothing.
+#[actix_web::test]
+async fn a_token_ticket_is_stamped_api_and_may_skip_the_acknowledgement() {
+    common::ensure_test_keyring();
+    let db = common::TestDb::new();
+    let pool = db.pool_with_size(4);
+    let seeded = common::seed_two_workspaces(&mut pool.get().expect("conn"));
+    let ws = &seeded.a;
+    let open = run_in_workspace(&pool, REF, ws.workspace_id, workflow_states::default_state)
+        .expect("default state")
+        .id;
+    let body = |acknowledge: Option<bool>| {
+        let mut body = json!({
+            "title": "From the website",
+            "workflow_state_id": open,
+            "priority": "medium",
+            "requester_uuid": ws.member_uuid,
+            "submitted_via": "portal",
+        });
+        if let Some(a) = acknowledge {
+            body["acknowledge"] = json!(a);
+        }
+        body
+    };
+
+    let quiet = create_with(&pool, ws, ws.admin_uuid, &body(Some(false)), true).await;
+    assert_eq!(
+        stored(&pool, ws.workspace_id, quiet)
+            .submitted_via
+            .as_deref(),
+        Some("api")
+    );
+    assert_eq!(
+        created_via(&pool, ws.workspace_id, quiet)["acknowledge"],
+        json!(false)
+    );
+
+    let told = create_with(&pool, ws, ws.admin_uuid, &body(None), true).await;
+    assert_eq!(
+        stored(&pool, ws.workspace_id, told)
+            .submitted_via
+            .as_deref(),
+        Some("api")
+    );
+    assert_eq!(
+        created_via(&pool, ws.workspace_id, told).get("acknowledge"),
+        None
+    );
+
+    let by_session = create_with(&pool, ws, ws.admin_uuid, &body(Some(true)), false).await;
+    assert_eq!(
+        stored(&pool, ws.workspace_id, by_session).submitted_via,
+        None
+    );
+    assert_eq!(
+        created_via(&pool, ws.workspace_id, by_session).get("acknowledge"),
+        None
     );
 }
