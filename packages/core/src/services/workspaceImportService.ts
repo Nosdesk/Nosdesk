@@ -91,7 +91,6 @@ export interface WorkspaceImportPeopleCounts {
 /** Something the import leaves for someone to redo or check. */
 export type WorkspaceImportHandover =
   | { kind: 'encrypted_setting_dropped'; table: string; column: string; rows: number }
-  | { kind: 'tokens_regenerated'; table: string; column: string; rows: number }
   | { kind: 'plugin_secrets_dropped'; rows: number }
   | { kind: 'switched_off'; table: string; column: string; rows: number }
 

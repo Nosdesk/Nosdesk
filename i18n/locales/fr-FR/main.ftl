@@ -2011,8 +2011,6 @@ admin-guest-loading = Chargement des paramètres invité...
 admin-guest-features-title = Fonctions publiques
 admin-guest-toggle-tickets-label = Accepter les tickets des invités
 admin-guest-toggle-tickets-description = Affiche un formulaire public de ticket à { $url }.
-admin-guest-toggle-lookup-label = Suivi de ticket invité
-admin-guest-toggle-lookup-description = Permet aux invités de vérifier l'état via un lien privé renvoyé à la soumission.
 admin-guest-toggle-public-docs-label = Documentation publique
 admin-guest-toggle-public-docs-description = Rend accessibles sans connexion les pages marquées « publiques » à { $url }.
 admin-guest-toggle-kb-search-label = Recherche dans la base de connaissances publique
@@ -7624,7 +7622,7 @@ plugin-sideload-installing = Installation...
 plugin-sideload-error-not-zip = Veuillez sélectionner un fichier .zip
 plugin-sideload-error-too-large = Le fichier doit faire moins de 2 Mo
 plugin-sideload-error-install-failed = Échec de l'installation du plugin
-# Vues invités et publiques (GuestTicketSubmitView, GuestTicketStatusView,
+# Vues invités et publiques (GuestTicketSubmitView,
 # PublicDocsView, PublicDocView, HelpView, PublicLayout,
 # FeatureDisabledNotice). Textes affichés aux visiteurs non authentifiés.
 
@@ -7696,20 +7694,6 @@ guest-submit-attach-error-network = Erreur réseau lors de l'envoi du fichier.
 guest-submit-size-bytes = { $bytes } o
 guest-submit-size-kb = { $value } Ko
 guest-submit-size-mb = { $value } Mo
-
-# État du ticket invité
-guest-status-loading-aria = Chargement du ticket
-guest-status-disabled-title = La consultation d'état n'est pas disponible
-guest-status-disabled-message = La consultation de l'état des tickets invités est actuellement désactivée.
-guest-status-ticket-number = Ticket n°{ $id }
-guest-status-priority = Priorité
-guest-status-opened = Ouvert le
-guest-status-last-updated = Dernière mise à jour
-guest-status-closed = Clôturé le
-guest-status-reply-prefix = Vous souhaitez répondre ?
-guest-status-reply-suffix = pour ajouter un commentaire.
-guest-status-not-found-title = Ticket introuvable
-guest-status-not-found-message = Le lien a peut-être expiré ou été mal saisi.
 
 # Liste de documentation publique
 public-docs-loading-aria = Chargement de la documentation
@@ -8190,7 +8174,6 @@ route-title-mfa-setup = Configuration de la MFA requise
 route-title-accept-invitation = Accepter l'invitation
 route-title-onboarding = Configuration
 route-title-guest-submit-ticket = Soumettre un ticket
-route-title-guest-ticket-status = Statut du ticket
 route-title-documentation = Documentation
 route-title-help = Aide
 route-title-dashboard = Tableau de bord
@@ -11797,12 +11780,6 @@ workspace-import-off-plugins-hint = Saisissez de nouveau les secrets, puis activ
 workspace-import-off-widget = Widget d'aide
 workspace-import-off-widget-detail = Arrive désactivé.
 workspace-import-off-widget-hint = Réactivez-le depuis ses réglages.
-workspace-import-off-guest-links = Liens invités
-workspace-import-off-guest-links-detail =
-    { $count ->
-        [one] 1 ticket reçoit un nouveau lien invité. Un lien envoyé avant le déplacement ne fonctionne plus.
-       *[other] { $count } tickets reçoivent de nouveaux liens invités. Les liens envoyés avant le déplacement ne fonctionnent plus.
-    }
 workspace-import-off-none = Rien n'arrive désactivé.
 workspace-import-off-rule = La règle : tout ce qui communique avec l'extérieur arrive désactivé, donc un import n'envoie jamais d'e-mail, ne déclenche aucun webhook et n'accepte aucune requête avant que vous l'ayez examiné.
 

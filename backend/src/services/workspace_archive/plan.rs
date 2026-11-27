@@ -74,9 +74,6 @@ pub const SWITCHED_OFF: &[(&str, &str, &str, &str)] = &[
 /// import doesn't load ([`refs`]); a key of [`TableReport::dropped`].
 pub const UNRESOLVED_REFERENCE: &str = "unresolved_reference";
 
-/// Instance-unique capability tokens a new value replaces on import.
-pub const REGENERATED: &[(&str, &str)] = &[("tickets", "guest_lookup_token")];
-
 /// Outbound mail that hasn't gone yet (`failed` is retried): the target
 /// doesn't send the source's mail, so these rows stay out.
 pub const QUEUED_MAIL: &[&str] = &["pending", "sending", "failed"];
@@ -247,13 +244,6 @@ pub enum Handover {
     /// A credential sealed under the source's keyring, left out: enter it
     /// again.
     EncryptedSettingDropped {
-        table: String,
-        column: String,
-        rows: usize,
-    },
-    /// Instance-unique lookup tokens given new values; earlier links to them
-    /// stop working.
-    TokensRegenerated {
         table: String,
         column: String,
         rows: usize,
@@ -1786,7 +1776,6 @@ fn regenerated_message_id(old: &str) -> String {
 #[derive(Default)]
 struct HandoverTally {
     sealed: BTreeMap<(String, String), usize>,
-    regenerated: BTreeMap<(String, String), usize>,
     plugin_secrets: usize,
     switched_off: BTreeMap<(String, String), usize>,
 }
@@ -1808,18 +1797,6 @@ impl HandoverTally {
             }
             if row.contains_key(column) {
                 row.insert(column.clone(), Value::Null);
-            }
-        }
-        for (t, column) in REGENERATED {
-            if *t == table && row.get(*column).is_some_and(|v| !v.is_null()) {
-                row.insert(
-                    (*column).to_string(),
-                    Value::String(Uuid::new_v4().to_string()),
-                );
-                *self
-                    .regenerated
-                    .entry((table.to_string(), (*column).to_string()))
-                    .or_default() += 1;
             }
         }
         for (t, column, on, off) in SWITCHED_OFF {
@@ -1847,13 +1824,6 @@ impl HandoverTally {
         let mut items: Vec<Handover> = Vec::new();
         for ((table, column), rows) in self.sealed {
             items.push(Handover::EncryptedSettingDropped {
-                table,
-                column,
-                rows,
-            });
-        }
-        for ((table, column), rows) in self.regenerated {
-            items.push(Handover::TokensRegenerated {
                 table,
                 column,
                 rows,
@@ -3172,13 +3142,12 @@ mod tests {
         assert!(!order_own_rows(&mut looped, &["parent_id".to_string()]));
     }
 
-    /// #841's handover: sealed settings dropped and flagged, lookup tokens
-    /// regenerated, plugin secrets left out, integrations switched off.
+    /// #841's handover: sealed settings dropped and flagged, plugin secrets
+    /// left out, integrations switched off.
     #[test]
     fn handover_items_apply_and_report() {
         run(|c| {
             let ws = workspace(c);
-            let token = Uuid::now_v7();
             let contents = archive(
                 &[],
                 vec![
@@ -3214,14 +3183,6 @@ mod tests {
                     ),
                 ],
             );
-            let mut contents = contents;
-            contents.tables.insert(
-                "tickets".into(),
-                vec![
-                    json!({"id": 1, "uuid": Uuid::now_v7(), "workspace_id": SOURCE_WS,
-                            "guest_lookup_token": token}),
-                ],
-            );
             let plan = plan_for(
                 c,
                 &contents,
@@ -3234,11 +3195,6 @@ mod tests {
             assert!(handover.contains(&Handover::EncryptedSettingDropped {
                 table: "workspace_ldap_settings".into(),
                 column: "encrypted_bind_password".into(),
-                rows: 1,
-            }));
-            assert!(handover.contains(&Handover::TokensRegenerated {
-                table: "tickets".into(),
-                column: "guest_lookup_token".into(),
                 rows: 1,
             }));
             assert!(handover.contains(&Handover::PluginSecretsDropped { rows: 1 }));
@@ -3262,8 +3218,6 @@ mod tests {
             assert_eq!(ldap["enabled"], false);
             assert_eq!(planned_rows(&plan, "plugins")[0]["state"], "disabled");
             assert_eq!(planned_rows(&plan, "plugin_data").len(), 1);
-            let ticket = &planned_rows(&plan, "tickets")[0];
-            assert_ne!(ticket["guest_lookup_token"], token.to_string());
         });
     }
 
@@ -3279,7 +3233,6 @@ mod tests {
             let named = SWITCHED_OFF
                 .iter()
                 .map(|(t, col, _, _)| (*t, *col))
-                .chain(REGENERATED.iter().copied())
                 .chain(USER_REFERENCES_WITHOUT_FK.iter().copied())
                 .chain([PLUGIN_SECRETS]);
             for (table, column) in named {
@@ -3373,7 +3326,6 @@ mod tests {
             let listed: HashSet<(&str, &str)> = USER_REFERENCES_WITHOUT_FK
                 .iter()
                 .chain(NOT_PEOPLE)
-                .chain(REGENERATED)
                 .copied()
                 .collect();
             let unclassified: Vec<String> = columns

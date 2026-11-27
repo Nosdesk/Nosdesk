@@ -221,7 +221,6 @@ impl Fixture {
             workflow_state_id: open,
             priority: TicketPriority::Low,
             submitted_via: Some("email".to_string()),
-            guest_lookup_token: Some(Uuid::new_v4()),
             verification_state: Some("verified".to_string()),
             origin_channel_id: Some(channel),
             triage_state: Some("untriaged".to_string()),
@@ -238,7 +237,6 @@ fn server_columns(
     t: &Ticket,
 ) -> (
     Option<String>,
-    Option<Uuid>,
     Option<String>,
     Option<i32>,
     Option<String>,
@@ -247,7 +245,6 @@ fn server_columns(
 ) {
     (
         t.submitted_via.clone(),
-        t.guest_lookup_token,
         t.verification_state.clone(),
         t.origin_channel_id,
         t.triage_state.clone(),
@@ -270,7 +267,6 @@ async fn a_put_carrying_server_columns_leaves_them_as_they_are() {
                 "workflow_state_id": before.workflow_state_id,
                 "priority": "low",
                 "submitted_via": "web",
-                "guest_lookup_token": Uuid::new_v4(),
                 "verification_state": "unverified",
                 "triage_state": "triaged",
                 "spam_suspected": false,
@@ -518,7 +514,6 @@ async fn a_ticket_read_with_get_can_be_put_back() {
         workflow_state_id: fx.open_state(),
         ..Default::default()
     });
-    assert_eq!(before.guest_lookup_token, None);
 
     let (status, mut body) = fx.get(fx.ws.admin_uuid, before.id).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -528,15 +523,4 @@ async fn a_ticket_read_with_get_can_be_put_back() {
     assert_eq!(status, StatusCode::OK, "{saved}");
     assert_eq!(saved["title"], "Printer still jammed");
     assert_eq!(fx.ticket(before.id).title, "Printer still jammed");
-}
-
-#[actix_web::test]
-async fn a_ticket_read_with_get_leaves_out_the_guest_lookup_token() {
-    let fx = Fixture::new();
-    let ticket = fx.email_ticket();
-    assert!(ticket.guest_lookup_token.is_some());
-
-    let (status, body) = fx.get(fx.ws.admin_uuid, ticket.id).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert!(body.get("guest_lookup_token").is_none(), "{body}");
 }

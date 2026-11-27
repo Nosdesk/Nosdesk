@@ -240,7 +240,7 @@ describe('WorkspaceImportView: Preview and confirm', () => {
     await wrapper!.find('[data-filter="attention"]').trigger('click')
     expect(wrapper!.findAll('[data-test="workspace-person"]')).toHaveLength(6)
     expect(wrapper!.findAll('[data-test="workspace-off"] li').map((li) => li.attributes('data-off'))).toEqual([
-      'workspace_email_settings', 'workspace_identity_providers', 'webhooks', 'channels', 'plugins', 'tokens',
+      'workspace_email_settings', 'workspace_identity_providers', 'webhooks', 'channels', 'plugins',
     ])
     expect(wrapper!.findAll('[data-test="workspace-attention"] li')).toHaveLength(5)
     expect(wrapper!.find('[data-test="workspace-not"] [data-not="mail"]').text()).toContain('workspace-import-not-mail-detail')

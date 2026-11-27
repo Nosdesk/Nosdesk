@@ -754,6 +754,35 @@ pub fn account_by_trusted_address(
     crate::repository::users::get_user_by_uuid(&first.user_uuid, conn).map(Some)
 }
 
+/// The account a request-form submission from `email` may be held for and
+/// confirmed, when the guest lookup answered claimed: the one account a
+/// primary or verified address of it stands for, when nothing about it is
+/// beyond the form's reach and the confirmation would seat it here as a
+/// requester. That is a baseline account (platform role `user`, staff nowhere,
+/// [`is_baseline_user`]), not out of reach of this workspace (no platform
+/// role, no staff seat elsewhere now or before,
+/// `requester_identities::out_of_reach`), with no seat row here and an active
+/// seat in another workspace (`workspaces::may_join_as_requester`). Members
+/// here sign in instead, and so does anyone the form can't seat. Run pinned
+/// to `workspace_id`.
+pub fn account_to_confirm_and_seat(
+    conn: &mut DbConnection,
+    workspace_id: i32,
+    email: &str,
+) -> QueryResult<Option<User>> {
+    let Some(user) = account_by_trusted_address(email, conn)? else {
+        return Ok(None);
+    };
+    if !is_baseline_user(conn, &user)?
+        || crate::repository::requester_identities::out_of_reach(conn, workspace_id, user.uuid)?
+            .is_some()
+        || !crate::repository::workspaces::may_join_as_requester(conn, workspace_id, user.uuid)?
+    {
+        return Ok(None);
+    }
+    Ok(Some(user))
+}
+
 /// Internal helper: classify the accounts holding `email`, in any case, as
 /// reusable or claimed.
 ///

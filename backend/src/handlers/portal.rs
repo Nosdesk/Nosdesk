@@ -1141,8 +1141,8 @@ pub async fn portal_auth_middleware(
 /// explicit allowlist: only the fields a ticket's own requester may see. Every
 /// internal field of `Ticket` (assignee, `created_by`/`closed_by`,
 /// `triage_state`, `spam_suspected`, `resolution_notes`, the SLA timers,
-/// `guest_lookup_token`, `verification_state`, `category_id`,
-/// `origin_channel_id`, recurrence, planning dates) is deliberately absent, so
+/// `verification_state`, `category_id`, `origin_channel_id`, recurrence,
+/// planning dates) is deliberately absent, so
 /// serializing the raw struct can never leak them to a customer.
 /// `GET /api/portal/me`: who is signed in, and the locale the portal should
 /// render in (the requester's preference, else the site default).

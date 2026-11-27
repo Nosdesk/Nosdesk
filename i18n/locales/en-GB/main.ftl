@@ -932,8 +932,6 @@ admin-guest-description = Control what unauthenticated visitors can see and subm
 admin-guest-loading = Loading guest settings...
 admin-guest-features-title = Public Features
 admin-guest-toggle-tickets-label = Accept guest ticket submissions
-admin-guest-toggle-lookup-label = Guest ticket status lookup
-admin-guest-toggle-lookup-description = Lets guests check status via a private link returned on submit.
 admin-guest-toggle-public-docs-label = Public documentation
 admin-guest-toggle-kb-search-label = Public knowledge base search
 admin-guest-toggle-kb-search-description = Search over public documentation. Requires 'Public documentation' on.
@@ -3829,7 +3827,7 @@ plugin-sideload-installing = Installing...
 plugin-sideload-error-not-zip = Please select a .zip file
 plugin-sideload-error-too-large = File must be less than 2 MB
 plugin-sideload-error-install-failed = Failed to install plugin
-# Guest + Public views (GuestTicketSubmitView, GuestTicketStatusView,
+# Guest + Public views (GuestTicketSubmitView,
 # PublicDocsView, PublicDocView, HelpView, PublicLayout,
 # FeatureDisabledNotice). User-facing copy for unauthenticated visitors.
 
@@ -3890,20 +3888,6 @@ guest-submit-attach-error-network = Network error uploading file.
 guest-submit-size-bytes = { $bytes } B
 guest-submit-size-kb = { $value } KB
 guest-submit-size-mb = { $value } MB
-
-# Guest ticket status
-guest-status-loading-aria = Loading ticket
-guest-status-disabled-title = Status lookup is not available
-guest-status-disabled-message = Guest ticket status lookup is currently disabled.
-guest-status-ticket-number = Ticket #{ $id }
-guest-status-priority = Priority
-guest-status-opened = Opened
-guest-status-last-updated = Last updated
-guest-status-closed = Closed
-guest-status-reply-prefix = Need to reply?
-guest-status-reply-suffix = to add a comment.
-guest-status-not-found-title = Ticket not found
-guest-status-not-found-message = The link may have expired or been mistyped.
 
 # Public docs list
 public-docs-loading-aria = Loading documentation
@@ -4290,7 +4274,6 @@ route-title-mfa-setup = MFA setup required
 route-title-accept-invitation = Accept invitation
 route-title-onboarding = Setup
 route-title-guest-submit-ticket = Submit a ticket
-route-title-guest-ticket-status = Ticket status
 route-title-documentation = Documentation
 route-title-help = Help
 route-title-dashboard = Dashboard

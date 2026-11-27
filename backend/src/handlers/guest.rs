@@ -21,10 +21,7 @@ use crate::db::{DbConnection, Pool};
 use crate::errors::{self, ApiError};
 use crate::extractors::WorkspaceContext;
 use crate::handlers::helpers;
-use crate::models::{
-    NewAttachment, NewTicket, PublicSiteSettings, SiteSettings, TicketPriority,
-    WorkflowStateCategory,
-};
+use crate::models::{NewAttachment, NewTicket, PublicSiteSettings, SiteSettings, TicketPriority};
 use crate::repository::user_helpers::GuestUserResult;
 use crate::repository::{self, site_settings, user_helpers};
 use crate::services::search::indexing_tasks;
@@ -46,7 +43,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/settings", web::get().to(get_public_settings))
         .route("/tickets", web::post().to(submit_guest_ticket))
         .route("/form-challenge", web::get().to(form_challenge))
-        .route("/tickets/{token}", web::get().to(get_guest_ticket_status))
         .route("/files/temp", web::post().to(upload_guest_attachment))
         .route("/docs", web::get().to(list_public_docs))
         .route("/docs/search", web::get().to(search_public_docs))
@@ -368,7 +364,6 @@ pub async fn get_public_settings(
                 "guest_tickets_enabled": false,
                 "guest_public_docs_enabled": false,
                 "guest_kb_search_enabled": false,
-                "guest_ticket_lookup_enabled": false,
                 "guest_help_page_enabled": false,
             })))
         }
@@ -419,7 +414,6 @@ pub struct GuestSubmission<'a> {
     pub priority: TicketPriority,
     pub category_id: Option<i32>,
     pub verification_required: bool,
-    pub lookup_token: Uuid,
 }
 
 /// Why [`create_guest_submission`] wrote nothing.
@@ -449,6 +443,10 @@ pub struct CreatedSubmission {
     pub user: crate::models::User,
     /// A guest account was created for the address (not reused).
     pub is_new_guest: bool,
+    /// The request is held until the address is confirmed: always with
+    /// confirmation on, and with it off for an account with a proven or
+    /// vouched address that holds no seat here, which the confirmation seats.
+    pub held: bool,
     pub ticket: crate::models::Ticket,
     pub first_comment_id: Option<i32>,
 }
@@ -471,13 +469,26 @@ pub fn create_guest_submission(
         priority,
         category_id: requested_type,
         verification_required,
-        lookup_token,
     } = *submission;
     // One submission per address at a time, so the pending cap below holds.
     repository::tickets::lock_guest_submissions_for(conn, email)?;
-    let (user, is_new_guest) =
-        match user_helpers::find_or_create_guest_user(email, name, conn, Some(search)) {
-            Ok(GuestUserResult::Created(u)) => (u, true),
+    let (user, is_new_guest, held) = match user_helpers::find_or_create_guest_user(email, name, conn, Some(search)) {
+            Ok(GuestUserResult::Created(u)) => (u, true, verification_required),
+            Ok(GuestUserResult::Existing(u))
+                // The confirmation releases only for an account within the
+                // form's reach (`invitation::complete_verification`), so one
+                // that isn't (a platform role, a staff seat elsewhere now or
+                // before) is answered here as an account holder is, rather than
+                // held for a link that can never release it.
+                if crate::repository::requester_identities::out_of_reach(
+                    conn,
+                    workspace_id,
+                    u.uuid,
+                )?
+                .is_some() =>
+            {
+                return Err(CreateError::EmailClaimed)
+            }
             Ok(GuestUserResult::Existing(u)) => {
                 // A reused account may hold seats only elsewhere, and without one
                 // here its View request link and portal sign-in refuse it. A held
@@ -488,9 +499,20 @@ pub fn create_guest_submission(
                 if !verification_required {
                     crate::repository::workspaces::join_as_requester(conn, workspace_id, u.uuid)?;
                 }
-                (u, false)
+                (u, false, verification_required)
             }
-            Ok(GuestUserResult::EmailClaimed) => return Err(CreateError::EmailClaimed),
+            // An account with a proven or vouched address, seated only in
+            // other workspaces and on no team anywhere, is held and confirmed
+            // as a reused guest is, whatever the confirmation setting: the
+            // typed address proves nothing until its mailbox answers, and the
+            // confirmation seats it here. Anyone else with an account signs in
+            // instead.
+            Ok(GuestUserResult::EmailClaimed) => {
+                match user_helpers::account_to_confirm_and_seat(conn, workspace_id, email)? {
+                    Some(u) => (u, false, true),
+                    None => return Err(CreateError::EmailClaimed),
+                }
+            }
             Err(e) => {
                 error!(error = %e, "Failed to provision guest user");
                 return Err(CreateError::Internal);
@@ -499,7 +521,7 @@ pub fn create_guest_submission(
 
     // Unconfirmed requests are capped per address, so confirming one
     // email can only ever release a handful.
-    if verification_required
+    if held
         && repository::tickets::count_pending_for_requester(conn, user.uuid)?
             >= MAX_PENDING_PER_ADDRESS
     {
@@ -519,8 +541,7 @@ pub fn create_guest_submission(
         requester_uuid: Some(user.uuid),
         category_id,
         submitted_via: Some("guest".to_string()),
-        guest_lookup_token: Some(lookup_token),
-        verification_state: if verification_required {
+        verification_state: if held {
             Some("pending".to_string())
         } else {
             None
@@ -596,6 +617,7 @@ pub fn create_guest_submission(
     Ok(CreatedSubmission {
         user,
         is_new_guest,
+        held,
         ticket,
         first_comment_id,
     })
@@ -906,18 +928,17 @@ pub async fn file_guest_submission(
                 priority: filing.priority,
                 category_id: filing.category_id,
                 verification_required,
-                lookup_token: Uuid::new_v4(),
             };
             session::with_actor_context::<_, CreateError>(&mut conn, &actor, |conn| {
                 let created = create_guest_submission(conn, workspace_id, &search, &submission)?;
-                if verification_required || created.is_new_guest {
+                if created.held || created.is_new_guest {
                     match queue_confirmation(
                         conn,
                         &origin,
                         &created,
                         &filing.email,
                         workspace_id,
-                        verification_required,
+                        created.held,
                     ) {
                         Ok(()) => {}
                         Err(Unqueued::Held) => {
@@ -927,7 +948,7 @@ pub async fn file_guest_submission(
                             );
                             return Err(CreateError::ConfirmationHeld);
                         }
-                        Err(Unqueued::Failed(why)) if verification_required => {
+                        Err(Unqueued::Failed(why)) if created.held => {
                             warn!(
                                 ticket_id = created.ticket.id,
                                 result = %why,
@@ -1035,7 +1056,7 @@ pub async fn file_guest_submission(
     // tickets skip search indexing entirely; accept_invitation picks them
     // up at verification time. The verified ticket reaches clients through
     // the sync pool (the repository write emits `ticket.created`).
-    if !verification_required {
+    if !created.held {
         indexing_tasks::spawn_index_ticket(search, created.ticket, None);
     }
 
@@ -1123,81 +1144,6 @@ enum Unqueued {
     Held,
     /// It failed, for this reason.
     Failed(String),
-}
-
-// ---------- Guest ticket status lookup ----------
-
-/// GET /api/public/tickets/{token}
-pub async fn get_guest_ticket_status(
-    pool: web::Data<Pool>,
-    ws: WorkspaceContext,
-    path: web::Path<String>,
-) -> Result<HttpResponse, ApiError> {
-    let token_str = path.into_inner();
-    let token = match Uuid::parse_str(&token_str) {
-        Ok(t) => t,
-        Err(_) => return Err(ApiError::NotFoundMsg("Not found".into())),
-    };
-
-    let mut conn = helpers::db_conn(&pool)?;
-
-    // Workspace-pinned actor: the lookup token is a UUID generated
-    // per ticket, but RLS confines the find_by_lookup_token query
-    // to the current workspace so a token issued on workspace A
-    // can't be probed from workspace B's subdomain.
-    let actor = guest_actor(&ws, "guest:ticket_lookup");
-
-    let outcome = session::with_actor_context::<_, diesel::result::Error>(&mut conn, &actor, |c| {
-        let settings = match get_settings(c) {
-            Some(s) => s,
-            None => return Ok(LookupOutcome::SettingsUnavailable),
-        };
-        if !settings.guest_ticket_lookup_enabled {
-            return Ok(LookupOutcome::Disabled);
-        }
-        match repository::tickets::find_by_lookup_token(c, token) {
-            Ok(t) => {
-                let cat = repository::workflow_states::category_of(c, t.workflow_state_id)
-                    .ok()
-                    .flatten()
-                    .unwrap_or(WorkflowStateCategory::Backlog);
-                Ok(LookupOutcome::Found(t, cat))
-            }
-            Err(diesel::result::Error::NotFound) => Ok(LookupOutcome::NotFound),
-            Err(e) => Err(e),
-        }
-    });
-
-    match outcome {
-        Ok(LookupOutcome::Found(t, cat)) => Ok(HttpResponse::Ok().json(json!({
-            "ticket_id": t.id,
-            "ticket_number": t.number,
-            "title": t.title,
-            "category": cat,
-            "priority": t.priority,
-            "created_at": t.created_at,
-            "updated_at": t.updated_at,
-            "closed_at": t.closed_at,
-        }))),
-        Ok(LookupOutcome::NotFound) => Err(ApiError::NotFoundMsg("Not found".into())),
-        Ok(LookupOutcome::Disabled) => Err(ApiError::Forbidden(
-            "Guest ticket status lookup is disabled".into(),
-        )),
-        Ok(LookupOutcome::SettingsUnavailable) => {
-            Err(ApiError::ServiceUnavailable("Service unavailable".into()))
-        }
-        Err(e) => {
-            error!(error = %e, "Error looking up guest ticket");
-            Err(ApiError::Internal("Internal server error".into()))
-        }
-    }
-}
-
-enum LookupOutcome {
-    Found(crate::models::Ticket, WorkflowStateCategory),
-    NotFound,
-    Disabled,
-    SettingsUnavailable,
 }
 
 // ---------- Public documentation ----------

@@ -132,7 +132,6 @@ fn submit_form(inbox: &Inbox, email: &str, verification_required: bool) -> Creat
         priority: TicketPriority::Medium,
         category_id: None,
         verification_required,
-        lookup_token: uuid::Uuid::new_v4(),
     };
     let actor = ActorContext::system("guest:ticket_create").with_workspace(b);
     match with_actor_context(&mut conn(&inbox.pool), &actor, |c| {

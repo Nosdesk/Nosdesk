@@ -528,7 +528,8 @@ pub struct ValidateInvitationResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     /// Whether accepting sets a password. False for a guest confirmation
-    /// where local credentials are disabled (hosted): the page confirms via
+    /// where local credentials are disabled (hosted), or for an account that
+    /// can already sign in or has a verified address: the page confirms via
     /// `/invitation/confirm-guest` instead.
     #[serde(default)]
     pub password_required: bool,

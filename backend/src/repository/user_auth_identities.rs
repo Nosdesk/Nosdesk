@@ -306,6 +306,14 @@ pub fn users_with_sign_in(
         .collect())
 }
 
+/// Whether `user_uuid` can already sign in: a local password, an identity
+/// from any sign-in provider ([`users_with_sign_in`]), or a passkey. A
+/// request-form confirmation never sets a password for such an account.
+pub fn has_credentials(conn: &mut DbConnection, user_uuid: Uuid) -> Result<bool, Error> {
+    Ok(users_with_sign_in(conn, &[user_uuid])?.contains(&user_uuid)
+        || crate::repository::passkey_credentials::count_for_user(conn, &user_uuid)? > 0)
+}
+
 /// Batched `find_identity_by_provider_user_id`: resolve many external IDs to
 /// their full identity rows in one query, keyed by `external_id`. The user
 /// sync pre-resolves a whole page's identities with this instead of a query

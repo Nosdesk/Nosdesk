@@ -598,14 +598,6 @@ pub fn import_ticket(
     })
 }
 
-/// Look up a ticket by its opaque guest-lookup token. Used by the public
-/// `/api/public/tickets/{token}` status endpoint.
-pub fn find_by_lookup_token(conn: &mut DbConnection, token: Uuid) -> QueryResult<Ticket> {
-    tickets::table
-        .filter(tickets::guest_lookup_token.eq(token))
-        .first(conn)
-}
-
 /// The requester's newest pending request in `workspace_id` written within
 /// `window` before or at `minted_at`: the one a guest confirmation minted then,
 /// from before tokens named their tickets, was sent for. Pinned to the
@@ -2173,7 +2165,6 @@ mod tests {
             workflow_state_id: default_state.id,
             requester_uuid: Some(requester),
             submitted_via: Some("guest".into()),
-            guest_lookup_token: Some(Uuid::new_v4()),
             verification_state: state.map(|s| s.to_string()),
             ..Default::default()
         };
@@ -2230,24 +2221,6 @@ mod tests {
         let user = TestFixtures::create_user(&mut conn, "NoPending", "user");
         let released = verify_pending_tickets_for_user(&mut conn, user.uuid, &[1, 2]).unwrap();
         assert!(released.is_empty());
-    }
-
-    #[test]
-    fn find_by_lookup_token_returns_match() {
-        let mut conn = setup_test_connection();
-        let user = TestFixtures::create_user(&mut conn, "Lookup", "user");
-        let ticket = insert_ticket_with_state(&mut conn, user.uuid, Some("verified"));
-        let token = ticket.guest_lookup_token.expect("fixture sets a token");
-
-        let found = find_by_lookup_token(&mut conn, token).expect("found");
-        assert_eq!(found.id, ticket.id);
-    }
-
-    #[test]
-    fn find_by_lookup_token_not_found_for_random_uuid() {
-        let mut conn = setup_test_connection();
-        let result = find_by_lookup_token(&mut conn, Uuid::new_v4());
-        assert!(matches!(result, Err(diesel::result::Error::NotFound)));
     }
 
     // ---- Phase 3a: workspace isolation matrix ----
@@ -2721,7 +2694,6 @@ mod tests {
             "ticket_devices_pkey",
             "ticket_tags_pkey",
             "ticket_watchers_pkey",
-            "tickets_guest_lookup_token_key",
             // The inbound forwarding token is an opaque global capability: the
             // inbound webhook resolves it to a workspace cross-tenant (before
             // any workspace is known), so a global UNIQUE is the intended

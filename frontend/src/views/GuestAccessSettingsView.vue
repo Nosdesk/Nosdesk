@@ -183,7 +183,6 @@ const toast = useToastStore();
 
 type ToggleKey =
   | 'guest_tickets_enabled'
-  | 'guest_ticket_lookup_enabled'
   | 'guest_public_docs_enabled'
   | 'guest_kb_search_enabled'
   | 'guest_help_page_enabled'
@@ -225,11 +224,6 @@ const toggles = computed<
     key: 'guest_tickets_enabled',
     label: t('admin-guest-toggle-tickets-label'),
     description: t('admin-guest-toggle-tickets-description', { url: portalUrl('/submit-ticket') })
-  },
-  {
-    key: 'guest_ticket_lookup_enabled',
-    label: t('admin-guest-toggle-lookup-label'),
-    description: t('admin-guest-toggle-lookup-description')
   },
   {
     key: 'guest_public_docs_enabled',
@@ -322,7 +316,6 @@ async function save() {
       guest_tickets_enabled: settings.value.guest_tickets_enabled,
       guest_public_docs_enabled: settings.value.guest_public_docs_enabled,
       guest_kb_search_enabled: settings.value.guest_kb_search_enabled,
-      guest_ticket_lookup_enabled: settings.value.guest_ticket_lookup_enabled,
       guest_help_page_enabled: settings.value.guest_help_page_enabled,
       guest_ticket_default_priority: settings.value.guest_ticket_default_priority,
       guest_ticket_rate_limit_per_hour: settings.value.guest_ticket_rate_limit_per_hour,

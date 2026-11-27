@@ -687,7 +687,6 @@ fn is_portal_route(path: &str) -> bool {
         || path == "/account"
         || path == "/help"
         || path == "/submit-ticket"
-        || under("/ticket-status")
         || under("/docs")
 }
 
@@ -2262,13 +2261,7 @@ mod tests {
             );
         }
         // The tenant origin's portal serves the guest pages too.
-        for path in [
-            "/submit-ticket",
-            "/docs",
-            "/docs/welcome",
-            "/ticket-status/abc",
-            "/help",
-        ] {
+        for path in ["/submit-ticket", "/docs", "/docs/welcome", "/help"] {
             assert_eq!(
                 spa_shell_path(hosted, true, path),
                 "./public/portal.html",

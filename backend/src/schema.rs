@@ -1685,7 +1685,6 @@ diesel::table! {
         guest_tickets_enabled -> Bool,
         guest_public_docs_enabled -> Bool,
         guest_kb_search_enabled -> Bool,
-        guest_ticket_lookup_enabled -> Bool,
         guest_help_page_enabled -> Bool,
         #[max_length = 32]
         guest_ticket_default_priority -> Nullable<Varchar>,
@@ -1998,7 +1997,6 @@ diesel::table! {
         category_id -> Nullable<Int4>,
         #[max_length = 32]
         submitted_via -> Nullable<Varchar>,
-        guest_lookup_token -> Nullable<Uuid>,
         #[max_length = 32]
         verification_state -> Nullable<Varchar>,
         origin_channel_id -> Nullable<Int4>,
