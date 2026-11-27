@@ -37,6 +37,12 @@ pub struct TicketWatcher {
     /// than implicit fan-out.
     pub notify_on_internal_notes: bool,
     pub workspace_id: i32,
+    /// Who put them on the request: the acting user the insert ran as, `None`
+    /// for a system write and for rows from before it was recorded. Read by
+    /// `services::ticket_mail_redaction`. Server-side only; `None` inserts the
+    /// column default.
+    #[serde(default, skip_serializing)]
+    pub added_by: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Insertable)]

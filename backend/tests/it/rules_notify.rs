@@ -568,10 +568,10 @@ async fn mail_settled(
 
 /// On a ticket a stranger may have filed, a notify step and an automated
 /// reply name the ticket by number and leave the requester's name out until
-/// the requester proves their address; the reply's subject is "Re: [#N]".
-/// After proof they name it again.
+/// the requester writes on it; the reply's subject is "Re: [#N]". After that
+/// they name it again.
 #[actix_rt::test]
-async fn rule_mail_about_a_strangers_ticket_names_it_once_the_address_is_proven() {
+async fn rule_mail_about_a_strangers_ticket_names_it_once_the_requester_writes() {
     for via in [
         backend::models::SUBMITTED_VIA_API,
         backend::models::SUBMITTED_VIA_GUEST,
@@ -613,14 +613,24 @@ async fn rule_mail_names_the_ticket_once_proven(via: &str) {
         .find(|m| m.comment_id.is_some())
         .expect("the reply");
     assert_eq!(reply.subject, format!("Re: [#{number}]"));
+    // The name is left out with its space, so the sentence still reads.
     assert!(
-        reply.body_text.contains(&format!("about #{number}")),
+        reply.body_text.contains(&format!("Hi, about #{number}.")),
         "{}",
         reply.body_text
     );
+    let notified = sent
+        .iter()
+        .find(|m| m.comment_id.is_none())
+        .expect("the notify");
+    assert!(
+        notified.body_text.contains("Hi, we close quiet tickets"),
+        "{}",
+        notified.body_text
+    );
 
-    backend::repository::user_emails::mark_primary_verified(&mut h.db.conn(), &a.member_uuid)
-        .expect("prove the address");
+    // The requester writes on the ticket: from then on its mail to them names it.
+    h.reply(a, ticket, a.member_uuid);
     h.set_priority(a, ticket, backend::models::TicketPriority::High);
     h.drain().await;
     let sent = mail_settled(&h, a, ticket, 4).await;
@@ -628,7 +638,7 @@ async fn rule_mail_names_the_ticket_once_proven(via: &str) {
     for m in &sent[2..] {
         assert!(
             m.subject.contains(STRANGER_TITLE) || m.body_text.contains(STRANGER_TITLE),
-            "named after proof: {m:?}"
+            "named once they wrote: {m:?}"
         );
     }
 }

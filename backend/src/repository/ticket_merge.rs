@@ -966,8 +966,8 @@ pub fn enqueue_merge_notifications(
             body = format!("{body}\n\n{note}");
         }
         let message_id = format_outbound_message_id(destination.id, source.id, &reply_domain);
-        // The destination's title is the subject, unless a stranger may have
-        // filed it and its requester hasn't proven the address since.
+        // The destination's title is the subject, unless the recipient may not
+        // see its text (services::ticket_mail_redaction).
         let destination_title = if crate::services::ticket_mail_redaction::ticket_mail_redaction(
             conn,
             destination,

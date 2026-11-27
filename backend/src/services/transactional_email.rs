@@ -505,8 +505,8 @@ pub fn enqueue_participant_added(
     locale: &unic_langid::LanguageIdentifier,
 ) -> Result<OutboundEmail, DieselError> {
     let ticket_id = ticket.id;
-    // The adder is the requester, so on a ticket a stranger may have filed
-    // both their name and the title stay out until the address is proven.
+    // The adder may be the requester: unless the recipient may see the
+    // ticket's text, both their name and the title stay out.
     let redacted = crate::services::ticket_mail_redaction::ticket_mail_redaction(
         conn,
         ticket,

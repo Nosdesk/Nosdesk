@@ -93,6 +93,7 @@ pub const USER_REFERENCES_WITHOUT_FK: &[(&str, &str)] = &[
     ("article_content_revisions", "contributed_by"),
     ("outbound_emails", "skip_if_seen_by"),
     ("ticket_merges", "merged_by_user_uuid"),
+    ("ticket_watchers", "added_by"),
 ];
 
 /// Rows that hold a plugin's secret value, sealed under the source's keyring.

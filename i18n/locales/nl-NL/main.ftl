@@ -623,6 +623,8 @@ password-reset-body-text =
 
     Beveiligingsopmerkingen:
       - Deze link verloopt over 1 uur.
+# MACHINE TRANSLATION, pending native review
+reply-email-redacted-body = Er is een nieuw antwoord op verzoek #{ $number }.
       - Deze link kan slechts één keer worden gebruikt.
       - Deel deze link nooit met iemand.
       - Als u dit verzoek niet hebt gedaan, beveilig dan uw account.

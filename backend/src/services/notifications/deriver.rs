@@ -506,8 +506,8 @@ fn resolve_for_anyone(
                     .and_then(|s| s.requester_ack_template.as_deref())
                     .filter(|t| !t.trim().is_empty());
                 let app_name = settings.as_ref().map(|s| s.app_name.as_str()).unwrap_or("");
-                // The redacted body is what a requester who hasn't proven their
-                // address gets when a stranger may have filed the request: the
+                // The redacted body is what the requester gets when a stranger
+                // may have filed the request and they haven't written on it: the
                 // number for the title, no name (services::ticket_mail_redaction).
                 let (body, redacted_body) = match template {
                     Some(template) => (
@@ -519,7 +519,10 @@ fn resolve_for_anyone(
                             app_name,
                         ),
                         acknowledgement_from_template(
-                            template,
+                            &crate::utils::template_variables::without_variables(
+                                template,
+                                crate::utils::template_variables::NAME_VARIABLES,
+                            ),
                             number,
                             &format!("#{number}"),
                             "",
@@ -1141,7 +1144,7 @@ mod tests {
         );
         assert_eq!(
             payloads[0].redacted_body(),
-            Some(format!("Hi , #{n} is #{n}.").as_str())
+            Some(format!("Hi, #{n} is #{n}.").as_str())
         );
     }
 

@@ -1975,6 +1975,7 @@ diesel::table! {
         auto_added -> Bool,
         notify_on_internal_notes -> Bool,
         workspace_id -> Int4,
+        added_by -> Nullable<Uuid>,
     }
 }
 

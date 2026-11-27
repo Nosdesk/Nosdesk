@@ -197,6 +197,47 @@ fn hold_if_watching(
     }
 }
 
+/// What `to`'s copy of a reply may say (`services::ticket_mail_redaction`):
+/// its subject, the thread's or "Re: [#N]", and whether it is redacted. The
+/// body is the team's own words, so it goes as it is, except a reply an API
+/// token wrote (see [`token_reply_notice`]).
+fn reply_copy(
+    conn: &mut crate::db::DbConnection,
+    ticket: &crate::models::Ticket,
+    to: &str,
+    subject: &str,
+) -> (String, bool) {
+    use crate::services::ticket_mail_redaction::{ticket_mail_redaction, Recipient};
+    if ticket_mail_redaction(conn, ticket, Recipient::Address(to)).is_redacted() {
+        (format!("Re: [#{}]", ticket.number), true)
+    } else {
+        (subject.to_string(), false)
+    }
+}
+
+/// The body of a reply an API token wrote, for someone who may not see the
+/// ticket's own text: a token may be a website relaying a stranger's words,
+/// so it says only that there is a new reply on #N. The request link follows.
+fn token_reply_notice(
+    conn: &mut crate::db::DbConnection,
+    ticket: &crate::models::Ticket,
+    to: Option<uuid::Uuid>,
+) -> super::reply_body::ReplyBody {
+    let locale = match to {
+        Some(person) => crate::repository::user_locale::resolve_effective_locale(conn, person),
+        None => crate::utils::locale::effective_locale(None, ""),
+    };
+    let text = crate::utils::i18n::tr_with(
+        &locale,
+        "reply-email-redacted-body",
+        &[("number", i64::from(ticket.number).into())],
+    );
+    super::reply_body::ReplyBody {
+        html: format!("<p>{}</p>", crate::utils::email::escape_html(&text)),
+        text,
+    }
+}
+
 /// Spawn a detached task that composes the outbound reply for a
 /// freshly-created comment and enqueues it on the durable
 /// `outbound_emails` queue (Item J Pass 1). The actual SMTP send
@@ -217,28 +258,14 @@ fn hold_if_watching(
 /// the HTTP handler would slow down comment posting. The spawn body is
 /// now milliseconds (no SMTP roundtrip), but it's still off the
 /// critical path.
-/// The subject of `to`'s copy of a reply: the thread's, or "Re: [#N]" when a
-/// stranger may have filed the ticket and its requester hasn't proven the
-/// address since (`services::ticket_mail_redaction`). The body is the team's
-/// own words either way.
-fn reply_subject(
-    conn: &mut crate::db::DbConnection,
-    ticket: &crate::models::Ticket,
-    to: &str,
-    subject: &str,
-) -> String {
-    use crate::services::ticket_mail_redaction::{ticket_mail_redaction, Recipient};
-    if ticket_mail_redaction(conn, ticket, Recipient::Address(to)).is_redacted() {
-        format!("Re: [#{}]", ticket.number)
-    } else {
-        subject.to_string()
-    }
-}
-
+///
+/// `by_token` is a comment an API token wrote: someone who may not see the
+/// ticket's own text gets a notice of the reply instead of its words.
 pub fn enqueue_for_comment(
     ticket: crate::models::Ticket,
     comment: crate::models::Comment,
     pool: crate::db::Pool,
+    by_token: bool,
 ) {
     let workspace_id = ticket.workspace_id;
     tokio::spawn(async move {
@@ -292,10 +319,15 @@ pub fn enqueue_for_comment(
                         for (to_uuid, to_email) in copies {
                             let (in_reply_to, references) =
                                 thread_headers_for(conn, ticket.id, &to_email)?;
-                            let body =
-                                with_request_link(conn, &ticket, to_uuid, base.clone(), true);
+                            let (copy_subject, redacted) =
+                                reply_copy(conn, &ticket, &to_email, &subject);
+                            let copy_base = if by_token && redacted {
+                                token_reply_notice(conn, &ticket, to_uuid)
+                            } else {
+                                base.clone()
+                            };
+                            let body = with_request_link(conn, &ticket, to_uuid, copy_base, true);
                             let body = with_security_note(body, note.as_deref());
-                            let copy_subject = reply_subject(conn, &ticket, &to_email, &subject);
                             let mut new_row = reply_row(
                                 None,
                                 ticket.id,
@@ -381,11 +413,21 @@ pub fn enqueue_for_comment(
                 for (to_uuid, to_email) in copies {
                     let (in_reply_to, references) =
                         thread_headers_for(conn, thread.ticket_id, &to_email)?;
-                    let body = with_request_link(conn, &ticket, to_uuid, base.clone(), false);
+                    let (copy_subject, redacted) = reply_copy(conn, &ticket, &to_email, &subject);
+                    let notice_only = by_token && redacted;
+                    let copy_base = if notice_only {
+                        token_reply_notice(conn, &ticket, to_uuid)
+                    } else {
+                        base.clone()
+                    };
+                    let body = with_request_link(conn, &ticket, to_uuid, copy_base, false);
                     let body = with_security_note(body, note.as_deref());
-                    let body =
-                        super::quote_previous::maybe_prepend_quote(conn, &channel, &ticket, body);
-                    let copy_subject = reply_subject(conn, &ticket, &to_email, &subject);
+                    // Quoted history carries the ticket's earlier words.
+                    let body = if notice_only {
+                        body
+                    } else {
+                        super::quote_previous::maybe_prepend_quote(conn, &channel, &ticket, body)
+                    };
                     let mut new_row = reply_row(
                         Some(channel.id),
                         thread.ticket_id,

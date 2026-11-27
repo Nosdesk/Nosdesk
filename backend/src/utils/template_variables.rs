@@ -124,9 +124,56 @@ pub fn substitute(body: &str, vars: &[(&str, &str)]) -> String {
         .into_owned()
 }
 
+/// The person-name variables a template can use, which mail that may not
+/// name the requester leaves out.
+pub const NAME_VARIABLES: &[&str] = &["customer_name", "customer_first_name"];
+
+/// `template` with every `{{name}}` of `names` removed together with the
+/// spaces before it, so "Hi {{customer_first_name}}, ..." reads "Hi, ..."
+/// rather than "Hi , ...". For a template rendered without the person it
+/// names.
+pub fn without_variables(template: &str, names: &[&str]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut last = 0;
+    for caps in VARIABLE_TOKEN_RE.captures_iter(template) {
+        let whole = caps.get(0).expect("the match");
+        if !names.contains(&&caps[1]) {
+            continue;
+        }
+        let before = template[last..whole.start()].trim_end_matches([' ', '\t']);
+        out.push_str(before);
+        last = whole.end();
+    }
+    out.push_str(&template[last..]);
+    out.trim_start().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_template_without_the_name_reads_naturally() {
+        assert_eq!(
+            without_variables(
+                "Hi {{customer_first_name}}, {{ticket_title}} is #{{ticket_id}}.",
+                NAME_VARIABLES
+            ),
+            "Hi, {{ticket_title}} is #{{ticket_id}}."
+        );
+        assert_eq!(
+            without_variables("Thanks {{ customer_name }}!", NAME_VARIABLES),
+            "Thanks!"
+        );
+        assert_eq!(
+            without_variables("{{customer_name}} wrote in.", NAME_VARIABLES),
+            "wrote in."
+        );
+        assert_eq!(
+            without_variables("About {{ticket_title}}", NAME_VARIABLES),
+            "About {{ticket_title}}"
+        );
+    }
 
     #[test]
     fn unknown_variables_returns_empty_for_clean_body() {

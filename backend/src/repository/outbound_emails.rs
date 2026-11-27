@@ -23,13 +23,15 @@
 //!
 //! Every producer of mail about a ticket asks
 //! [`ticket_mail_redaction`](crate::services::ticket_mail_redaction) what the
-//! recipient may see before it composes, so a ticket a stranger filed doesn't
-//! carry their text to an address nobody has proven. The producers that do:
+//! recipient may see before it composes, so a ticket's text reaches someone
+//! outside the team only when they have a reason to see it. The producers
+//! that do:
 //! notification email (`transactional_email::enqueue_notification`), the
 //! participant-added notice (`transactional_email::enqueue_participant_added`),
 //! the rules engine's `notify` and automated `reply` steps
 //! (`repository::rules`), merge notices (`ticket_merge::enqueue_merge_notifications`)
-//! and the subject of staff replies (`channels::outbound::enqueue_for_comment`).
+//! and staff replies (`channels::outbound::enqueue_for_comment`: the subject,
+//! and the body of a reply an API token wrote).
 //! Producers that don't, and why: the email channel's auto-ack is a direct
 //! send replying to a mail's own sender with its own subject; the request
 //! form's confirmation is fixed text; account mail, the digest and the

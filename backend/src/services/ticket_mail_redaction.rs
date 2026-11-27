@@ -1,15 +1,25 @@
-//! Mail about a ticket a stranger filed carries none of the stranger's text
-//! until the requester proves the address.
+//! Automatic mail about a ticket carries its text (the title, the requester's
+//! name, the message, field values, file names) to someone outside the team
+//! only when that person has a reason to see it.
 //!
 //! A ticket is of stranger provenance when nobody has vouched for the person
-//! who wrote it: a request-form ticket filed while the form didn't ask for
-//! confirmation, or a ticket an API token created (a website relaying a form,
-//! say). Its title, the requester's name, the message, field values and file
-//! names were typed by whoever filled in the form, and the address they gave
-//! may be anyone's. While the requester hasn't proven that address since the
-//! ticket was filed (a sign-in link or code, or a confirmation POST; see
-//! `repository::user_emails::mark_primary_verified`), automatic mail about the
-//! ticket to anyone outside the team names it only as "request #N".
+//! who wrote it: a request-form ticket filed without confirmation, or a ticket
+//! an API token created (a website relaying a form, say). Its text was typed by
+//! whoever filled in the form, and the address it names may be anyone's.
+//!
+//! Someone outside the team gets the full text when:
+//! - they have written on the ticket themselves since it was filed (a portal
+//!   reply, or an emailed reply the channel accepted), on any ticket; or
+//! - the ticket has no stranger provenance and they are its requester, or the
+//!   team put them on it (`ticket_watchers.added_by` is staff, or a system
+//!   write such as inbound mail copying in a Cc), or they aren't on it at all
+//!   (an approver or a person a rule names: the team chose them).
+//!
+//! Otherwise the mail names it only as "request #N". A person a requester
+//! added gets the number until they write on it themselves, so a requester
+//! can't use the form to mail its text to whoever they like. Proof of the
+//! address alone doesn't count: it isn't about this ticket, and `proven_at` is
+//! the same for every workspace.
 //!
 //! [`ticket_mail_redaction`] is the one place that decides. Every function
 //! that queues mail about a ticket calls it for each recipient and composes
@@ -68,9 +78,6 @@ pub fn ticket_mail_redaction(
     ticket: &Ticket,
     recipient: Recipient<'_>,
 ) -> TicketMailText {
-    if !stranger_provenance(ticket) {
-        return TicketMailText::Full;
-    }
     match decide(conn, ticket, recipient) {
         Ok(text) => text,
         Err(e) => {
@@ -106,29 +113,48 @@ fn decide(
     ticket: &Ticket,
     recipient: Recipient<'_>,
 ) -> QueryResult<TicketMailText> {
-    if on_team(conn, ticket.workspace_id, recipient)? || requester_proven_since(conn, ticket)? {
-        Ok(TicketMailText::Full)
-    } else {
-        Ok(TicketMailText::Redacted)
+    let people = people_of(conn, recipient)?;
+    if on_team(conn, ticket.workspace_id, &people)? || engaged(conn, ticket, &people)? {
+        return Ok(TicketMailText::Full);
     }
+    if stranger_provenance(ticket) {
+        return Ok(TicketMailText::Redacted);
+    }
+    if ticket.requester_uuid.is_some_and(|r| people.contains(&r)) {
+        return Ok(TicketMailText::Full);
+    }
+    // On the ticket: only if the team (or a system write) put them there.
+    let added_by = watchers_added_by(conn, ticket.id, &people)?;
+    if added_by.is_empty() {
+        return Ok(TicketMailText::Full);
+    }
+    for by in added_by {
+        let Some(by) = by else {
+            return Ok(TicketMailText::Full);
+        };
+        if on_team(conn, ticket.workspace_id, &[by])? {
+            return Ok(TicketMailText::Full);
+        }
+    }
+    Ok(TicketMailText::Redacted)
 }
 
-/// Whether the recipient works tickets in the workspace. An address works
-/// tickets when any account holding it does.
-fn on_team(
-    conn: &mut DbConnection,
-    workspace_id: i32,
-    recipient: Recipient<'_>,
-) -> QueryResult<bool> {
-    let people: Vec<Uuid> = match recipient {
+/// The accounts a recipient stands for: the account, or every account holding
+/// the address.
+fn people_of(conn: &mut DbConnection, recipient: Recipient<'_>) -> QueryResult<Vec<Uuid>> {
+    Ok(match recipient {
         Recipient::User(uuid) => vec![uuid],
         Recipient::Address(address) => crate::repository::user_emails::holders_of(conn, address)?
             .into_iter()
             .map(|e| e.user_uuid)
             .collect(),
-    };
+    })
+}
+
+/// Whether any of `people` works tickets in the workspace.
+fn on_team(conn: &mut DbConnection, workspace_id: i32, people: &[Uuid]) -> QueryResult<bool> {
     for uuid in people {
-        let Ok(user) = crate::repository::users::find_active_by_uuid(&uuid, conn) else {
+        let Ok(user) = crate::repository::users::find_active_by_uuid(uuid, conn) else {
             continue;
         };
         if crate::repository::user_helpers::user_can_handle_tickets_in(conn, workspace_id, &user) {
@@ -138,15 +164,45 @@ fn on_team(
     Ok(false)
 }
 
-/// Whether the requester's address has proved itself since the ticket was
-/// filed. Proof from before it doesn't count: a relay can file a ticket for
-/// anyone's address, including one that signed in last year.
-fn requester_proven_since(conn: &mut DbConnection, ticket: &Ticket) -> QueryResult<bool> {
-    let Some(requester) = ticket.requester_uuid else {
+/// Whether any of `people` has written a public comment on the ticket since
+/// it was filed. The description a form files with the ticket is written in
+/// the same transaction, at the same instant, so it doesn't count; nor does
+/// viewing the ticket, which a link a mail scanner opens can do.
+fn engaged(conn: &mut DbConnection, ticket: &Ticket, people: &[Uuid]) -> QueryResult<bool> {
+    use crate::schema::comments as c;
+    use diesel::prelude::*;
+    if people.is_empty() {
         return Ok(false);
-    };
-    let proven = crate::repository::user_emails::primary_proven_at(conn, &requester)?;
-    Ok(proven.is_some_and(|at| at.naive_utc() >= ticket.created_at))
+    }
+    diesel::select(diesel::dsl::exists(
+        c::table
+            .filter(c::ticket_id.eq(ticket.id))
+            .filter(c::user_uuid.eq_any(people))
+            .filter(c::is_internal.eq(false))
+            .filter(c::deleted_at.is_null())
+            .filter(c::created_at.gt(ticket.created_at)),
+    ))
+    .get_result(conn)
+}
+
+/// Who put each of `people` on the ticket, one entry per watcher row (`None`
+/// for a system write or a row from before it was recorded). Empty when none
+/// of them is on it.
+fn watchers_added_by(
+    conn: &mut DbConnection,
+    ticket_id: i32,
+    people: &[Uuid],
+) -> QueryResult<Vec<Option<Uuid>>> {
+    use crate::schema::ticket_watchers as w;
+    use diesel::prelude::*;
+    if people.is_empty() {
+        return Ok(Vec::new());
+    }
+    w::table
+        .filter(w::ticket_id.eq(ticket_id))
+        .filter(w::user_uuid.eq_any(people))
+        .select(w::added_by)
+        .load(conn)
 }
 
 /// `ticket` with the text a stranger supplied replaced, for rendering a

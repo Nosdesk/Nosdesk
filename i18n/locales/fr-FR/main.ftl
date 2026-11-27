@@ -627,6 +627,8 @@ password-reset-body-text =
 
     Notes de sécurité :
       - Ce lien expirera dans 1 heure.
+# MACHINE TRANSLATION, pending native review
+reply-email-redacted-body = Il y a une nouvelle réponse à la demande n° { $number }.
       - Ce lien ne peut être utilisé qu'une seule fois.
       - Ne partagez jamais ce lien avec personne.
       - Si vous n'avez pas demandé cette réinitialisation, sécurisez votre compte.

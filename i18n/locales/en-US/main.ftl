@@ -650,6 +650,7 @@ ticket-merge-marker-comment-header = Merged { $count ->
     [one] 1 ticket
    *[other] { $count } tickets
   } into this one
+reply-email-redacted-body = There's a new reply on request #{ $number }.
 ticket-merge-marker-incoming-from = Incoming from:
 ticket-merge-banner-merged-into = This ticket was merged into #{ $target_id } by { $actor } on { $when }.
 ticket-merge-banner-merged-into-another = This ticket was merged into another ticket by { $actor } on { $when }.

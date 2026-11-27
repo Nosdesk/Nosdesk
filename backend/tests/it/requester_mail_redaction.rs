@@ -1,8 +1,10 @@
 //! Automatic mail about a ticket a stranger may have filed (one an API token
 //! created, or a request-form ticket filed without confirmation) names it only
-//! by number, to anyone outside the team, until the requester proves their
-//! address. Following a "View request" link is not proof. The emails are
-//! asserted on their outbound queue rows; nothing is sent.
+//! by number, to anyone outside the team, until that person writes on the
+//! ticket themselves. Proving the address doesn't count, and nor does
+//! following a "View request" link. Someone a requester added is held the
+//! same way on any ticket. The emails are asserted on their outbound queue
+//! rows; nothing is sent.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -93,14 +95,56 @@ impl Desk {
         })
     }
 
-    /// The requester proves their address, as a sign-in link or a
-    /// confirmation does.
+    /// The requester proves their address, as a sign-in code does.
     fn prove(&self) {
-        backend::repository::user_emails::mark_primary_verified(
-            &mut self.db.conn(),
-            &self.requester,
+        backend::repository::user_emails::mark_primary_proven(&mut self.db.conn(), &self.requester)
+            .expect("prove the address");
+    }
+
+    /// `person` writes a public reply on `ticket`, as from the portal.
+    fn reply(&self, ticket: &Ticket, person: Uuid) {
+        self.run(|c| {
+            backend::repository::comments::create_comment(
+                c,
+                backend::models::NewComment {
+                    content: "Still broken.".into(),
+                    user_uuid: person,
+                    ticket_id: ticket.id,
+                    content_format: backend::models::ContentFormat::Plaintext,
+                    ..Default::default()
+                },
+                None,
+            )
+        });
+    }
+
+    /// Put `person` on `ticket` as `by` would (the acting user is recorded).
+    fn add(&self, ticket: &Ticket, person: Uuid, by: Uuid) {
+        let actor =
+            backend::sync::actor::ActorContext::user(by, None).with_workspace(self.ws.workspace_id);
+        backend::sync::session::with_actor_context::<_, diesel::result::Error>(
+            &mut self.pool.get().expect("conn"),
+            &actor,
+            |c| backend::repository::ticket_watchers::add_watcher(c, ticket.id, person, false),
         )
-        .expect("prove the address");
+        .expect("add participant");
+    }
+
+    /// A non-member with `address` as their primary address.
+    fn outsider(&self, name: &str, address: &str) -> Uuid {
+        let mut c = self.db.conn();
+        let person = common::insert_plain_user(&mut c, name);
+        diesel::insert_into(backend::schema::user_emails::table)
+            .values((
+                backend::schema::user_emails::user_uuid.eq(person),
+                backend::schema::user_emails::email.eq(address),
+                backend::schema::user_emails::email_type.eq("personal"),
+                backend::schema::user_emails::is_primary.eq(true),
+                backend::schema::user_emails::is_verified.eq(false),
+            ))
+            .execute(&mut c)
+            .expect("outsider address");
+        person
     }
 
     fn payloads(&self, intent: Intent) -> Vec<NotificationPayload> {
@@ -231,9 +275,10 @@ async fn the_acknowledgement_names_the_request_by_number() {
 
 /// An API ticket and a request-form ticket filed without confirmation: status
 /// updates and the participant notice name the ticket by number until the
-/// requester proves the address, and by its title after.
+/// requester writes on it, and then by its title to the requester only. The
+/// person they were telling hasn't written on it, so they still get #N.
 #[actix_rt::test]
-async fn mail_about_a_strangers_ticket_names_it_once_the_address_is_proven() {
+async fn mail_about_a_strangers_ticket_names_it_once_the_requester_writes_on_it() {
     for (via, verification) in [("api", None), ("guest", None), ("guest", Some("pending"))] {
         let d = desk();
         let friend = common::insert_plain_user(&mut d.db.conn(), "Friend");
@@ -258,25 +303,62 @@ async fn mail_about_a_strangers_ticket_names_it_once_the_address_is_proven() {
             added.subject
         );
 
-        d.prove();
+        d.reply(&ticket, d.requester);
         let update = d.deliver(d.status_update(&ticket)).await;
         assert!(update.subject.contains(TITLE), "{via}: {}", update.subject);
         let other = common::insert_plain_user(&mut d.db.conn(), "Other");
         let added = d.participant_added(&ticket, other, "other@example.com");
-        assert!(added.subject.contains(TITLE), "{via}: {}", added.subject);
-        assert!(added.body_text.contains(NAME), "{via}: {}", added.body_text);
+        assert!(!names_the_ticket(&added), "{via}: someone else: {added:?}");
     }
 }
 
-/// Proof from before the ticket was filed doesn't count: a relay can file a
-/// ticket for any address, including one that signed in last week.
+/// Proving the address isn't about this ticket: a relay can file a ticket for
+/// any address, including one that signs in every day, and `proven_at` is the
+/// same in every workspace. Before the ticket or after, it unlocks nothing.
 #[actix_rt::test]
-async fn proof_from_before_the_ticket_doesnt_count() {
+async fn proving_the_address_doesnt_unlock_a_strangers_ticket() {
     let d = desk();
     d.prove();
     let ticket = d.ticket("api", None);
     let update = d.deliver(d.status_update(&ticket)).await;
     assert!(!names_the_ticket(&update), "{update:?}");
+    d.prove();
+    let update = d.deliver(d.status_update(&ticket)).await;
+    assert!(!names_the_ticket(&update), "after: {update:?}");
+}
+
+/// On a ticket the requester filed themselves, a person the requester added
+/// gets the number only, with no names, until they write on it themselves;
+/// one the team added gets the ticket.
+#[actix_rt::test]
+async fn people_a_requester_adds_get_the_number_until_they_write() {
+    let d = desk();
+    let ticket = d.ticket("portal", None);
+    let victim = d.outsider("Victim", "victim@example.com");
+    let colleague = d.outsider("Colleague", "colleague@example.com");
+    d.add(&ticket, victim, d.requester);
+    d.add(&ticket, colleague, d.ws.admin_uuid);
+
+    let to_victim = d.participant_added(&ticket, victim, "victim@example.com");
+    assert!(!names_the_ticket(&to_victim), "{to_victim:?}");
+    let to_colleague = d.participant_added(&ticket, colleague, "colleague@example.com");
+    assert!(
+        to_colleague.subject.contains(TITLE),
+        "{}",
+        to_colleague.subject
+    );
+
+    d.reply(&ticket, victim);
+    // The notice goes once per person; clear it to compose it again.
+    diesel::delete(backend::schema::outbound_emails::table.find(to_victim.id))
+        .execute(&mut d.db.conn())
+        .expect("clear the notice");
+    let again = d.participant_added(&ticket, victim, "victim@example.com");
+    assert!(
+        again.subject.contains(TITLE),
+        "after writing: {}",
+        again.subject
+    );
 }
 
 /// A ticket from the portal, or from the request form after confirmation, is
@@ -345,4 +427,75 @@ async fn following_the_view_request_link_is_not_proof() {
     assert_eq!(proven, None);
     let update = d.deliver(d.status_update(&ticket)).await;
     assert!(!names_the_ticket(&update), "{update:?}");
+}
+
+/// The reply an API token writes on a stranger's ticket reaches its requester,
+/// who hasn't written on it, as a notice with the link and none of its words:
+/// a token may be relaying a stranger's text. A reply from the team in the app
+/// goes as written, under the number-only subject.
+#[actix_rt::test]
+async fn a_token_written_reply_reaches_an_unengaged_requester_as_a_notice() {
+    const WORDS: &str = "Claim it at reply-marker.example";
+    let d = desk();
+    let ticket = d.ticket("api", None);
+    let sent_for = |by_token: bool| {
+        let comment = d.run(|c| {
+            backend::repository::comments::create_comment(
+                c,
+                backend::models::NewComment {
+                    content: WORDS.into(),
+                    user_uuid: d.ws.admin_uuid,
+                    ticket_id: ticket.id,
+                    content_format: backend::models::ContentFormat::Plaintext,
+                    ..Default::default()
+                },
+                None,
+            )
+        });
+        backend::services::channels::outbound::enqueue_for_comment(
+            ticket.clone(),
+            comment.clone(),
+            d.pool.clone(),
+            by_token,
+        );
+        comment.id
+    };
+    let reply_row = |comment_id: i32| {
+        d.run(|c| {
+            use backend::schema::outbound_emails as o;
+            o::table
+                .filter(o::comment_id.eq(comment_id))
+                .first::<OutboundEmail>(c)
+                .optional()
+        })
+    };
+    let settle = |comment_id: i32| async move {
+        for _ in 0..50 {
+            if let Some(row) = reply_row(comment_id) {
+                return row;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        panic!("the reply was never queued");
+    };
+
+    let by_token = settle(sent_for(true)).await;
+    assert_eq!(by_token.recipient, REQUESTER);
+    assert_eq!(by_token.subject, format!("Re: [#{}]", ticket.number));
+    assert!(
+        !by_token.body_text.contains(WORDS),
+        "{}",
+        by_token.body_text
+    );
+    assert!(
+        by_token
+            .body_text
+            .contains(&format!("new reply on request #{}", ticket.number)),
+        "{}",
+        by_token.body_text
+    );
+
+    let by_team = settle(sent_for(false)).await;
+    assert!(by_team.body_text.contains(WORDS), "{}", by_team.body_text);
+    assert_eq!(by_team.subject, format!("Re: [#{}]", ticket.number));
 }
