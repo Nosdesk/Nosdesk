@@ -727,6 +727,33 @@ pub fn find_verified_user_by_email(
     Ok(None)
 }
 
+/// The one account `email` stands for, compared case-insensitively, under the
+/// rule [`lookup_for_guest`] uses: a primary or verified address of it. A
+/// verified holder wins over unverified primaries; `None` when no account
+/// holds it that way, or more than one does equally.
+pub fn account_by_trusted_address(
+    email: &str,
+    conn: &mut DbConnection,
+) -> Result<Option<User>, diesel::result::Error> {
+    let trusted: Vec<UserEmail> = super::user_emails::holders_of(conn, email)?
+        .into_iter()
+        .filter(|row| row.is_primary || row.is_verified)
+        .collect();
+    let verified: Vec<&UserEmail> = trusted.iter().filter(|row| row.is_verified).collect();
+    let rows: Vec<&UserEmail> = if verified.is_empty() {
+        trusted.iter().collect()
+    } else {
+        verified
+    };
+    let Some(first) = rows.first() else {
+        return Ok(None);
+    };
+    if rows.iter().any(|row| row.user_uuid != first.user_uuid) {
+        return Ok(None);
+    }
+    crate::repository::users::get_user_by_uuid(&first.user_uuid, conn).map(Some)
+}
+
 /// Internal helper: classify the accounts holding `email`, in any case, as
 /// reusable or claimed.
 ///
@@ -1359,6 +1386,23 @@ mod tests {
                 .map(|u| u.uuid),
             Some(owner.uuid)
         );
+    }
+
+    /// A sign-in resolves an account through a verified secondary, in any
+    /// case, but not through an unverified one.
+    #[test]
+    fn a_sign_in_resolves_a_primary_or_verified_address() {
+        let mut conn = setup_test_connection();
+        let user = TestFixtures::create_user(&mut conn, "Signer", "user");
+        add_address(&mut conn, user.uuid, "signer@corp.example", true, false);
+        add_address(&mut conn, user.uuid, "Alias@Corp.example", false, true);
+        add_address(&mut conn, user.uuid, "maybe@corp.example", false, false);
+        let found = |c: &mut DbConnection, e: &str| {
+            account_by_trusted_address(e, c).unwrap().map(|u| u.uuid)
+        };
+        assert_eq!(found(&mut conn, "SIGNER@corp.example"), Some(user.uuid));
+        assert_eq!(found(&mut conn, "alias@corp.example"), Some(user.uuid));
+        assert_eq!(found(&mut conn, "maybe@corp.example"), None);
     }
 
     /// A guest's address is stored lowercase.
