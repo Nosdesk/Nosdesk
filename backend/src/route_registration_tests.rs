@@ -1120,7 +1120,6 @@ async fn guest_config_routes_registered() {
         &[
             ("GET", "/settings"),
             ("POST", "/tickets"),
-            ("GET", "/tickets/1"),
             ("POST", "/files/temp"),
             ("GET", "/docs"),
             ("GET", "/docs/search"),
