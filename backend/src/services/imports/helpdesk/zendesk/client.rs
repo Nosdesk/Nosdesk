@@ -95,6 +95,14 @@ impl Missing {
     }
 }
 
+/// Begins a [`SourceError::Network`] for a request the outbound policy
+/// refused before it was sent.
+pub(super) const EGRESS_REFUSED: &str = "refused by the outbound policy:";
+
+/// In a [`SourceError::Network`] for a request Zendesk kept throttling past
+/// the retry budget.
+pub(super) const RATE_LIMITED: &str = "still rate limited";
+
 /// `reason` with `url` (and its path, which can hold a token) taken out.
 fn redact(reason: &str, url: &Url) -> String {
     let mut out = reason.replace(url.as_str(), "the download link");
@@ -233,7 +241,7 @@ impl Http {
         } else {
             egress_check(url, self.trusted_host.as_deref())
         }
-        .map_err(SourceError::Network)?;
+        .map_err(|e| SourceError::Network(format!("{EGRESS_REFUSED} {e}")))?;
         let with_auth = self.may_send_credentials(url);
         let mut failures = 0u32;
         let mut waits = 0u32;
@@ -259,7 +267,7 @@ impl Http {
                         waits += 1;
                         if waits > self.policy.max_throttle_waits {
                             return Err(SourceError::Network(format!(
-                                "{} still rate limited after {} waits",
+                                "{} {RATE_LIMITED} after {} waits",
                                 url.path(),
                                 waits - 1
                             )));

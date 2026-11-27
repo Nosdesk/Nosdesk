@@ -185,8 +185,10 @@ struct HelpdeskImportArgs {
     #[arg(long, value_name = "ZIP")]
     export_zip: Vec<PathBuf>,
 
-    /// With --export-zip and a credential, ask the API for nothing: what
-    /// the exports lack stays missing.
+    /// With --export-zip and a credential, send no API request at all:
+    /// no people, organizations, names or conversations, and no custom
+    /// field titles either (fields are labelled by id). What the exports
+    /// lack stays missing. Attachments still download.
     #[arg(long)]
     no_api_fill: bool,
 

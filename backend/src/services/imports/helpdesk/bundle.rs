@@ -188,10 +188,36 @@ pub struct Fill {
     /// whose comments the fill fetched.
     #[serde(default)]
     pub conversations: u64,
-    /// Why the fill stopped short, when it did. What it hadn't fetched by
-    /// then is as the exports left it.
+    /// Of those, the ones whose comments couldn't be fetched: each keeps
+    /// its description as its first comment, with a line in its note.
+    #[serde(default)]
+    pub conversations_failed: u64,
+    /// Whether the source's answers can say who is gone: the credential is
+    /// an admin's, who sees every user. When false, `gone` is empty and
+    /// people the fill didn't get back stay "not in the export".
+    #[serde(default)]
+    pub absence_confirmed: bool,
+    /// Requests that failed without stopping the fill, in words. What each
+    /// asked for is as the exports left it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+    /// Why the fill stopped, when it did (a refused credential, the
+    /// outbound policy, a throttle past the retry budget). What it hadn't
+    /// fetched by then is as the exports left it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed: Option<String>,
+}
+
+/// Request failures a fill keeps in words; past this many, a count.
+pub const FILL_ERRORS_KEPT: usize = 20;
+
+impl Fill {
+    /// Records a request that failed without stopping the fill.
+    pub fn error(&mut self, why: String) {
+        if self.errors.len() < FILL_ERRORS_KEPT {
+            self.errors.push(why);
+        }
+    }
 }
 
 /// Where a bundle's people came from.

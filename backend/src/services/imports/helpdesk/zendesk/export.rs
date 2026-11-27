@@ -164,26 +164,48 @@ pub async fn read_export(
             }
         }
     };
-    let mut labels = map::Labels {
-        organizations: map::organizations(orgs.values()),
-        ..Default::default()
-    };
-    // Fetched the first time a ticket needs them; None once tried.
-    let mut groups_tried = false;
-    let mut brands_tried = false;
-
-    // With several zips, which copy of each ticket is kept: a cheap first
-    // read of ids and dates, so the tickets themselves still stream.
-    let winners = if zips.len() > 1 {
+    // A cheap first read of each ticket's id, date and organization: with
+    // several zips, which copy is kept; with the fill, the organizations
+    // the tickets name that no zip holds, fetched now so each ticket's note
+    // can name them. The tickets themselves still stream.
+    let scanned = if zips.len() > 1 || filling {
         let paths = zips.to_vec();
         Some(
-            tokio::task::spawn_blocking(move || ticket_winners(&paths))
+            tokio::task::spawn_blocking(move || ticket_scan(&paths))
                 .await
                 .map_err(|e| SourceError::Protocol(format!("export reader stopped: {e}")))??,
         )
     } else {
         None
     };
+    let winners = scanned
+        .as_ref()
+        .filter(|_| zips.len() > 1)
+        .map(|(w, _)| w.clone());
+    if filling {
+        if let Some((_, ticket_orgs)) = &scanned {
+            let mut ask: Vec<i64> = ticket_orgs
+                .iter()
+                .copied()
+                .filter(|id| !orgs.contains_key(id))
+                .collect();
+            ask.sort_unstable();
+            let got = source.organizations_by_id(&ask, &cancel).await?;
+            fill.organizations += got.returned.len() as u64;
+            got.errors.into_iter().for_each(|e| fill.error(e));
+            fill.failed = got.stopped;
+            for o in got.returned {
+                orgs.insert(o.id, o);
+            }
+        }
+    }
+    let mut labels = map::Labels {
+        organizations: map::organizations(orgs.values()),
+        ..Default::default()
+    };
+    // Fetched the first time a ticket needs them.
+    let mut groups_tried = false;
+    let mut brands_tried = false;
 
     // Pass two: tickets, streamed from a reader thread so an export of any
     // size never sits in memory.
@@ -205,7 +227,6 @@ pub async fn read_export(
     let mut seen = HashSet::new();
     let mut since_checkpoint = 0u64;
     let mut mentioned: HashSet<String> = HashSet::new();
-    let mut ticket_orgs: HashSet<i64> = HashSet::new();
     loop {
         let next = tokio::select! {
             t = rx.recv() => t,
@@ -233,72 +254,84 @@ pub async fn read_export(
                 .or_default() += 1;
             continue;
         };
-        if filling && fill.failed.is_none() {
-            if t.group_id.is_some() && !groups_tried {
-                groups_tried = true;
-                match source.names(fill::Names::Groups, &cancel).await? {
-                    Ok(names) => labels.groups = names,
-                    Err(why) => notes.push(format!(
-                        "Group names unavailable ({why}); the import note names groups by id"
-                    )),
-                }
+        for (wanted, tried, what) in [
+            (t.group_id.is_some(), &mut groups_tried, fill::Names::Groups),
+            (t.brand_id.is_some(), &mut brands_tried, fill::Names::Brands),
+        ] {
+            if !(filling && fill.failed.is_none() && wanted && !*tried) {
+                continue;
             }
-            if t.brand_id.is_some() && !brands_tried {
-                brands_tried = true;
-                match source.names(fill::Names::Brands, &cancel).await? {
-                    Ok(names) => labels.brands = names,
-                    Err(why) => notes.push(format!(
-                        "Brand names unavailable ({why}); the import note names brands by id"
-                    )),
-                }
+            *tried = true;
+            let (kind, kinds) = match what {
+                fill::Names::Groups => ("Group", "groups"),
+                fill::Names::Brands => ("Brand", "brands"),
+            };
+            match source.names(what, &cancel).await {
+                Ok(Ok(names)) => match what {
+                    fill::Names::Groups => labels.groups = names,
+                    fill::Names::Brands => labels.brands = names,
+                },
+                Ok(Err(why)) => notes.push(format!(
+                    "{kind} names unavailable ({why}); the import note names {kinds} by id"
+                )),
+                Err(SourceError::Cancelled) => return Err(SourceError::Cancelled),
+                Err(e) => fill.failed = Some(fill::failure(&e)),
             }
         }
         let raw = match &t.comments {
             Some(c) if !c.is_empty() => c.clone(),
             // Over 1 MB: Zendesk's export leaves the conversation out. The
-            // fill asks for it, as the API fetch does for every ticket.
+            // fill asks for it, as the API fetch does for every ticket; one
+            // it can't get costs that ticket only.
             _ if filling && fill.failed.is_none() => {
                 match source.fetch_comments(t.id, &cancel).await {
                     Ok(Some(c)) if !c.is_empty() => {
                         fill.conversations += 1;
                         c
                     }
-                    Ok(_) => {
-                        *run.counts
-                            .entry("tickets_without_comments".into())
-                            .or_default() += 1;
+                    Ok(_) => Vec::new(),
+                    Err(SourceError::Cancelled) => return Err(SourceError::Cancelled),
+                    Err(e) if fill::stops_the_fill(&e) => {
+                        fill.conversations_failed += 1;
+                        fill.failed = Some(fill::failure(&e));
                         Vec::new()
                     }
-                    Err(SourceError::Cancelled) => return Err(SourceError::Cancelled),
                     Err(e) => {
-                        fill.failed = Some(fill::failure(&e));
-                        *run.counts
-                            .entry("tickets_without_comments".into())
-                            .or_default() += 1;
+                        fill.conversations_failed += 1;
+                        fill.error(format!(
+                            "ticket {}'s conversation: {}",
+                            t.id,
+                            fill::failure(&e)
+                        ));
                         Vec::new()
                     }
                 }
             }
-            _ => {
-                *run.counts
-                    .entry("tickets_without_comments".into())
-                    .or_default() += 1;
-                Vec::new()
-            }
+            _ => Vec::new(),
         };
+        if raw.is_empty() {
+            *run.counts
+                .entry("tickets_without_comments".into())
+                .or_default() += 1;
+        }
         let (mut ticket, mut stats) = source
             .assemble(
                 bundle, &t, created_at, None, &fields, &labels, &raw, &cancel,
             )
             .await?;
         if ticket.comments.is_empty() {
+            ticket.fields.insert(
+                "Conversation there".into(),
+                "not brought across (Zendesk's export leaves out tickets over 1 MB); \
+                 the description stands in"
+                    .into(),
+            );
             if let Some(c) = description_comment(&t, created_at) {
                 ticket.comments.push(c);
                 stats.comments += 1;
             }
         }
         people::mentioned(&ticket, &mut mentioned);
-        ticket_orgs.extend(t.organization_id);
         writer.write(&ticket)?;
         stats.tickets = 1;
         run.add(&stats);
@@ -325,8 +358,9 @@ pub async fn read_export(
         )));
     }
 
-    // The fill, people first: everyone the tickets name that no zip holds,
-    // by id. Who Zendesk doesn't return is gone there.
+    // The fill's people: everyone the tickets name that no zip holds, by
+    // id. Who an admin's credential doesn't get back is gone at Zendesk;
+    // an agent's may not see everyone, so its answer confirms nobody gone.
     if filling && fill.failed.is_none() {
         let mut ask: Vec<i64> = mentioned
             .iter()
@@ -335,30 +369,42 @@ pub async fn read_export(
             .collect();
         ask.sort_unstable();
         fill.people_asked = ask.len() as u64;
-        let got = source.users_by_id(&ask, &cancel).await?;
-        fill.people_returned = got.returned.len() as u64;
-        fill.gone = got.gone.iter().map(i64::to_string).collect();
-        fill.failed = got.failed;
-        for u in got.returned {
-            users.insert(u.id, u);
+        if !ask.is_empty() {
+            match source.admin_credential(&cancel).await {
+                Ok(Ok(admin)) => fill.absence_confirmed = admin,
+                Ok(Err(why)) => fill.error(format!("the credential's role: {why}")),
+                Err(SourceError::Cancelled) => return Err(SourceError::Cancelled),
+                Err(e) => fill.failed = Some(fill::failure(&e)),
+            }
+        }
+        if fill.failed.is_none() {
+            let got = source
+                .users_by_id(&ask, fill.absence_confirmed, &cancel)
+                .await?;
+            fill.people_returned = got.returned.len() as u64;
+            fill.gone = got.gone.iter().map(i64::to_string).collect();
+            got.errors.into_iter().for_each(|e| fill.error(e));
+            fill.failed = got.stopped;
+            for u in got.returned {
+                users.insert(u.id, u);
+            }
         }
     }
-    // Then the organizations those people and the tickets name that no zip
-    // holds.
+    // Then the organizations those people name that no zip holds.
     if filling && fill.failed.is_none() {
         let mut ask: Vec<i64> = users
             .values()
             .filter(|u| mentioned.contains(&u.id.to_string()))
             .filter_map(|u| u.organization_id)
-            .chain(ticket_orgs.iter().copied())
             .filter(|id| !orgs.contains_key(id))
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
         ask.sort_unstable();
         let got = source.organizations_by_id(&ask, &cancel).await?;
-        fill.organizations = got.returned.len() as u64;
-        fill.failed = got.failed;
+        fill.organizations += got.returned.len() as u64;
+        got.errors.into_iter().for_each(|e| fill.error(e));
+        fill.failed = got.stopped;
         for o in got.returned {
             orgs.insert(o.id, o);
         }
@@ -402,6 +448,11 @@ pub async fn read_export(
             "The API fill stopped: {why}. What it hadn't fetched is as the export left it"
         ));
     }
+    for why in &fill.errors {
+        notes.push(format!(
+            "An API fill request failed and was passed over: {why}"
+        ));
+    }
     state.counts = run.counts.clone();
     state.notes = notes;
     bundle.write_state(&state)?;
@@ -430,19 +481,25 @@ fn keep_later<T>(
     }
 }
 
-/// For each ticket in several zips, the zip whose copy is kept: the later
-/// `updated_at`, or the first zip on a tie.
-fn ticket_winners(paths: &[PathBuf]) -> Result<HashMap<i64, usize>, SourceError> {
+/// For each ticket in the zips, the zip whose copy is kept (the later
+/// `updated_at`, or the first zip on a tie), and every organization a
+/// ticket names.
+#[allow(clippy::type_complexity)]
+fn ticket_scan(paths: &[PathBuf]) -> Result<(HashMap<i64, usize>, HashSet<i64>), SourceError> {
     #[derive(serde::Deserialize)]
     struct Stamp {
         id: i64,
         #[serde(default)]
         updated_at: Option<chrono::DateTime<chrono::Utc>>,
+        #[serde(default)]
+        organization_id: Option<i64>,
     }
     let mut best: HashMap<i64, (usize, Option<chrono::DateTime<chrono::Utc>>)> = HashMap::new();
+    let mut orgs = HashSet::new();
     for (i, path) in paths.iter().enumerate() {
         each_record(path, &[Kind::Ticket], LIMITS, |_, v| {
             if let Ok(s) = serde_json::from_value::<Stamp>(v) {
+                orgs.extend(s.organization_id);
                 match best.get(&s.id) {
                     Some((_, at)) if *at >= s.updated_at => {}
                     _ => {
@@ -453,7 +510,10 @@ fn ticket_winners(paths: &[PathBuf]) -> Result<HashMap<i64, usize>, SourceError>
             true
         })?;
     }
-    Ok(best.into_iter().map(|(id, (zip, _))| (id, zip)).collect())
+    Ok((
+        best.into_iter().map(|(id, (zip, _))| (id, zip)).collect(),
+        orgs,
+    ))
 }
 
 /// The ticket's description as its opening comment, for a ticket the

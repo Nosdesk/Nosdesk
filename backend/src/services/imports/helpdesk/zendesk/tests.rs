@@ -175,6 +175,12 @@ struct Twists {
     deny_show_many: AtomicBool,
     /// Show Many Users answers 404, then a body without its list.
     show_many_not_an_answer: AtomicU32,
+    /// Show Many Users answers 400 for a request naming this id.
+    show_many_fails_for: std::sync::atomic::AtomicI64,
+    /// The credential is an agent's, not an admin's.
+    agent_credential: AtomicBool,
+    /// Ticket 101's comments answer 403.
+    forbid_comments_101: AtomicBool,
 }
 
 /// A small Zendesk account: two orgs and three users over two pages each,
@@ -258,6 +264,15 @@ fn account(api_base: &str, files_base: &str, twists: &Twists, req: &Req) -> Resp
                 2 => return json_resp(json!({"count": 0})),
                 _ => {}
             }
+            let fails_for = twists.show_many_fails_for.load(Ordering::SeqCst);
+            if fails_for > 0
+                && q("ids")
+                    .unwrap_or_default()
+                    .split(',')
+                    .any(|id| id == fails_for.to_string())
+            {
+                return status(400);
+            }
             let users: Vec<Value> = q("ids")
                 .unwrap_or_default()
                 .split(',')
@@ -280,6 +295,10 @@ fn account(api_base: &str, files_base: &str, twists: &Twists, req: &Req) -> Resp
                 .collect();
             json_resp(json!({"organizations": orgs}))
         }
+        "/api/v2/users/me.json" => json_resp(json!({"user": {
+            "id": 1, "name": "Ada Admin", "email": "ada@acme.test",
+            "role": if twists.agent_credential.load(Ordering::SeqCst) { "agent" } else { "admin" }
+        }})),
         "/api/v2/groups.json" => json_resp(json!({
             "groups": [{"id": 10, "name": "Tier 2"}], "meta": {"has_more": false}
         })),
@@ -313,6 +332,11 @@ fn account(api_base: &str, files_base: &str, twists: &Twists, req: &Req) -> Resp
             }
             _ => status(400),
         },
+        "/api/v2/tickets/101/comments.json"
+            if twists.forbid_comments_101.load(Ordering::SeqCst) =>
+        {
+            status(403)
+        }
         "/api/v2/tickets/101/comments.json" => match q("page[after]") {
             None => json_resp(json!({
                 "comments": [comment(1001, "2024-01-01T10:00:00Z", true, json!([
@@ -1784,6 +1808,7 @@ async fn fill_marks_unreturned_ids_gone() {
     assert_eq!(fill.people_asked, 3);
     assert_eq!(fill.people_returned, 2);
     assert_eq!(fill.gone, vec!["5"]);
+    assert!(fill.absence_confirmed, "an admin's credential");
     assert_eq!(fill.failed, None);
     assert_eq!(
         fill.organizations, 1,
@@ -1820,10 +1845,11 @@ async fn fill_marks_unreturned_ids_gone() {
         .await;
         let fill = manifest.fill.expect("fill");
         assert!(fill.gone.is_empty(), "{n}: {:?}", fill.gone);
-        assert!(
-            fill.failed.as_deref().is_some_and(|f| f.contains(why)),
-            "{n}: {fill:?}"
+        assert_eq!(
+            fill.failed, None,
+            "a request's failure doesn't stop the fill"
         );
+        assert!(fill.errors.iter().any(|f| f.contains(why)), "{n}: {fill:?}");
     }
     s.twists.show_many_not_an_answer.store(0, Ordering::SeqCst);
 
@@ -1982,4 +2008,111 @@ async fn group_and_brand_names_or_ids() {
         field(&tickets[0], "Organization there").as_deref(),
         Some("Acme")
     );
+}
+
+#[tokio::test]
+async fn a_conversation_fill_error_doesnt_stop_the_people_fill() {
+    let s = setup().await;
+    s.twists.forbid_comments_101.store(true, Ordering::SeqCst);
+    let dir = tempfile::tempdir().expect("dir");
+    let zip = zip_at(
+        &dir.path().join("export.zip"),
+        &[(
+            "export_1",
+            ndjson(&[
+                export_ticket(
+                    101,
+                    json!({"comments": null, "description": "Too big", "collaborator_ids": [4, 5, 6]}),
+                ),
+                json!({"user": {"id": 3, "name": "Cara", "email": "cara@example.com"}}),
+            ]),
+        )],
+    );
+    let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    let (bundle, manifest) = read_zips(&src, &[zip], &dir.path().join("b")).await;
+    let fill = manifest.fill.expect("fill");
+    assert_eq!(fill.failed, None);
+    assert_eq!(fill.conversations_failed, 1);
+    assert!(
+        fill.errors
+            .iter()
+            .any(|e| e.contains("ticket 101's conversation")),
+        "{:?}",
+        fill.errors
+    );
+    assert_eq!((fill.people_asked, fill.people_returned), (3, 2));
+    assert_eq!(fill.gone, vec!["5"]);
+    let t = &tickets_of(&bundle)[0];
+    assert_eq!(t.comments[0].body.value, "Too big");
+    assert!(
+        t.fields
+            .get("Conversation there")
+            .is_some_and(|v| v.contains("not brought across")),
+        "{:?}",
+        t.fields
+    );
+}
+
+#[tokio::test]
+async fn a_failed_show_many_chunk_costs_only_its_ids() {
+    let s = setup().await;
+    s.twists.show_many_fails_for.store(2120, Ordering::SeqCst);
+    let dir = tempfile::tempdir().expect("dir");
+    let missing: Vec<i64> = (2000..2150).collect();
+    let zip = export_naming(dir.path(), &missing);
+    let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    let (_, manifest) = read_zips(&src, &[zip], &dir.path().join("b")).await;
+    let fill = manifest.fill.expect("fill");
+    assert_eq!(fill.failed, None);
+    assert_eq!(fill.errors.len(), 1, "{:?}", fill.errors);
+    // The first hundred were answered: gone. The second request failed:
+    // its fifty are neither returned nor gone.
+    assert_eq!(fill.gone.len(), 100);
+    assert!(
+        fill.gone.iter().all(|id| id.as_str() < "2100"),
+        "{:?}",
+        fill.gone
+    );
+    assert_eq!(s.api.requests("/api/v2/users/show_many.json").len(), 2);
+}
+
+#[tokio::test]
+async fn an_agent_credential_confirms_nobody_gone() {
+    let s = setup().await;
+    s.twists.agent_credential.store(true, Ordering::SeqCst);
+    let dir = tempfile::tempdir().expect("dir");
+    let zip = export_naming(dir.path(), &[4, 5, 6]);
+    let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    let (bundle, manifest) = read_zips(&src, &[zip], &dir.path().join("b")).await;
+    let fill = manifest.fill.expect("fill");
+    assert!(!fill.absence_confirmed);
+    assert!(fill.gone.is_empty(), "an agent may not see everyone");
+    assert_eq!(fill.people_returned, 2, "who it did return is still used");
+    assert!(people_of(&bundle).contains_key("6"));
+    assert_eq!(s.api.requests("/api/v2/users/me.json").len(), 1);
+}
+
+#[tokio::test]
+async fn ticket_organizations_the_fill_fetches_are_named_in_the_note() {
+    let s = setup().await;
+    let dir = tempfile::tempdir().expect("dir");
+    let zip = zip_at(
+        &dir.path().join("export.zip"),
+        &[(
+            "export_1",
+            ndjson(&[
+                export_ticket(201, json!({"organization_id": 960})),
+                json!({"user": {"id": 3, "name": "Cara", "email": "cara@example.com"}}),
+            ]),
+        )],
+    );
+    let src = source(&s.api.base(), ZendeskAuth::Bearer("t".into()));
+    let (bundle, manifest) = read_zips(&src, &[zip], &dir.path().join("b")).await;
+    let t = &tickets_of(&bundle)[0];
+    assert_eq!(
+        t.fields.get("Organization there").map(String::as_str),
+        Some("Org 960")
+    );
+    assert_eq!(manifest.fill.expect("fill").organizations, 1);
+    no_incremental(&s.api);
 }
