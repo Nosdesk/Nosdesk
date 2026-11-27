@@ -315,22 +315,12 @@ fn ticket_created_data(
 // sync-audit-only: provenance for mail redaction on the server; the ticket's next emit carries it
 /// Stamp `ticket_id` as a token's (`submitted_via = "api"`) after an API token
 /// set its title or requester: its text may now be a website relaying a
-/// stranger's form. An imported ticket keeps its mark (it stays history).
+/// stranger's form (`services::ticket_mail_redaction`). It always does, an
+/// imported ticket included: the token's words are not the import's history.
 pub fn mark_filed_by_token(conn: &mut DbConnection, ticket_id: i32) -> QueryResult<usize> {
-    use crate::models::{CSV_IMPORT, EMAIL_BACKLOG, HELPDESK_IMPORT, SUBMITTED_VIA_API};
-    diesel::update(
-        tickets::table.find(ticket_id).filter(
-            tickets::submitted_via
-                .is_null()
-                .or(tickets::submitted_via.ne_all(vec![
-                    CSV_IMPORT,
-                    EMAIL_BACKLOG,
-                    HELPDESK_IMPORT,
-                ])),
-        ),
-    )
-    .set(tickets::submitted_via.eq(SUBMITTED_VIA_API))
-    .execute(conn)
+    diesel::update(tickets::table.find(ticket_id))
+        .set(tickets::submitted_via.eq(crate::models::SUBMITTED_VIA_API))
+        .execute(conn)
 }
 
 /// Bare create — UI handlers, the import binary, and any caller

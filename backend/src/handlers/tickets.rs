@@ -805,13 +805,17 @@ fn save_ticket_update(
         updated_at: Some(chrono::Utc::now().naive_utc()),
         ..update
     };
-    let updated = tc.run_result(|conn| {
-        repository::update_ticket_partial(conn, ticket_id, update, Some(search))
-    })?;
-    if restamp {
-        tc.run(|conn| repository::tickets::mark_filed_by_token(conn, ticket_id))
-            .map_err(ApiError::Database)?;
-    }
+    // The stamp commits with the change it is about, or not at all.
+    let updated = tc.run_result(
+        |conn| -> Result<Ticket, repository::tickets::TicketWriteError> {
+            let updated = repository::update_ticket_partial(conn, ticket_id, update, Some(search))?;
+            if restamp {
+                repository::tickets::mark_filed_by_token(conn, ticket_id)?;
+                return Ok(repository::get_ticket_by_id(conn, ticket_id)?);
+            }
+            Ok(updated)
+        },
+    )?;
     Ok(updated)
 }
 

@@ -390,6 +390,11 @@ pub const SUBMITTED_VIA_GUEST: &str = "guest";
 /// `submitted_via` of a ticket a CSV import made.
 pub const CSV_IMPORT: &str = "csv_import";
 
+/// `submitted_via` of a ticket a CSV import made that an API token committed.
+/// History like any import, and also stranger provenance: a token may be
+/// relaying rows a stranger wrote (`services::ticket_mail_redaction`).
+pub const CSV_IMPORT_BY_TOKEN: &str = "csv_import_api";
+
 /// `submitted_via` of a ticket opened by mail its mailbox held before the
 /// email channel connected (a backlog the admin asked for).
 pub const EMAIL_BACKLOG: &str = "email_backlog";
@@ -404,7 +409,7 @@ pub const HELPDESK_IMPORT: &str = "import";
 pub fn is_imported_via(submitted_via: Option<&str>) -> bool {
     matches!(
         submitted_via,
-        Some(CSV_IMPORT | EMAIL_BACKLOG | HELPDESK_IMPORT)
+        Some(CSV_IMPORT | CSV_IMPORT_BY_TOKEN | EMAIL_BACKLOG | HELPDESK_IMPORT)
     )
 }
 

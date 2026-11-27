@@ -101,6 +101,47 @@ fn delta_returns_events_for_user_visible_groups() {
     assert_eq!(events[updated_idx].1, SyncOp::Update);
 }
 
+/// A push with an API token that retitles a ticket or changes its requester
+/// stamps it a token's (`submitted_via = "api"`), as the REST routes do; one
+/// that changes something else, or a session's retitle, leaves it alone.
+#[test]
+fn a_token_push_that_retitles_a_ticket_stamps_it_api() {
+    use super::push::PushTransaction;
+    let mut conn = setup_test_connection();
+    let admin = TestFixtures::create_user(&mut conn, "sync_push_token", "admin");
+    let actor = ActorContext::user(admin.uuid, None).with_workspace(1);
+    let push = |conn: &mut crate::db::DbConnection, patch: serde_json::Value, token: bool| {
+        let ticket = TestFixtures::create_ticket(conn, "From the portal", Some(admin.uuid), None);
+        let tx = PushTransaction {
+            tx_id: Uuid::now_v7().to_string(),
+            aggregate: SyncAggregate::Ticket,
+            model_id: ticket.id.to_string(),
+            op: SyncOp::Update,
+            patch,
+            base_sync_id: None,
+        };
+        if token {
+            super::push::apply_transaction_by_token_for_test(conn, &tx, &actor)
+        } else {
+            super::push::apply_transaction_for_test(conn, &tx, &actor)
+        }
+        .expect("push");
+        crate::repository::tickets::get_ticket_by_id(conn, ticket.id)
+            .expect("ticket")
+            .submitted_via
+    };
+    assert_eq!(push(&mut conn, json!({ "title": "Renamed" }), false), None);
+    assert_eq!(push(&mut conn, json!({ "priority": "high" }), true), None);
+    assert_eq!(
+        push(&mut conn, json!({ "title": "Win a prize" }), true).as_deref(),
+        Some("api")
+    );
+    assert_eq!(
+        push(&mut conn, json!({ "requester_uuid": admin.uuid }), true).as_deref(),
+        Some("api")
+    );
+}
+
 /// Push-handler unit test: the apply_transaction dispatch returns
 /// the assigned sync_id on success, and rejects unsupported aggregate
 /// variants without touching the DB.

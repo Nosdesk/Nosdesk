@@ -368,6 +368,37 @@ async fn a_token_that_retitles_a_ticket_stamps_it_api() {
         None
     );
 
+    // An imported ticket too: the token's words are not the import's history.
+    let imported = run_in_workspace(&pool, REF, ws.workspace_id, |c| {
+        backend::repository::tickets::create_ticket(
+            c,
+            backend::models::NewTicket {
+                title: "From the old desk".into(),
+                workflow_state_id: open,
+                requester_uuid: Some(ws.member_uuid),
+                submitted_via: Some(backend::models::CSV_IMPORT.into()),
+                ..Default::default()
+            },
+        )
+    })
+    .expect("imported ticket")
+    .id;
+    let (status, _) = send_as(
+        &pool,
+        ws,
+        ws.admin_uuid,
+        patch(imported, json!({ "title": "Claim a refund" })),
+        true,
+    )
+    .await;
+    assert!(status.is_success(), "{status}");
+    assert_eq!(
+        stored(&pool, ws.workspace_id, imported)
+            .submitted_via
+            .as_deref(),
+        Some("api")
+    );
+
     for body in [
         json!({ "title": "Win a prize" }),
         json!({ "requester": ws.admin_uuid.to_string() }),

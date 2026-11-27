@@ -1337,6 +1337,7 @@ pub async fn commit(
     storage: ScopedStorage,
     search_service: web::Data<Arc<SearchService>>,
     path: web::Path<Uuid>,
+    req: HttpRequest,
 ) -> impl Responder {
     // Committing an import applies row writes (roles included).
     // Workspace-admin only. See security-audit-2026-06.
@@ -1380,6 +1381,8 @@ pub async fn commit(
         Err(resp) => return resp,
     };
     let mut parsed = mapping::map_job_grid(&grid, &column_mapping, &options, &fields);
+    let mut options = options;
+    options.filed_by_token = crate::extractors::is_api_token(&req);
     let mut ctx = ImportContext {
         actor: Some(auth.user_uuid),
         job_id: id,

@@ -60,7 +60,7 @@ impl TicketMailText {
 /// request-form ticket filed without confirmation, or one an API token filed.
 pub fn stranger_provenance(ticket: &Ticket) -> bool {
     match ticket.submitted_via.as_deref() {
-        Some(crate::models::SUBMITTED_VIA_API) => true,
+        Some(crate::models::SUBMITTED_VIA_API | crate::models::CSV_IMPORT_BY_TOKEN) => true,
         // A confirmed request-form ticket is `verified`. No state at all is a
         // form that didn't ask; one still `pending` has nobody vouching for it
         // either, though nothing mails about it.

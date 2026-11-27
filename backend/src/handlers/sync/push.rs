@@ -112,6 +112,7 @@ pub async fn push(
     let editor = Editor {
         staff: crate::repository::user_helpers::user_can_handle_tickets(&mut conn, &ctx.user),
         admin: crate::repository::user_helpers::user_is_admin(&mut conn, &ctx.user),
+        by_token: crate::extractors::is_api_token(&req),
     };
 
     let mut applied: Vec<String> = Vec::with_capacity(body.len());
@@ -186,6 +187,9 @@ struct Editor {
     staff: bool,
     /// Sees every category.
     admin: bool,
+    /// Pushes with an API token: a retitle or a new requester stamps the
+    /// ticket a token's (`services::ticket_mail_redaction`).
+    by_token: bool,
 }
 
 /// Test-only entrypoint mirroring `apply_transaction` but returning
@@ -200,8 +204,24 @@ pub(super) fn apply_transaction_for_test(
     let admin = Editor {
         staff: true,
         admin: true,
+        by_token: false,
     };
     apply_transaction(conn, tx, actor, admin, None).map_err(|TxReject(r, d)| (r, d))
+}
+
+/// [`apply_transaction_for_test`] pushed with an API token.
+#[cfg(test)]
+pub(super) fn apply_transaction_by_token_for_test(
+    conn: &mut DbConnection,
+    tx: &PushTransaction,
+    actor: &ActorContext,
+) -> Result<i64, (&'static str, String)> {
+    let token = Editor {
+        staff: true,
+        admin: true,
+        by_token: true,
+    };
+    apply_transaction(conn, tx, actor, token, None).map_err(|TxReject(r, d)| (r, d))
 }
 
 /// [`apply_transaction_for_test`] for a caller who is not staff.
@@ -214,6 +234,7 @@ pub(super) fn apply_transaction_as_non_staff_for_test(
     let member = Editor {
         staff: false,
         admin: false,
+        by_token: false,
     };
     apply_transaction(conn, tx, actor, member, None).map_err(|TxReject(r, d)| (r, d))
 }
@@ -355,6 +376,8 @@ fn apply_ticket(
                     )
                 })?;
             let actor_uuid = actor.uuid;
+            let restamp =
+                editor.by_token && (patch.title.is_some() || patch.requester_uuid.is_some());
             if let Some(state_id) = patch.workflow_state_id {
                 if crate::repository::ticket_approvals::blocks_resolution(conn, ticket_id, state_id)
                     .map_err(reject_diesel)?
@@ -392,6 +415,9 @@ fn apply_ticket(
                     crate::repository::tickets::update_ticket_partial(
                         conn, ticket_id, patch, observer,
                     )?;
+                    if restamp {
+                        crate::repository::tickets::mark_filed_by_token(conn, ticket_id)?;
+                    }
                 }
                 if let Some(tag_ids) = &tag_ids {
                     crate::repository::tags::set_tags_for_ticket(
