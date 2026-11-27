@@ -700,8 +700,11 @@ pub fn find_or_create_guest_user(
 /// impersonation guard: a tech with `tech@yourco.com` primary and
 /// `tech.alias@yourco.com` verified secondary should trigger the
 /// tech-forward branch from either sending address, not just the
-/// primary. A non-verified baseline-user row — typical of the guest-
-/// submission auto-provisioning path — does NOT match.
+/// primary. A non-verified baseline-user row (typical of the guest-
+/// submission auto-provisioning path) does NOT match, and neither does an
+/// unverified secondary of any account, privileged or not: anyone can add
+/// an address to their own account, so a workspace owner who added a
+/// stranger's address would otherwise be handed that stranger's mail.
 pub fn find_verified_user_by_email(
     email: &str,
     conn: &mut DbConnection,
@@ -714,8 +717,8 @@ pub fn find_verified_user_by_email(
     // A guest auto-provisioned user lands as a baseline member with
     // platform_role = 'user'. Anything privileged (platform admin /
     // audit reviewer, or agent+ in any workspace) must not be impersonated
-    // via the guest path.
-    for row in &holders {
+    // via the guest path, through its primary address.
+    for row in holders.iter().filter(|row| row.is_primary) {
         let user = crate::repository::users::get_user_by_uuid(&row.user_uuid, conn)?;
         if !is_baseline_user(conn, &user)? {
             return Ok(Some(user));
@@ -1324,6 +1327,38 @@ mod tests {
             find_or_create_guest_user("same@corp.example", "Owner", &mut conn, None).unwrap(),
             GuestUserResult::EmailClaimed
         ));
+    }
+
+    /// An unverified secondary proves nothing for a privileged account
+    /// either: an owner who adds a stranger's address doesn't get their mail.
+    #[test]
+    fn a_privileged_accounts_unverified_secondary_does_not_match_inbound_mail() {
+        let mut conn = setup_test_connection();
+        let owner = TestFixtures::create_user(&mut conn, "Owner", "admin");
+        add_address(&mut conn, owner.uuid, "owner@corp.example", true, true);
+        add_address(&mut conn, owner.uuid, "victim@other.example", false, false);
+
+        assert!(
+            find_verified_user_by_email("victim@other.example", &mut conn)
+                .unwrap()
+                .is_none()
+        );
+        // Nor does the inbound resolver hand it the owner. (Held in exactly
+        // the case it arrives in, the row leaves no address free for a new
+        // account either, so the mail finds no requester.)
+        let requester =
+            find_or_provision_requester("victim@other.example", "Victim", &mut conn, None);
+        assert!(
+            !matches!(&requester, Ok(u) if u.uuid == owner.uuid),
+            "{requester:?}"
+        );
+        // Its primary still stands for it.
+        assert_eq!(
+            find_verified_user_by_email("Owner@Corp.example", &mut conn)
+                .unwrap()
+                .map(|u| u.uuid),
+            Some(owner.uuid)
+        );
     }
 
     /// A guest's address is stored lowercase.
