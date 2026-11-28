@@ -11,6 +11,7 @@ pub mod double_option;
 pub mod egress;
 pub mod email;
 pub mod email_branding;
+pub mod email_domains;
 pub mod email_logo;
 pub mod email_stop_link;
 pub mod encryption;

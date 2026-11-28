@@ -65,6 +65,34 @@ pub fn workspace_timezone(conn: &mut DbConnection) -> QueryResult<chrono_tz::Tz>
     ))
 }
 
+/// The domains the pinned workspace knows as its organisation's: those an
+/// admin listed (`organisation_domains`) and those its enabled requester
+/// sign-in provider allows, lowercased and de-duplicated. Reads without
+/// creating a settings row, and filters by the pinned workspace, so the
+/// elevated inbound paths read only theirs (under bypass the first row is any
+/// workspace's) and an unpinned connection finds none. Neither list should
+/// hold a free-mail domain, but a caller that relies on that still checks.
+pub fn organisation_domains(conn: &mut DbConnection) -> QueryResult<Vec<String>> {
+    let listed: Option<Vec<Option<String>>> = site_settings::table
+        .filter(site_settings::workspace_id.eq(crate::repository::pinned_workspace()))
+        .select(site_settings::organisation_domains)
+        .first(conn)
+        .optional()?;
+    let listed = listed
+        .unwrap_or_default()
+        .into_iter()
+        .flatten()
+        .map(|d| d.trim().to_lowercase());
+    let sign_in = crate::repository::workspace_identity_providers::sign_in_domains(conn)?;
+    let mut domains: Vec<String> = Vec::new();
+    for domain in listed.chain(sign_in) {
+        if !domain.is_empty() && !domains.contains(&domain) {
+            domains.push(domain);
+        }
+    }
+    Ok(domains)
+}
+
 // sync-audit-only: Workspace settings — covered by the audit_log trigger on site_settings; sync clients don't subscribe
 /// Update the current workspace's site settings. The update targets the
 /// RLS-visible row (the request's workspace); no `id` filter.

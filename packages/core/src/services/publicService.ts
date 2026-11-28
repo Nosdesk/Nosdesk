@@ -158,6 +158,11 @@ export interface AdminGuestSettings {
   portal_share_by_domain: boolean;
   /** With sharing on, also share requests staff raised under their own name. */
   portal_share_staff_requests: boolean;
+  /** The organisation's email domains the admin listed. */
+  organisation_domains: string[];
+  /** The enabled requester sign-in provider's domains, which count as
+   *  organisation domains too. Read only here. */
+  sign_in_domains: string[];
 }
 
 export interface AdminGuestSettingsUpdate {
@@ -172,6 +177,8 @@ export interface AdminGuestSettingsUpdate {
   guest_ticket_intro_message?: string | null;
   portal_share_by_domain?: boolean;
   portal_share_staff_requests?: boolean;
+  /** Replaces the whole list; an empty list clears it. */
+  organisation_domains?: string[];
 }
 
 export const adminGuestSettingsService = {

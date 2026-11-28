@@ -2021,6 +2021,12 @@ admin-guest-toggle-share-domain-label = Partager les demandes au sein d'une orga
 admin-guest-toggle-share-domain-description = Les demandeurs voient aussi, sans pouvoir y répondre, les demandes de leurs collègues au même domaine de messagerie vérifié. Les demandes créées par le personnel ne sont partagées que si vous les incluez ci-dessous. Les adresses gmail.com, outlook.com et autres messageries gratuites ne sont jamais partagées.
 admin-guest-toggle-share-staff-label = Inclure les demandes créées par le personnel
 admin-guest-toggle-share-staff-description = Partage aussi les demandes que les agents et les administrateurs ont créées en leur propre nom. Désactivé par défaut.
+# MACHINE TRANSLATION, pending native review
+admin-guest-org-domains-label = Domaines de messagerie de l'organisation
+admin-guest-org-domains-description = Lorsqu'une personne de l'un de ces domaines met en copie un collègue du même domaine, ce collègue voit la demande en entier. Les domaines de votre fournisseur de connexion sont aussi pris en compte. Les messageries personnelles ne peuvent pas être ajoutées.
+admin-guest-org-domains-placeholder = exemple.fr
+admin-guest-org-domains-hint = Un domaine par ligne.
+admin-guest-org-domains-sign-in = Déjà pris en compte via votre fournisseur de connexion : { $domains }
 admin-guest-submissions-title = Soumissions de tickets invités
 admin-guest-submissions-description = Comportement pour les tickets soumis via le formulaire public.
 admin-guest-toggle-email-verification-label = Exiger la confirmation par e-mail

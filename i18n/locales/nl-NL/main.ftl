@@ -2017,6 +2017,12 @@ admin-guest-toggle-share-domain-label = Aanvragen delen binnen een organisatie
 admin-guest-toggle-share-domain-description = Aanvragers zien ook, zonder te kunnen reageren, aanvragen van collega's met hetzelfde geverifieerde e-maildomein. Aanvragen van medewerkers worden alleen gedeeld als u ze hieronder meeneemt. Adressen bij gmail.com, outlook.com en andere gratis e-maildiensten worden nooit gedeeld.
 admin-guest-toggle-share-staff-label = Aanvragen van medewerkers meenemen
 admin-guest-toggle-share-staff-description = Deelt ook aanvragen die agents en beheerders op hun eigen naam hebben ingediend. Standaard uit.
+# MACHINE TRANSLATION, pending native review
+admin-guest-org-domains-label = E-maildomeinen van de organisatie
+admin-guest-org-domains-description = Als iemand van een van deze domeinen een collega van hetzelfde domein in kopie zet, ziet die collega de aanvraag volledig. De domeinen van uw aanmeldprovider tellen ook mee. Persoonlijke e-maildiensten kunnen niet worden toegevoegd.
+admin-guest-org-domains-placeholder = voorbeeld.nl
+admin-guest-org-domains-hint = Eén domein per regel.
+admin-guest-org-domains-sign-in = Al meegeteld via uw aanmeldprovider: { $domains }
 admin-guest-submissions-title = Gastticketindieningen
 admin-guest-submissions-description = Gedrag voor tickets die via het openbare formulier worden ingediend.
 admin-guest-toggle-email-verification-label = E-mailbevestiging vereisen

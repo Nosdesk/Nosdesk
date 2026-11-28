@@ -25,12 +25,24 @@ fn aad(workspace_id: i32) -> Vec<u8> {
     buf
 }
 
-/// The workspace's provider, if one is configured.
+/// The pinned workspace's provider, if one is configured. Filters by the
+/// pinned workspace, so an elevated connection (inbound mail) reads only that
+/// one, and an unpinned one finds none.
 pub fn get(conn: &mut DbConnection) -> QueryResult<Option<WorkspaceIdentityProvider>> {
     p::table
+        .filter(p::workspace_id.eq(crate::repository::pinned_workspace()))
         .select(WorkspaceIdentityProvider::as_select())
         .first(conn)
         .optional()
+}
+
+/// The enabled provider's allowed domains, lowercased; empty when there is no
+/// provider or it is off.
+pub fn sign_in_domains(conn: &mut DbConnection) -> QueryResult<Vec<String>> {
+    Ok(get(conn)?
+        .filter(|provider| provider.enabled)
+        .map(|provider| provider.domains())
+        .unwrap_or_default())
 }
 
 /// The fields an admin sets. `client_secret: None` keeps the stored secret,

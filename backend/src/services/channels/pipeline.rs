@@ -706,19 +706,11 @@ fn add_copied_participants(
             .rsplit_once('@')
             .map(|(_, d)| d.trim().to_ascii_lowercase())
     };
-    // The organisation domains the workspace already knows: those its
-    // requester sign-in provider lists (`workspace_identity_providers`), which
-    // never include a free-mail provider.
-    let org_domains: Vec<String> = crate::repository::workspace_identity_providers::get(conn)?
-        .filter(|p| p.enabled)
-        .map(|p| {
-            p.allowed_domains
-                .into_iter()
-                .flatten()
-                .map(|d| d.trim().to_ascii_lowercase())
-                .collect()
-        })
-        .unwrap_or_default();
+    // The organisation domains the workspace already knows: those an admin
+    // listed in its settings (`site_settings.organisation_domains`) and those
+    // its enabled requester sign-in provider allows
+    // (`workspace_identity_providers`). Neither form takes a free-mail domain.
+    let org_domains = crate::repository::site_settings::organisation_domains(conn)?;
     // The sender's domain stands for colleagues only when it is one of those
     // and not a shared mail provider, whatever an admin listed.
     let colleague_domain = domain_of(sender_email).filter(|d| {

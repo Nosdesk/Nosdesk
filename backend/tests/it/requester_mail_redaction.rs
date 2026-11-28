@@ -783,11 +783,16 @@ fn sent_to(d: &Desk, to: &str, message_id: &str) {
 /// organisation's. Written as stored, so a free-mail domain an older admin
 /// form let through is there too.
 fn org_domains(d: &Desk, domains: &[&str]) {
+    sign_in_provider(d, d.ws.workspace_id, domains);
+}
+
+/// Workspace `workspace_id`'s requester sign-in provider, listing `domains`.
+fn sign_in_provider(d: &Desk, workspace_id: i32, domains: &[&str]) {
     let domains: Vec<String> = domains.iter().map(|d| d.to_string()).collect();
-    run_in_workspace(&d.pool, REF, d.ws.workspace_id, |c| {
+    run_in_workspace(&d.pool, REF, workspace_id, |c| {
         backend::repository::workspace_identity_providers::save(
             c,
-            d.ws.workspace_id,
+            workspace_id,
             &backend::repository::workspace_identity_providers::ProviderInput {
                 kind: "oidc",
                 display_name: "Acme",
@@ -806,8 +811,8 @@ fn org_domains(d: &Desk, domains: &[&str]) {
 
 /// An address copied on inbound mail counts as the team's choice only when
 /// the message passed DMARC, the address is on the sender's own domain, and
-/// that domain is one the workspace knows as its organisation's (its sign-in
-/// provider lists it) and not a shared mail provider. Any other is the
+/// that domain is one the workspace knows as its organisation's (its settings
+/// or its sign-in provider list it) and not a shared mail provider. Any other is the
 /// sender's choice, and gets the ticket by number until it writes on it,
 /// which a reply that passed DMARC does.
 #[actix_rt::test]
@@ -929,6 +934,172 @@ async fn a_copied_address_gets_the_ticket_only_from_its_senders_authenticated_do
         "{replied:?}"
     );
     assert_eq!(text_for(&d, cross_domain, friend), TicketMailText::Full);
+}
+
+/// The workspace's own list of organisation domains, written as stored, so a
+/// free-mail domain the settings form would refuse is there too.
+fn listed_domains(d: &Desk, domains: &[&str]) {
+    listed_domains_in(d, d.ws.workspace_id, domains);
+}
+
+/// Workspace `workspace_id`'s own list, written as stored.
+fn listed_domains_in(d: &Desk, workspace_id: i32, domains: &[&str]) {
+    let domains: Vec<Option<String>> = domains.iter().map(|d| Some(d.to_string())).collect();
+    run_in_workspace(&d.pool, REF, workspace_id, |c| {
+        backend::repository::site_settings::update_site_settings(
+            c,
+            backend::models::UpdateSiteSettings {
+                organisation_domains: Some(domains),
+                ..Default::default()
+            },
+        )
+        .map(|_| ())
+    })
+    .expect("organisation domains");
+}
+
+/// Every workspace on the server but the desk's.
+fn other_workspaces(d: &Desk) -> Vec<i32> {
+    use backend::schema::workspaces as w;
+    w::table
+        .filter(w::id.ne(d.ws.workspace_id))
+        .select(w::id)
+        .order(w::id)
+        .load(&mut d.db.conn())
+        .expect("workspaces")
+}
+
+/// With no sign-in provider, a domain the admin listed in the workspace's
+/// settings is an organisation domain: a copied colleague there gets the
+/// ticket in full from mail that passed DMARC. Before it is listed, the same
+/// mail leaves them with the number only. A listed free-mail domain still
+/// never stands for colleagues.
+#[actix_rt::test]
+async fn a_listed_organisation_domain_counts_without_a_sign_in_provider() {
+    use backend::services::ticket_mail_redaction::TicketMailText;
+    let d = desk();
+    let inbox = crate::channel_backlog::Inbox::on(None, d.pool.clone(), d.ws.clone());
+    let colleague = copied_member(&d, "Colleague", "colleague@acme.example");
+    let victim = copied_member(&d, "Victim", "victim@gmail.com");
+    let at = chrono::Utc::now();
+    let copied = |from: &str, cc: &str, id: &str| inbound(from, cc, "pass", id, &[]);
+
+    // Nothing listed and no provider: the sender's choice.
+    let before = crate::channel_backlog::opened(
+        inbox
+            .receive(
+                &copied(
+                    "sam@acme.example",
+                    "colleague@acme.example",
+                    "org-1@acme.example",
+                ),
+                at,
+            )
+            .await,
+    );
+    let sender = inbox.ticket(before).requester_uuid;
+    assert_eq!(d.added_by(before, colleague), sender);
+    assert_eq!(text_for(&d, before, colleague), TicketMailText::Redacted);
+
+    listed_domains(&d, &["Acme.example", "gmail.com"]);
+    assert_eq!(
+        d.run(backend::repository::site_settings::organisation_domains),
+        vec!["acme.example".to_string(), "gmail.com".to_string()]
+    );
+
+    let after = crate::channel_backlog::opened(
+        inbox
+            .receive(
+                &copied(
+                    "sam@acme.example",
+                    "colleague@acme.example",
+                    "org-2@acme.example",
+                ),
+                at,
+            )
+            .await,
+    );
+    assert_eq!(d.added_by(after, colleague), None);
+    assert_eq!(text_for(&d, after, colleague), TicketMailText::Full);
+
+    let shared = crate::channel_backlog::opened(
+        inbox
+            .receive(
+                &copied("attacker@gmail.com", "victim@gmail.com", "org-3@gmail.com"),
+                at,
+            )
+            .await,
+    );
+    assert_eq!(text_for(&d, shared, victim), TicketMailText::Redacted);
+}
+
+/// Another workspace's domains count for nothing here. Inbound mail runs on a
+/// connection elevated past row-level security and pinned to the receiving
+/// workspace, so the domains are read for the pinned workspace by name: every
+/// other workspace lists the sender's domain and has a sign-in provider for
+/// it, the receiving one has neither, and the copied colleague gets the
+/// number only. The receiving workspace's settings row is written last, so a
+/// read that took the first row it could see would find another workspace's.
+#[actix_rt::test]
+async fn another_workspaces_organisation_domains_dont_count() {
+    use backend::services::ticket_mail_redaction::TicketMailText;
+    let d = desk();
+    let others = other_workspaces(&d);
+    assert!(!others.is_empty(), "the seed has other workspaces");
+    for &other in &others {
+        listed_domains_in(&d, other, &["acme.example"]);
+        sign_in_provider(&d, other, &["acme.example"]);
+    }
+    listed_domains(&d, &[]);
+
+    // Elevated and pinned, as the inbound paths run.
+    let mut conn = d.pool.get().expect("conn");
+    let actor = backend::sync::actor::ActorContext::system("channels:inbound")
+        .with_workspace(d.ws.workspace_id);
+    backend::sync::session::elevate_session_role(&mut conn, &actor).expect("elevate");
+    let listed = backend::repository::site_settings::organisation_domains(&mut conn);
+    let provider = backend::repository::workspace_identity_providers::get(&mut conn);
+    backend::sync::session::reset_session_role(&mut conn);
+    drop(conn);
+    assert_eq!(listed.expect("organisation domains"), Vec::<String>::new());
+    assert!(provider.expect("provider").is_none());
+
+    let inbox = crate::channel_backlog::Inbox::on(None, d.pool.clone(), d.ws.clone());
+    let colleague = copied_member(&d, "Colleague", "colleague@acme.example");
+    let ticket = crate::channel_backlog::opened(
+        inbox
+            .receive(
+                &inbound(
+                    "sam@acme.example",
+                    "colleague@acme.example",
+                    "pass",
+                    "other-1@acme.example",
+                    &[],
+                ),
+                chrono::Utc::now(),
+            )
+            .await,
+    );
+    let sender = inbox.ticket(ticket).requester_uuid;
+    assert_eq!(d.added_by(ticket, colleague), sender);
+    assert_eq!(text_for(&d, ticket, colleague), TicketMailText::Redacted);
+}
+
+/// The domains the Cc rule counts are both lists together: the admin's and
+/// the enabled sign-in provider's, each once.
+#[actix_rt::test]
+async fn organisation_domains_join_the_list_and_the_sign_in_provider() {
+    let d = desk();
+    listed_domains(&d, &["acme.example", "shared.example"]);
+    org_domains(&d, &["shared.example", "sso.example"]);
+    assert_eq!(
+        d.run(backend::repository::site_settings::organisation_domains),
+        vec![
+            "acme.example".to_string(),
+            "shared.example".to_string(),
+            "sso.example".to_string()
+        ]
+    );
 }
 
 /// An emailed reply with no DMARC verdict still counts when it answers mail we

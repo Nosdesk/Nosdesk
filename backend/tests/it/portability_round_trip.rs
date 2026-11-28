@@ -575,10 +575,13 @@ async fn source(pool: &TestPool) -> Source {
     exec(
         &mut conn,
         &format!(
-            "INSERT INTO site_settings (workspace_id, app_name, primary_color, logo_url) \
-             VALUES ($1, 'Acme Desk', '#123456', '/uploads/branding/{}/logo.png?v=3') \
+            "INSERT INTO site_settings (workspace_id, app_name, primary_color, logo_url, \
+               organisation_domains) \
+             VALUES ($1, 'Acme Desk', '#123456', '/uploads/branding/{}/logo.png?v=3', \
+               '{{acme.example,it.acme.example}}') \
              ON CONFLICT (workspace_id) DO UPDATE SET app_name = EXCLUDED.app_name, \
-               primary_color = EXCLUDED.primary_color, logo_url = EXCLUDED.logo_url",
+               primary_color = EXCLUDED.primary_color, logo_url = EXCLUDED.logo_url, \
+               organisation_domains = EXCLUDED.organisation_domains",
             seed.workspace_uuid
         ),
         ws,
@@ -1115,6 +1118,11 @@ async fn a_workspace_exported_imported_and_exported_again_comes_back_the_same() 
     assert_eq!(
         text(&pool, "SELECT app_name || ' ' || primary_color AS value FROM site_settings WHERE workspace_id = $1", t).as_deref(),
         Some("Acme Desk #123456")
+    );
+    assert_eq!(
+        text(&pool, "SELECT array_to_string(organisation_domains, ' ') AS value FROM site_settings WHERE workspace_id = $1", t).as_deref(),
+        Some("acme.example it.acme.example"),
+        "the organisation's domains carry over"
     );
     assert_eq!(
         text(&pool, "SELECT encrypted_smtp_password::text AS value FROM workspace_email_settings WHERE workspace_id = $1", t),

@@ -85,31 +85,10 @@ fn issuer_for(body: &SaveProviderRequest) -> Result<String, ApiError> {
     }
 }
 
-/// Lowercased, de-duplicated domains; free-mail domains are refused (they'd let
-/// anyone with a personal account in).
+/// The admin's domains, cleaned by [`crate::utils::email_domains::clean_domains`];
+/// the provider needs at least one.
 fn clean_domains(domains: &[String]) -> Result<Vec<String>, ApiError> {
-    let mut out: Vec<String> = Vec::new();
-    for raw in domains {
-        let d = raw.trim().trim_start_matches('@').to_lowercase();
-        if d.is_empty() {
-            continue;
-        }
-        let valid = d.contains('.')
-            && d.len() <= 253
-            && d.chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.');
-        if !valid {
-            return Err(ApiError::BadRequest(format!("{d} isn't a domain")));
-        }
-        if crate::utils::free_mail::is_free_mail(&d) {
-            return Err(ApiError::BadRequest(format!(
-                "{d} is a personal email provider; list your organisation's own domains"
-            )));
-        }
-        if !out.contains(&d) {
-            out.push(d);
-        }
-    }
+    let out = crate::utils::email_domains::clean_domains(domains)?;
     if out.is_empty() {
         return Err(ApiError::BadRequest(
             "List at least one email domain people sign in with".into(),

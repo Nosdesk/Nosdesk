@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PiniaColada } from '@pinia/colada'
+import { PiniaColada, useQueryCache } from '@pinia/colada'
+import { setActivePinia, type Pinia } from 'pinia'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
 import { mountWithProviders } from '@/test/mountWithProviders'
 
@@ -37,10 +38,12 @@ vi.mock('@/components/common/BaseDropdown.vue', () => ({
 }))
 
 import GuestAccessSettingsView from '@/views/GuestAccessSettingsView.vue'
+import { adminGuestSettingsService } from '@nosdesk/core/services/publicService'
 
 let wrapper: VueWrapper | null = null
 afterEach(() => {
   loaded.overrides = {}
+  vi.mocked(adminGuestSettingsService.update).mockReset()
   wrapper?.unmount()
   wrapper = null
   document.body.innerHTML = ''
@@ -82,5 +85,110 @@ describe('GuestAccessSettingsView staff requests toggle', () => {
     expect(staff.attributes('disabled')).toBeUndefined()
     await staff.trigger('click')
     expect(staff.attributes('aria-checked')).toBe('true')
+  })
+})
+
+describe('GuestAccessSettingsView organisation domains', () => {
+  function mountView() {
+    wrapper = mountWithProviders(GuestAccessSettingsView, {}, {}, [[PiniaColada, {}] as never])
+    return flushPromises()
+  }
+  const field = () => wrapper!.find<HTMLTextAreaElement>('#guest-organisation-domains')
+  const saveButton = () =>
+    wrapper!.findAll('button').find((b) => b.text() === 'admin-guest-save')!
+
+  it('shows the listed domains one per line, and no sign-in note without a provider', async () => {
+    loaded.overrides = { organisation_domains: ['acme.com', 'it.acme.com'], sign_in_domains: [] }
+    await mountView()
+    expect(field().element.value).toBe('acme.com\nit.acme.com')
+    expect(wrapper!.find('[data-test="sign-in-domains"]').exists()).toBe(false)
+    expect(saveButton().attributes('disabled')).toBeDefined()
+  })
+
+  it("notes the sign-in provider's domains as already counted", async () => {
+    loaded.overrides = { organisation_domains: [], sign_in_domains: ['sso.acme.com'] }
+    await mountView()
+    expect(wrapper!.find('[data-test="sign-in-domains"]').exists()).toBe(true)
+  })
+
+  it('saves the typed domains as a list', async () => {
+    loaded.overrides = { organisation_domains: ['acme.com'], sign_in_domains: [] }
+    await mountView()
+    vi.mocked(adminGuestSettingsService.update).mockImplementation(async (update) => ({
+      ...(await adminGuestSettingsService.get()),
+      organisation_domains: update.organisation_domains ?? [],
+    }))
+    await field().setValue('acme.com\n\n  beta.example  \n')
+    expect(saveButton().attributes('disabled')).toBeUndefined()
+    await saveButton().trigger('click')
+    await flushPromises()
+    expect(adminGuestSettingsService.update).toHaveBeenCalledWith(
+      expect.objectContaining({ organisation_domains: ['acme.com', 'beta.example'] }),
+    )
+    expect(field().element.value).toBe('acme.com\nbeta.example')
+    expect(saveButton().attributes('disabled')).toBeDefined()
+  })
+
+  it("shows the server's reason when it refuses a domain", async () => {
+    await mountView()
+    vi.mocked(adminGuestSettingsService.update).mockRejectedValue({
+      response: {
+        status: 400,
+        data: { error: 'gmail.com is a personal email provider', code: 'BAD_REQUEST' },
+        config: {},
+      },
+    })
+    await field().setValue('gmail.com')
+    await saveButton().trigger('click')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('gmail.com is a personal email provider')
+    // The edit stays, unsaved.
+    expect(field().element.value).toBe('gmail.com')
+    expect(saveButton().attributes('disabled')).toBeUndefined()
+  })
+
+  it('keeps the localized message for anything but a refused value', async () => {
+    await mountView()
+    vi.mocked(adminGuestSettingsService.update).mockRejectedValue({
+      response: { status: 500, data: { error: 'Failed to update settings' }, config: {} },
+    })
+    await field().setValue('acme.com')
+    await saveButton().trigger('click')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('admin-guest-error-save')
+    expect(wrapper!.text()).not.toContain('Failed to update settings')
+  })
+
+  it('leaves the list out of a save that did not edit it', async () => {
+    loaded.overrides = { organisation_domains: ['acme.com'], sign_in_domains: [] }
+    await mountView()
+    vi.mocked(adminGuestSettingsService.update).mockImplementation(async () => ({
+      ...(await adminGuestSettingsService.get()),
+      portal_share_by_domain: true,
+    }))
+    const share = wrapper!
+      .findAll('label')
+      .find((l) => l.text() === 'admin-guest-toggle-share-domain-label')!
+    await wrapper!.find(`#${share.attributes('for')}`).trigger('click')
+    await saveButton().trigger('click')
+    await flushPromises()
+    const sent = vi.mocked(adminGuestSettingsService.update).mock.calls[0]![0]
+    expect(sent.portal_share_by_domain).toBe(true)
+    expect('organisation_domains' in sent).toBe(false)
+  })
+
+  it('keeps what was typed when the settings refetch', async () => {
+    loaded.overrides = { organisation_domains: ['acme.com'], sign_in_domains: [] }
+    await mountView()
+    await field().setValue('acme.com\n')
+    setActivePinia((wrapper!.vm as unknown as { $pinia: Pinia }).$pinia)
+    useQueryCache().setQueryData(['guest-settings'], {
+      ...(await adminGuestSettingsService.get()),
+      sign_in_domains: ['sso.acme.com'],
+    })
+    await flushPromises()
+    // The refetch landed (the note shows) and the box kept the newline.
+    expect(wrapper!.find('[data-test="sign-in-domains"]').exists()).toBe(true)
+    expect(field().element.value).toBe('acme.com\n')
   })
 })
