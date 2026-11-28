@@ -498,7 +498,7 @@ support-address-copied = Address copied
 
 # Tickets list — empty states + bulk-action bar + chrome.
 ticket-list-loading = Loading tickets…
-ticket-list-empty-no-assigned-message = No tickets assigned to you.
+ticket-list-empty-no-assigned-message = No open tickets assigned to you.
 ticket-list-empty-showing-all-active = Showing all active tickets instead.
 ticket-list-empty-no-match-title = No tickets match.
 ticket-list-empty-no-match-description = Remove some filters to see more.

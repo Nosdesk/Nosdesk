@@ -90,15 +90,15 @@ const baseFilter: Omit<FilterState, 'predicate' | 'quick_filters'> = {
   },
 }
 
-/** Default landing view for an active agent. Shows tickets the
- * current user owns. Resolution chain falls back to ALL_ACTIVE_VIEW
- * inline when this is empty (TicketsListView handles the swap), so
- * an agent with no assignments never lands on a blank screen.
+/** Default landing view for an active agent: tickets assigned to the
+ * current user that aren't done, cancelled or merged. When none are,
+ * TicketsListView shows ALL_ACTIVE_VIEW in its place
+ * (`fallsThroughToAllActive`), so an agent with no open assignments
+ * never lands on a blank screen or on a list of finished work.
  *
  * Naming: peer helpdesks (Zendesk "Your unsolved", Help Scout
  * "Mine", Front "Assigned to me") all use "Mine"-style language.
- * "My Open" is the most explicit since it scopes to non-resolved
- * by virtue of the ALL_ACTIVE fall-through. */
+ * "My Open" is the most explicit, and its predicate keeps it true. */
 export const MY_OPEN_VIEW: BuiltInView = {
   id: 'my-open',
   name: 'My Open',
@@ -108,7 +108,12 @@ export const MY_OPEN_VIEW: BuiltInView = {
   shape: { ...baseListShape, columns: defaultColumns },
   filter: {
     ...baseFilter,
-    predicate: { combinator: 'AND', children: [] },
+    predicate: {
+      combinator: 'AND',
+      children: [
+        { field: 'workflow_state.category', op: 'not_in', value: CLOSED_CATEGORIES },
+      ],
+    },
     // `mine` quick filter pulls the current user's UUID from the
     // evaluator context, so this view round-trips through URL
     // serialization without baking a specific UUID in.
@@ -340,6 +345,17 @@ export const BUILTIN_VIEWS: BuiltInView[] = [
   CALENDAR_VIEW,
 ]
 
+/** The Open KPI's list: tickets with no `closed_at`, as the KPI counts
+ * them. The view carries it too, so the view never lists closed work. */
+const DASHBOARD_OPEN_FILTER: FilterState = {
+  ...baseFilter,
+  predicate: {
+    combinator: 'AND',
+    children: [{ field: 'closed_at', op: 'is_empty', value: null }],
+  },
+  quick_filters: [],
+}
+
 /** Dashboard KPI drill-down views. Not listed in the view switcher;
  * reached via `/tickets?view=dashboard-*` from dashboard widgets. */
 export const DASHBOARD_BUILTIN_VIEWS: BuiltInView[] = [
@@ -368,7 +384,7 @@ export const DASHBOARD_BUILTIN_VIEWS: BuiltInView[] = [
     nameKey: 'builtin-view-dashboard-open-name',
     descriptionKey: 'builtin-view-dashboard-open-description',
     shape: { ...baseListShape, columns: defaultColumns },
-    filter: { ...baseFilter, predicate: { combinator: 'AND', children: [] }, quick_filters: [] },
+    filter: DASHBOARD_OPEN_FILTER,
   },
 ]
 
@@ -450,14 +466,7 @@ export function resolveDashboardViewFilter(
       }
       return ALL_TICKETS_VIEW.filter
     case 'dashboard-open':
-      return {
-        ...baseFilter,
-        predicate: {
-          combinator: 'AND',
-          children: [{ field: 'closed_at', op: 'is_empty', value: null }],
-        },
-        quick_filters: [],
-      }
+      return DASHBOARD_OPEN_FILTER
     default:
       return ALL_TICKETS_VIEW.filter
   }
