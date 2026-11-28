@@ -252,7 +252,7 @@ bug-report-error-toast-title = Couldn't send report
 bug-report-error-toast-body = Try again in a moment.
 
 ticket-list-loading = Loading tickets…
-ticket-list-empty-no-assigned-message = No tickets assigned to you.
+ticket-list-empty-no-assigned-message = No open tickets assigned to you.
 ticket-list-empty-showing-all-active = Showing all active tickets instead.
 ticket-list-empty-no-match-title = No tickets match.
 ticket-list-empty-no-match-description = Remove some filters to see more.

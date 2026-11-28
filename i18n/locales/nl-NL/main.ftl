@@ -472,7 +472,8 @@ support-address-copied = Adres gekopieerd
 
 # Tickets — lege staten + bulkactiebalk.
 ticket-list-loading = Tickets laden…
-ticket-list-empty-no-assigned-message = Geen tickets aan u toegewezen.
+# MACHINE TRANSLATION, pending native review
+ticket-list-empty-no-assigned-message = Geen open tickets aan u toegewezen.
 ticket-list-empty-showing-all-active = Alle actieve tickets worden weergegeven.
 ticket-list-empty-no-match-title = Geen tickets gevonden.
 ticket-list-empty-no-match-description = Verwijder filters om meer te zien.

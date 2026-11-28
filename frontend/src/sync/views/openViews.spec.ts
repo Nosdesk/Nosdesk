@@ -131,3 +131,14 @@ describe('built-in views that promise open work', () => {
     expect(variants.some(([assignee, due]) => predicate(card('active', assignee, due)))).toBe(true)
   })
 })
+
+describe('the dashboard drill-down views', () => {
+  // The list swaps in the resolved filter, so a view's own filter is only
+  // read elsewhere. With no time window the two must agree.
+  it.each(DASHBOARD_BUILTIN_VIEWS.map((v) => [v.id, v] as const))(
+    '%s carries the filter it resolves to',
+    (id, view) => {
+      expect(view.filter).toEqual(resolveDashboardViewFilter(id))
+    },
+  )
+})

@@ -476,7 +476,8 @@ support-address-copied = Adresse copiée
 
 # Tickets — états vides + barre d'actions groupées.
 ticket-list-loading = Chargement des tickets…
-ticket-list-empty-no-assigned-message = Aucun ticket ne vous est assigné.
+# MACHINE TRANSLATION, pending native review
+ticket-list-empty-no-assigned-message = Aucun ticket ouvert ne vous est assigné.
 ticket-list-empty-showing-all-active = Affichage de tous les tickets actifs à la place.
 ticket-list-empty-no-match-title = Aucun ticket ne correspond.
 ticket-list-empty-no-match-description = Retirez des filtres pour en voir plus.
