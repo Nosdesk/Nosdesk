@@ -16,9 +16,9 @@
   "devDependencies": {
     "@vue/tsconfig": "^0.9.0",
     "esbuild": "^0.28.2",
-    "eslint": "^10.14.0",
+    "eslint": "^10.15.0",
     "typescript": "^6.0.0",
-    "typescript-eslint": "^8.72.1",
-    "vitest": "^5.0.5"
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.1"
   }
 }
