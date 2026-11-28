@@ -38,6 +38,7 @@ import { useSavedViewsStore } from '@/stores/savedViews'
 import { buildPredicate } from '@nosdesk/core/sync/views/filter'
 import { toCardData } from './cardData'
 import { ALL_ACTIVE_VIEW, MY_DAY_VIEW, MY_OPEN_VIEW } from '@nosdesk/core/sync/views/builtinViews'
+import { fallsThroughToAllActive } from '@nosdesk/core/sync/views/fallThrough'
 import type { CardData, Priority } from '@nosdesk/core/sync/views/types'
 import {
   calendarOverlaysService,
@@ -230,8 +231,9 @@ const allCards = computed<CardData[]>(() => {
 })
 
 /**
- * Smart fall-through: when the resolved view is `MY_OPEN` and
- * produces zero rows, but `ALL_ACTIVE` does have rows, render
+ * Smart fall-through: when the resolved view is `MY_OPEN` (or My
+ * day) and nothing open is assigned to you, but `ALL_ACTIVE` does
+ * have rows, render
  * ALL_ACTIVE's filter instead. The active-view picker / URL
  * doesn't change — this is purely a render-time deflection so an
  * agent with no assignments yet never lands on a blank screen
@@ -257,15 +259,16 @@ function buildViewPredicate(view: { filter: typeof MY_OPEN_VIEW.filter }) {
 const myOpenPredicate = computed(() => buildViewPredicate(MY_OPEN_VIEW))
 const allActivePredicate = computed(() => buildViewPredicate(ALL_ACTIVE_VIEW))
 
-const fallThroughActive = computed(() => {
-  // My day falls through the same way: with nothing assigned at all
-  // it shows All Active rather than an empty day.
-  if (activeView.value.id !== MY_OPEN_VIEW.id && activeView.value.id !== MY_DAY_VIEW.id) return false
-  // .some() short-circuits on the first match instead of
-  // materialising a full filtered array just to read its length.
-  if (allCards.value.some(myOpenPredicate.value)) return false
-  return allCards.value.some(allActivePredicate.value)
-})
+// My day falls through the same way: with nothing open assigned it
+// shows All Active rather than an empty day.
+const fallThroughActive = computed(() =>
+  fallsThroughToAllActive(
+    activeView.value.id,
+    allCards.value,
+    myOpenPredicate.value,
+    allActivePredicate.value,
+  ),
+)
 
 const afterViewFilter = computed<CardData[]>(() => {
   // Reuse the cached built-in predicates when the active view
